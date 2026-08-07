@@ -13,6 +13,11 @@ struct ContentView: View {
     @State private var videoRect: CGRect = .zero
     @State private var isLoadingVideo = false
 
+    // 调试开关：自动加载包内测试视频（校准完成后置为 false）
+    private let debugAutoLoadTestClip = true
+    // 调试开关：喂已知合成姿势，确定性校准坐标轴
+    private let debugSyntheticPose = false
+
     // 3D 角色
     private let character = CharacterSceneController()
     @State private var retargeter: PoseRetargeter?
@@ -71,6 +76,20 @@ struct ContentView: View {
         let rt = PoseRetargeter(controller: character)
         retargeter = rt
         vm.onWorld = { world in rt.apply(world: world) }
+
+        // 调试：启动即自动加载包内测试视频，便于快速迭代重定向坐标轴
+        if debugAutoLoadTestClip,
+           let url = Bundle.main.url(forResource: "testclip", withExtension: "mp4") {
+            vm.load(url: url)
+        }
+
+        // 调试：喂一个已知姿势（双臂向前），确定性验证坐标轴
+        if debugSyntheticPose {
+            let pose = PoseRetargeter.debugArmsForwardPose()
+            Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { _ in
+                rt.apply(world: pose)
+            }
+        }
     }
 
     /// PhotosPicker 给的是数据，需要先落地成临时文件再交给 AVPlayer。

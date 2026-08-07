@@ -14,6 +14,7 @@ final class CharacterSceneController {
     let scene = SCNScene()
     private(set) var boneNodes: [String: SCNNode] = [:]
     private(set) var characterRoot: SCNNode?
+    private(set) var cameraNode: SCNNode?
     private(set) var isLoaded = false
 
     /// 从 App 包加载模型（.usdz/.scn/.dae）。返回发现的 Mixamo 骨骼名。
@@ -37,20 +38,66 @@ final class CharacterSceneController {
         scene.rootNode.addChildNode(root)
         characterRoot = root
 
-        // 收集骨骼节点，同时移除自带动画（否则会覆盖我们写入的骨骼旋转）
+        // 收集骨骼节点，同时彻底移除自带烘焙动画（否则动画会自己播放、抢占骨骼控制权）
         var found: [String] = []
+        var animCount = 0
+        root.removeAllAnimations()
         root.enumerateChildNodes { node, _ in
+            animCount += node.animationKeys.count
+            for key in node.animationKeys { node.removeAnimation(forKey: key) }
             node.removeAllAnimations()
             if let name = node.name {
                 boneNodes[name] = node
                 if name.hasPrefix("mixamorig") { found.append(name) }
             }
         }
+        print("[Character] 清除自带动画 keys=\(animCount)")
+        normalizeOrientation(root)
+        setupFrontCamera()
 
         addLights()
         isLoaded = true
         print("[Character] 加载成功，发现 \(found.count) 根 Mixamo 骨骼")
         return found.sorted()
+    }
+
+    /// 用骨骼位置算出角色实际的 上/左/前 三轴，强制把根节点旋正为 Y-up、面朝 +Z。
+    /// 不依赖 USD 的 upAxis 元数据（该模型元数据不可信）。
+    private func normalizeOrientation(_ root: SCNNode) {
+        guard let hips = boneNodes["mixamorig_Hips"]?.simdWorldPosition,
+              let head = boneNodes["mixamorig_Head"]?.simdWorldPosition,
+              let lsh = boneNodes["mixamorig_LeftShoulder"]?.simdWorldPosition,
+              let rsh = boneNodes["mixamorig_RightShoulder"]?.simdWorldPosition else { return }
+        let up = simd_normalize(head - hips)            // 角色的“上”
+        let right0 = simd_normalize(lsh - rsh)           // 角色左肩→，作为 +X
+        let forward = simd_normalize(simd_cross(right0, up))
+        let right = simd_normalize(simd_cross(up, forward))
+        // m: 恒等基 → 模型基；取逆即把模型旋正到恒等基
+        let m = simd_float3x3(right, up, forward)
+        root.simdOrientation = simd_quatf(m).inverse
+    }
+
+    /// 用骨骼位置摆一个固定正面全身相机（比包围盒可靠，不受骨架外延干扰）。
+    private func setupFrontCamera() {
+        guard let hips = boneNodes["mixamorig_Hips"]?.simdWorldPosition,
+              let head = boneNodes["mixamorig_Head"]?.simdWorldPosition,
+              let foot = boneNodes["mixamorig_LeftFoot"]?.simdWorldPosition else { return }
+        let height = abs(head.y - foot.y)
+        guard height > 0 else { return }
+        let center = SCNVector3(hips.x, (head.y + foot.y) / 2, hips.z)
+        print(String(format: "[Cam] head.y=%.2f foot.y=%.2f height=%.2f center=(%.2f,%.2f,%.2f)",
+                     head.y, foot.y, height, center.x, center.y, center.z))
+
+        let cam = SCNNode()
+        cam.camera = SCNCamera()
+        cam.camera?.fieldOfView = 55
+        cam.camera?.zNear = Double(height) * 0.01
+        cam.camera?.zFar = Double(height) * 50
+        // 站在角色正前方(+Z)，正对中心
+        cam.position = SCNVector3(center.x, center.y, center.z + height * 1.3)
+        cam.look(at: center)
+        cameraNode = cam
+        scene.rootNode.addChildNode(cam)
     }
 
     private func addLights() {
@@ -83,13 +130,14 @@ struct CharacterSceneView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: SCNView, context: Context) {
-        // 模型加载完成后，用 SceneKit 内置取景自动把整个角色装进画面（只做一次）
         guard !context.coordinator.framed,
               controller.isLoaded,
-              let root = controller.characterRoot else { return }
+              let cam = controller.cameraNode else { return }
         context.coordinator.framed = true
-        DispatchQueue.main.async {
-            uiView.defaultCameraController.frameNodes([root])
-        }
+        uiView.pointOfView = cam
+    }
+
+    private func scene_addCamera(_ cam: SCNNode) {
+        controller.scene.rootNode.addChildNode(cam)
     }
 }

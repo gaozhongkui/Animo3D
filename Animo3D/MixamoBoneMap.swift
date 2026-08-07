@@ -38,7 +38,13 @@ enum MixamoBoneMap {
         // 右腿
         BoneDef(node: "mixamorig_RightUpLeg",   childNode: "mixamorig_RightLeg",    from: 24, to: 26),
         BoneDef(node: "mixamorig_RightLeg",     childNode: "mixamorig_RightFoot",   from: 26, to: 28),
+        // 头/脖子（from=100 肩中心 → to=0 鼻子），增加头部跟随
+        BoneDef(node: "mixamorig_Neck",         childNode: "mixamorig_Head",       from: 100, to: 0),
     ]
+
+    /// 虚拟关节点索引：100=肩中心, 101=髋中心
+    static let shoulderCenter = 100
+    static let hipCenter = 101
 
     static let rootNode = "mixamorig_Hips"
 }
