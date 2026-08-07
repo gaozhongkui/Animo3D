@@ -35,6 +35,13 @@ struct HomeView: View {
                               tint: .purple)
                 }
 
+                NavigationLink { TripoGenerateView() } label: {
+                    entryCard(icon: "wand.and.stars",
+                              title: "Tripo3D 生成角色",
+                              subtitle: "相册选图 → 生成 3D 模型 → 下载\n（跳舞驱动为下一步）",
+                              tint: .pink)
+                }
+
                 Spacer()
                 Spacer()
             }
