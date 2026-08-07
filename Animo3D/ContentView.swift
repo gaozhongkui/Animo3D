@@ -13,25 +13,35 @@ struct ContentView: View {
     @State private var videoRect: CGRect = .zero
     @State private var isLoadingVideo = false
 
+    // 3D 角色
+    private let character = CharacterSceneController()
+    @State private var retargeter: PoseRetargeter?
+    @State private var boneCount = 0
+
     var body: some View {
-        VStack(spacing: 12) {
-            ZStack {
-                Color.black
-                PlayerView(player: vm.player, videoRect: $videoRect)
-                PoseOverlayView(landmarks: vm.landmarks, videoRect: videoRect)
-                if isLoadingVideo {
-                    ProgressView().tint(.white)
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                // 左：视频 + 2D 骨架叠加
+                ZStack {
+                    Color.black
+                    PlayerView(player: vm.player, videoRect: $videoRect)
+                    PoseOverlayView(landmarks: vm.landmarks, videoRect: videoRect)
+                    if isLoadingVideo { ProgressView().tint(.white) }
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                // 右：3D 角色（被动作驱动）
+                CharacterSceneView(controller: character)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            .aspectRatio(9.0 / 16.0, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .padding(.horizontal)
+            .frame(maxHeight: .infinity)
+            .padding(.horizontal, 10)
 
             Text(vm.status)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            Text("检测到关节点: \(vm.landmarks.count) / 33")
+            Text("关节点 \(vm.landmarks.count)/33 · 骨骼 \(boneCount)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(vm.landmarks.isEmpty ? Color.secondary : Color.green)
 
@@ -47,10 +57,20 @@ struct ContentView: View {
             }
             .padding(.bottom)
         }
+        .onAppear(perform: setupCharacter)
         .onChange(of: pickerItem) { newItem in
             guard let newItem else { return }
             Task { await loadPickedVideo(newItem) }
         }
+    }
+
+    private func setupCharacter() {
+        guard retargeter == nil else { return }
+        let bones = character.loadModel(named: "character.scn")
+        boneCount = bones.count
+        let rt = PoseRetargeter(controller: character)
+        retargeter = rt
+        vm.onWorld = { world in rt.apply(world: world) }
     }
 
     /// PhotosPicker 给的是数据，需要先落地成临时文件再交给 AVPlayer。

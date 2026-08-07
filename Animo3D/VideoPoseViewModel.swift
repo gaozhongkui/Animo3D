@@ -9,6 +9,7 @@ import Foundation
 import AVFoundation
 import UIKit
 import Combine
+import simd
 import MediaPipeTasksVision
 
 @MainActor
@@ -20,6 +21,9 @@ final class VideoPoseViewModel: ObservableObject {
     @Published var status: String = "请选择一个视频"
     /// 是否正在处理。
     @Published var isRunning = false
+
+    /// 每帧的 33 个 3D 世界坐标（米），用于驱动 3D 模型。主线程回调。
+    var onWorld: (([simd_float3]) -> Void)?
 
     let player = AVPlayer()
 
@@ -100,6 +104,12 @@ final class VideoPoseViewModel: ObservableObject {
             }
         } else {
             landmarks = []
+        }
+
+        // 3D 世界坐标 → 驱动模型
+        if let firstWorld = result.world.first {
+            let pts = firstWorld.map { simd_float3(Float($0.x), Float($0.y), Float($0.z)) }
+            onWorld?(pts)
         }
     }
 
