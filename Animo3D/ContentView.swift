@@ -7,14 +7,14 @@ import SwiftUI
 import PhotosUI
 import AVFoundation
 
-struct ContentView: View {
+struct VideoDriveView: View {
     @StateObject private var vm = VideoPoseViewModel()
     @State private var pickerItem: PhotosPickerItem?
     @State private var videoRect: CGRect = .zero
     @State private var isLoadingVideo = false
 
     // 调试开关：自动加载包内测试视频（校准完成后置为 false）
-    private let debugAutoLoadTestClip = true
+    private let debugAutoLoadTestClip = false
     // 调试开关：喂已知合成姿势，确定性校准坐标轴
     private let debugSyntheticPose = false
 
@@ -62,6 +62,8 @@ struct ContentView: View {
             }
             .padding(.bottom)
         }
+        .navigationTitle("视频驱动 · BlazePose")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear(perform: setupCharacter)
         .onChange(of: pickerItem) { newItem in
             guard let newItem else { return }
@@ -112,5 +114,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    VideoDriveView()
 }
