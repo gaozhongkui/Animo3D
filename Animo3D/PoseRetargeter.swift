@@ -35,6 +35,12 @@ final class PoseRetargeter {
         self.controller = controller
     }
 
+    /// 切换展示场景（屏幕↔AR，角色被重新挂载）后调用，下一帧重新采样静止姿态。
+    func resetCapture() {
+        captured = false
+        smoothed = nil
+    }
+
     /// 由“上”方向和“右”方向构造一个正交躯干坐标系（列: 右, 上, 前）。
     /// 右手系：前 = 右 × 上，右 = 上 × 前。source 和 character 用同一构造，保证相对方向一致。
     private static func makeFrame(up upRaw: simd_float3, right rightRaw: simd_float3) -> simd_float3x3 {

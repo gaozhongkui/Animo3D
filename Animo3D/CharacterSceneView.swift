@@ -16,6 +16,16 @@ final class CharacterSceneController {
     private(set) var characterRoot: SCNNode?
     private(set) var cameraNode: SCNNode?
     private(set) var isLoaded = false
+    private(set) var modelHeight: Float = 0   // 角色单位高度（AR 缩放用）
+
+    /// 把角色根节点挂回本控制器的屏幕场景（从 AR 切回时用）。
+    func reattachToScreenScene() {
+        guard let root = characterRoot else { return }
+        if root.parent !== scene.rootNode {
+            root.removeFromParentNode()
+            scene.rootNode.addChildNode(root)
+        }
+    }
 
     /// 从 App 包加载模型（.usdz/.scn/.dae）。返回发现的 Mixamo 骨骼名。
     @discardableResult
@@ -84,17 +94,18 @@ final class CharacterSceneController {
               let foot = boneNodes["mixamorig_LeftFoot"]?.simdWorldPosition else { return }
         let height = abs(head.y - foot.y)
         guard height > 0 else { return }
+        modelHeight = height
         let center = SCNVector3(hips.x, (head.y + foot.y) / 2, hips.z)
         print(String(format: "[Cam] head.y=%.2f foot.y=%.2f height=%.2f center=(%.2f,%.2f,%.2f)",
                      head.y, foot.y, height, center.x, center.y, center.z))
 
         let cam = SCNNode()
         cam.camera = SCNCamera()
-        cam.camera?.fieldOfView = 55
+        cam.camera?.fieldOfView = 62
         cam.camera?.zNear = Double(height) * 0.01
         cam.camera?.zFar = Double(height) * 50
-        // 站在角色正前方(+Z)，正对中心
-        cam.position = SCNVector3(center.x, center.y, center.z + height * 1.3)
+        // 站在角色正前方(+Z)，拉远留出头顶/两侧余量（抬手/伸腿不被裁切）
+        cam.position = SCNVector3(center.x, center.y, center.z + height * 1.9)
         cam.look(at: center)
         cameraNode = cam
         scene.rootNode.addChildNode(cam)
@@ -115,29 +126,26 @@ final class CharacterSceneController {
 
 struct CharacterSceneView: UIViewRepresentable {
     let controller: CharacterSceneController
+    var onAttach: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator { var framed = false }
 
     func makeUIView(context: Context) -> SCNView {
+        // 从 AR 切回时，把角色挂回屏幕场景，并让重定向重新采样
+        controller.reattachToScreenScene()
+        onAttach?()
         let view = SCNView()
         view.scene = controller.scene
         view.allowsCameraControl = true
         view.backgroundColor = .init(white: 0.15, alpha: 1)
         view.autoenablesDefaultLighting = true
+        if let cam = controller.cameraNode { view.pointOfView = cam }
         return view
     }
 
     func updateUIView(_ uiView: SCNView, context: Context) {
-        guard !context.coordinator.framed,
-              controller.isLoaded,
-              let cam = controller.cameraNode else { return }
-        context.coordinator.framed = true
-        uiView.pointOfView = cam
-    }
-
-    private func scene_addCamera(_ cam: SCNNode) {
-        controller.scene.rootNode.addChildNode(cam)
+        if let cam = controller.cameraNode { uiView.pointOfView = cam }
     }
 }

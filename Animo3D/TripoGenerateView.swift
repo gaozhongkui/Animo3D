@@ -74,15 +74,35 @@ struct TripoGenerateView: View {
                 .disabled(pickedData == nil || apiKey.isEmpty || isRunning)
             }
             .padding(.horizontal)
+
+            Button {
+                if let url = Bundle.main.url(forResource: "tripo_sample", withExtension: "usdz"),
+                   let scene = try? SCNScene(url: url) {
+                    modelScene = scene
+                    status = "示例：Tripo 生成的模型（已转 USDZ，可拖动旋转）"
+                }
+            } label: {
+                Label("查看示例生成模型", systemImage: "cube").font(.footnote)
+            }
             .padding(.bottom)
         }
         .navigationTitle("Tripo3D 生成角色")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            if debugAutoShowSample,
+               let url = Bundle.main.url(forResource: "tripo_sample", withExtension: "usdz"),
+               let scene = try? SCNScene(url: url) {
+                modelScene = scene
+                status = "示例：Tripo 生成的模型（已转 USDZ，可拖动旋转）"
+            }
+        }
         .onChange(of: pickerItem) { item in
             guard let item else { return }
             Task { await loadImage(item) }
         }
     }
+
+    private let debugAutoShowSample = false
 
     private func loadImage(_ item: PhotosPickerItem) async {
         guard let data = try? await item.loadTransferable(type: Data.self) else { return }

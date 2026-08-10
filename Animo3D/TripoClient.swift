@@ -82,6 +82,29 @@ final class TripoClient {
         return taskId
     }
 
+    /// 对已生成的模型做自动绑骨（Auto-Rig）。spec=mixamo 让骨骼名与 Mixamo 兼容，
+    /// 这样可直接复用现有的 Mixamo 重定向映射。返回新的 task_id。
+    func createRigTask(modelTaskId: String,
+                       spec: String = "mixamo",
+                       outFormat: String = "glb") async throws -> String {
+        var r = request("task", method: "POST")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let payload: [String: Any] = [
+            "type": "animate_rig",
+            "original_model_task_id": modelTaskId,
+            "out_format": outFormat,
+            "rig_type": "biped",
+            "spec": spec
+        ]
+        r.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let json = try await send(r)
+        guard let d = json["data"] as? [String: Any],
+              let taskId = d["task_id"] as? String else {
+            throw TripoError.decode("绑骨任务响应缺少 task_id")
+        }
+        return taskId
+    }
+
     /// 查询任务状态。
     func getTask(_ taskId: String) async throws -> TripoResult {
         let r = request("task/\(taskId)", method: "GET")

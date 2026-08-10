@@ -14,7 +14,7 @@ struct VideoDriveView: View {
     @State private var isLoadingVideo = false
 
     // 调试开关：自动加载包内测试视频（校准完成后置为 false）
-    private let debugAutoLoadTestClip = false
+    private let debugAutoLoadTestClip = true
     // 调试开关：喂已知合成姿势，确定性校准坐标轴
     private let debugSyntheticPose = false
 
@@ -22,6 +22,7 @@ struct VideoDriveView: View {
     private let character = CharacterSceneController()
     @State private var retargeter: PoseRetargeter?
     @State private var boneCount = 0
+    @State private var arMode = false
 
     var body: some View {
         VStack(spacing: 10) {
@@ -35,9 +36,24 @@ struct VideoDriveView: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                // 右：3D 角色（被动作驱动）
-                CharacterSceneView(controller: character)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                // 右：3D 角色（被动作驱动）—— 屏幕 / AR 两种展示
+                ZStack(alignment: .top) {
+                    if arMode {
+                        ARCharacterView(controller: character,
+                                        onAttach: { retargeter?.resetCapture() })
+                    } else {
+                        CharacterSceneView(controller: character,
+                                           onAttach: { retargeter?.resetCapture() })
+                    }
+                    Picker("", selection: $arMode) {
+                        Text("屏幕").tag(false)
+                        Text("AR").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 130)
+                    .padding(6)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             .frame(maxHeight: .infinity)
             .padding(.horizontal, 10)
