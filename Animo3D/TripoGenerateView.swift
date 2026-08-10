@@ -20,7 +20,8 @@ private func embeddedTripoKey() -> String {
 }
 
 struct TripoGenerateView: View {
-    @AppStorage("tripoAPIKey") private var apiKey = ""
+    // 直接用内置 key（已由 base64 内置，界面不再要求输入）
+    private var apiKey: String { embeddedTripoKey() }
     @State private var pickerItem: PhotosPickerItem?
     @State private var pickedImage: UIImage?
     @State private var pickedData: Data?
@@ -34,11 +35,6 @@ struct TripoGenerateView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            // API Key
-            SecureField("粘贴 Tripo API Key", text: $apiKey)
-                .textFieldStyle(.roundedBorder)
-                .padding(.horizontal)
-
             // 预览区：优先显示生成的 3D 模型，否则显示选中的图片
             ZStack {
                 Color(.secondarySystemBackground)
