@@ -2,72 +2,125 @@
 //  HomeView.swift
 //  Animo3D
 //
-//  主页：两个入口，分别测试两条人体动作驱动方案。
+//  首页：主推「舞蹈工作室」+ 更多玩法 + 我的作品。
 //
 
 import SwiftUI
 
 struct HomeView: View {
+    @StateObject private var works = WorksStore.shared
+    @State private var shareURL: URL?
+    @State private var showShare = false
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                Spacer()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    Text("让你的角色在现实里跳舞")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
 
-                Text("Animo3D")
-                    .font(.largeTitle.bold())
-                Text("选择一种动作驱动方式")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    // Hero：舞蹈工作室
+                    NavigationLink { DanceStudioView() } label: { heroCard }
+                        .buttonStyle(.plain)
 
-                Spacer()
+                    // 更多玩法
+                    sectionHeader("更多玩法")
+                    HStack(spacing: 12) {
+                        NavigationLink { VideoDriveView() } label: {
+                            smallCard(icon: "video", title: "视频驱动", subtitle: "模仿视频动作 · Beta")
+                        }.buttonStyle(.plain)
+                        NavigationLink { TripoGenerateView() } label: {
+                            smallCard(icon: "wand.and.stars", title: "我的角色", subtitle: "个性化 · 照片生成 Beta")
+                        }.buttonStyle(.plain)
+                    }
 
-                NavigationLink { VideoDriveView() } label: {
-                    entryCard(icon: "video.fill",
-                              title: "视频驱动",
-                              subtitle: "BlazePose · 解析视频动作驱动 3D 角色\n任意机型可用",
-                              tint: .blue)
+                    // 我的作品
+                    sectionHeader("我的作品")
+                    worksRow
                 }
-
-                NavigationLink { ARBodyEntryView() } label: {
-                    entryCard(icon: "figure.walk.motion",
-                              title: "ARKit 实时人体追踪",
-                              subtitle: "苹果原生 · 摄像头实时骨架\n需 A12+ 真机",
-                              tint: .purple)
-                }
-
-                NavigationLink { TripoGenerateView() } label: {
-                    entryCard(icon: "wand.and.stars",
-                              title: "Tripo3D 生成角色",
-                              subtitle: "相册选图 → 生成 3D 模型 → 下载\n（跳舞驱动为下一步）",
-                              tint: .pink)
-                }
-
-                Spacer()
-                Spacer()
+                .padding()
             }
-            .padding()
+            .navigationTitle("Animo3D")
+            .sheet(isPresented: $showShare) {
+                if let url = shareURL { ShareSheet(items: [url]) }
+            }
+            .onAppear { works.reload() }
         }
     }
 
-    private func entryCard(icon: String, title: String, subtitle: String, tint: Color) -> some View {
-        HStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.title)
-                .foregroundStyle(.white)
-                .frame(width: 56, height: 56)
-                .background(tint, in: RoundedRectangle(cornerRadius: 14))
+    private var heroCard: some View {
+        HStack(spacing: 14) {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.secondarySystemBackground))
+                .frame(width: 54, height: 54)
+                .overlay(Image(systemName: "figure.dance").font(.title2).foregroundStyle(.tint))
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.headline).foregroundStyle(.primary)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                Text("舞蹈工作室").font(.headline).foregroundStyle(.tint)
+                Text("选角色 · 选舞蹈 · AR 投射到房间")
+                    .font(.caption).foregroundStyle(.tint.opacity(0.8))
+                Label("开始跳舞", systemImage: "play.fill")
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 14).padding(.vertical, 6)
+                    .background(Color(.systemBackground), in: Capsule())
+                    .foregroundStyle(.tint)
+                    .padding(.top, 6)
             }
             Spacer()
-            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
         }
-        .padding()
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+        .padding(16)
+        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
     }
-}
 
-#Preview {
-    HomeView()
+    private func smallCard(icon: String, title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Image(systemName: icon).font(.title3).foregroundStyle(.primary)
+            Text(title).font(.subheadline.weight(.medium))
+            Text(subtitle).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var worksRow: some View {
+        HStack(spacing: 10) {
+            NavigationLink { DanceStudioView() } label: {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(.secondarySystemBackground))
+                    .aspectRatio(9.0/12.0, contentMode: .fit)
+                    .overlay(Image(systemName: "plus").font(.title2).foregroundStyle(.secondary))
+            }.buttonStyle(.plain)
+
+            ForEach(works.works.prefix(2), id: \.self) { url in
+                Button {
+                    shareURL = url; showShare = true
+                } label: {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemBackground))
+                        if let img = works.thumbnail(for: url) {
+                            Image(uiImage: img).resizable().scaledToFill()
+                        }
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.footnote).foregroundStyle(.white)
+                            .padding(6).background(.black.opacity(0.4), in: Circle())
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                            .padding(6)
+                    }
+                    .aspectRatio(9.0/12.0, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }.buttonStyle(.plain)
+            }
+
+            // 补齐占位到 3 格
+            ForEach(0..<max(0, 2 - works.works.count), id: \.self) { _ in
+                RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemBackground))
+                    .aspectRatio(9.0/12.0, contentMode: .fit)
+            }
+        }
+    }
+
+    private func sectionHeader(_ t: String) -> some View {
+        Text(t).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+    }
 }

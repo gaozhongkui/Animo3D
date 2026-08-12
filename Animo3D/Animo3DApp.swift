@@ -11,7 +11,7 @@ import SwiftUI
 struct Animo3DApp: App {
     var body: some Scene {
         WindowGroup {
-            HomeView()
+            RootTabView()
         }
     }
 }

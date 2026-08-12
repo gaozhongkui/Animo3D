@@ -1,0 +1,214 @@
+{
+ "characters": [
+  {
+   "key": "Erika_Archer",
+   "name": "Erika Archer"
+  },
+  {
+   "key": "Mutant",
+   "name": "Mutant"
+  },
+  {
+   "key": "Peasant_Girl",
+   "name": "Peasant Girl"
+  },
+  {
+   "key": "Remy",
+   "name": "Remy"
+  },
+  {
+   "key": "The_Boss",
+   "name": "The Boss"
+  },
+  {
+   "key": "Vanguard_By_T._Choonyung",
+   "name": "Vanguard By T. Choonyung"
+  },
+  {
+   "key": "X_Bot",
+   "name": "X Bot"
+  },
+  {
+   "key": "Y_Bot",
+   "name": "Y Bot"
+  }
+ ],
+ "dances": [
+  {
+   "key": "Arms_Hip_Hop_Dance",
+   "name": "Arms Hip Hop Dance"
+  },
+  {
+   "key": "Belly_Dance",
+   "name": "Belly Dance"
+  },
+  {
+   "key": "Booty_Hip_Hop_Dance",
+   "name": "Booty Hip Hop Dance"
+  },
+  {
+   "key": "Chicken_Dance",
+   "name": "Chicken Dance"
+  },
+  {
+   "key": "Dancing",
+   "name": "Dancing"
+  },
+  {
+   "key": "Dancing_1",
+   "name": "Dancing 1"
+  },
+  {
+   "key": "Dancing_2",
+   "name": "Dancing 2"
+  },
+  {
+   "key": "Dancing_Maraschino_Step",
+   "name": "Dancing Maraschino Step"
+  },
+  {
+   "key": "Hip_Hop_Dancing",
+   "name": "Hip Hop Dancing"
+  },
+  {
+   "key": "Hip_Hop_Dancing_1",
+   "name": "Hip Hop Dancing 1"
+  },
+  {
+   "key": "Hip_Hop_Dancing_2",
+   "name": "Hip Hop Dancing 2"
+  },
+  {
+   "key": "House_Dancing",
+   "name": "House Dancing"
+  },
+  {
+   "key": "House_Dancing_1",
+   "name": "House Dancing 1"
+  },
+  {
+   "key": "House_Dancing_2",
+   "name": "House Dancing 2"
+  },
+  {
+   "key": "Jazz_Dancing",
+   "name": "Jazz Dancing"
+  },
+  {
+   "key": "Jazz_Dancing_1",
+   "name": "Jazz Dancing 1"
+  },
+  {
+   "key": "Jazz_Dancing_2",
+   "name": "Jazz Dancing 2"
+  },
+  {
+   "key": "Locking_Hip_Hop_Dance",
+   "name": "Locking Hip Hop Dance"
+  },
+  {
+   "key": "Macarena_Dance",
+   "name": "Macarena Dance"
+  },
+  {
+   "key": "Northern_Soul_Dance",
+   "name": "Northern Soul Dance"
+  },
+  {
+   "key": "Northern_Soul_Floor_Combo",
+   "name": "Northern Soul Floor Combo"
+  },
+  {
+   "key": "Northern_Soul_Spin_Combo",
+   "name": "Northern Soul Spin Combo"
+  },
+  {
+   "key": "Robot_Hip_Hop_Dance",
+   "name": "Robot Hip Hop Dance"
+  },
+  {
+   "key": "Samba_Dancing",
+   "name": "Samba Dancing"
+  },
+  {
+   "key": "Shopping_Cart_Dance",
+   "name": "Shopping Cart Dance"
+  },
+  {
+   "key": "Shuffling",
+   "name": "Shuffling"
+  },
+  {
+   "key": "Slide_Hip_Hop_Dance",
+   "name": "Slide Hip Hop Dance"
+  },
+  {
+   "key": "Snake_Hip_Hop_Dance",
+   "name": "Snake Hip Hop Dance"
+  },
+  {
+   "key": "Snake_Hip_Hop_Dance_1",
+   "name": "Snake Hip Hop Dance 1"
+  },
+  {
+   "key": "Step_Hip_Hop_Dance",
+   "name": "Step Hip Hop Dance"
+  },
+  {
+   "key": "Swing_Dancing",
+   "name": "Swing Dancing"
+  },
+  {
+   "key": "Swing_Dancing_1",
+   "name": "Swing Dancing 1"
+  },
+  {
+   "key": "Swing_Dancing_2",
+   "name": "Swing Dancing 2"
+  },
+  {
+   "key": "Swing_Dancing_3",
+   "name": "Swing Dancing 3"
+  },
+  {
+   "key": "Swing_Dancing_4",
+   "name": "Swing Dancing 4"
+  },
+  {
+   "key": "Thriller_Part_2",
+   "name": "Thriller Part 2"
+  },
+  {
+   "key": "Thriller_Part_3",
+   "name": "Thriller Part 3"
+  },
+  {
+   "key": "Thriller_Part_4",
+   "name": "Thriller Part 4"
+  },
+  {
+   "key": "Tut_Hip_Hop_Dance",
+   "name": "Tut Hip Hop Dance"
+  },
+  {
+   "key": "Tut_Hip_Hop_Dance_1",
+   "name": "Tut Hip Hop Dance 1"
+  },
+  {
+   "key": "Twist_Dance",
+   "name": "Twist Dance"
+  },
+  {
+   "key": "Wave_Hip_Hop_Dance",
+   "name": "Wave Hip Hop Dance"
+  },
+  {
+   "key": "Wave_Hip_Hop_Dance_1",
+   "name": "Wave Hip Hop Dance 1"
+  },
+  {
+   "key": "Ymca_Dance",
+   "name": "Ymca Dance"
+  }
+ ]
+}

@@ -127,6 +127,7 @@ final class CharacterSceneController {
 struct CharacterSceneView: UIViewRepresentable {
     let controller: CharacterSceneController
     var onAttach: (() -> Void)? = nil
+    var holder: SceneHolder? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -142,6 +143,7 @@ struct CharacterSceneView: UIViewRepresentable {
         view.backgroundColor = .init(white: 0.15, alpha: 1)
         view.autoenablesDefaultLighting = true
         if let cam = controller.cameraNode { view.pointOfView = cam }
+        holder?.scnView = view
         return view
     }
 
