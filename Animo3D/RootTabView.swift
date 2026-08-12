@@ -21,36 +21,32 @@ struct RootTabView: View {
     }
 }
 
-/// 发现（社区/热门作品流）
 struct DiscoverView: View {
     @State private var searchText = ""
     @State private var selectedModel: SketchfabModel?
-    @State private var isShowingDetail = false
 
     var body: some View {
         NavigationStack {
             DiscoverViewControllerRepresentable(searchText: $searchText) { model in
                 self.selectedModel = model
-                self.isShowingDetail = true
             }
             .navigationTitle("社区发现")
-            .searchable(text: $searchText, prompt: "搜索 3D 模型")
-            .fullScreenCover(isPresented: $isShowingDetail) {
-                if let model = selectedModel {
-                    NavigationStack {
-                        ModelDetailView(model: model)
-                            .toolbar {
-                                ToolbarItem(placement: .topBarLeading) {
-                                    Button {
-                                        isShowingDetail = false
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .foregroundStyle(.secondary)
-                                            .font(.title3)
-                                    }
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索 3D 模型")
+            .fullScreenCover(item: $selectedModel) { model in
+                NavigationStack {
+                    ModelDetailView(model: model)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button {
+                                    selectedModel = nil
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                        .font(.title3)
                                 }
                             }
-                    }
+                        }
                 }
             }
         }
@@ -100,92 +96,101 @@ struct ModelDetailView: View {
     @State private var toastMsg = ""
     @State private var arMode = false
 
-    // 用于 AR 预览的控制器
     @StateObject private var arController = CharacterSceneController()
     @StateObject private var holder = SceneHolder()
 
     var body: some View {
-        VStack(spacing: 0) {
-            // 顶部预览/AR 切换区
-            ZStack(alignment: .top) {
-                if arMode {
-                    ARCharacterView(controller: arController, onAttach: {
-                        if !arController.isLoaded {
-                            arController.loadModel(named: "tripo_sample.usdz")
-                        }
-                    }, holder: holder)
-                    .background(Color.black)
-                    .frame(height: 420)
-                } else {
-                    if let url = URL(string: model.embedUrl) {
-                        WebView(url: url)
-                            .frame(height: 420)
-                    } else {
-                        Rectangle().fill(Color(.secondarySystemBackground))
-                            .frame(height: 420)
-                            .overlay(Text("无法加载预览"))
-                    }
-                }
+        ZStack {
+            Color(.systemBackground).ignoresSafeArea()
 
-                // 模式切换器
-                Picker("", selection: $arMode) {
-                    Text("3D 视角").tag(false)
-                    Text("AR 模式").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 180)
-                .padding(.top, 12)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: arMode ? 0 : 24, style: .continuous))
-            .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
-            .padding(.horizontal, arMode ? 0 : 16)
-            .padding(.top, arMode ? 0 : 8)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+            VStack(spacing: 0) {
+                // 顶部预览/AR 切换区
+                ZStack(alignment: .top) {
                     if arMode {
-                        HStack(spacing: 8) {
-                            Image(systemName: "hand.tap.fill")
-                            Text("移动手机寻找平面，点击即可放置模型")
+                        ARCharacterView(controller: arController, onAttach: {
+                            if !arController.isLoaded {
+                                arController.loadModel(named: "tripo_sample.usdz")
+                            }
+                        }, holder: holder)
+                        .background(Color.black)
+                        .frame(height: 420)
+                    } else {
+                        if let url = URL(string: model.embedUrl) {
+                            ZStack {
+                                WebView(url: url)
+                                    .frame(height: 420)
+
+                                // 微弱的遮罩提示
+                                VStack {
+                                    Spacer()
+                                    Text("交互式预览中").font(.system(size: 10, weight: .bold))
+                                        .padding(.horizontal, 8).padding(.vertical, 4)
+                                        .background(.black.opacity(0.3), in: Capsule())
+                                        .foregroundStyle(.white).padding(.bottom, 12)
+                                }
+                            }
+                        } else {
+                            Rectangle().fill(Color(.secondarySystemBackground))
+                                .frame(height: 420)
+                                .overlay(Text("无法加载预览"))
                         }
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.orange)
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 16)
-                        .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-                        .padding(.horizontal)
-                        .padding(.top, 16)
                     }
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(model.name)
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundStyle(.primary)
-
-                        HStack(spacing: 12) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "heart.fill").foregroundStyle(.red)
-                                Text("\(model.likeCount.formattedAbbreviated)")
-                            }
-                            HStack(spacing: 4) {
-                                Image(systemName: "eye.fill").foregroundStyle(.secondary)
-                                Text("\(model.viewCount.formattedAbbreviated)")
-                            }
-                            Spacer()
-                            Text("社区精选资源")
-                                .font(.system(size: 12, weight: .medium))
-                                .padding(.horizontal, 8).padding(.vertical, 2)
-                                .background(Color.accentColor.opacity(0.1), in: Capsule())
-                                .foregroundStyle(Color.accentColor)
-                        }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.secondary)
+                    Picker("", selection: $arMode) {
+                        Text("3D 视角").tag(false)
+                        Text("AR 模式").tag(true)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, arMode ? 0 : 16)
+                    .pickerStyle(.segmented)
+                    .frame(width: 180)
+                    .padding(.top, 12)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: arMode ? 0 : 24, style: .continuous))
+                .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
+                .padding(.horizontal, arMode ? 0 : 16)
+                .padding(.top, arMode ? 0 : 8)
 
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("功能操作").font(.system(size: 18, weight: .bold)).padding(.horizontal, 20)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        if arMode {
+                            HStack(spacing: 8) {
+                                Image(systemName: "hand.tap.fill")
+                                Text("移动手机寻找平面，点击即可放置模型")
+                            }
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.orange)
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 16)
+                            .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                            .padding(.horizontal)
+                            .padding(.top, 16)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(model.name)
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(.primary)
+
+                            HStack(spacing: 12) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "heart.fill").foregroundStyle(.red)
+                                    Text("\(model.likeCount.formattedAbbreviated)")
+                                }
+                                HStack(spacing: 4) {
+                                    Image(systemName: "eye.fill").foregroundStyle(.secondary)
+                                    Text("\(model.viewCount.formattedAbbreviated)")
+                                }
+                                Spacer()
+                                Text("精选资源")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .padding(.horizontal, 8).padding(.vertical, 2)
+                                    .background(Color.accentColor.opacity(0.1), in: Capsule())
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, arMode ? 0 : 16)
 
                         VStack(spacing: 12) {
                             ActionRow(icon: "figure.dance", title: "以此角色跳舞", subtitle: "将模型导入舞蹈工作室进行动作同步", color: .orange) {
@@ -194,8 +199,8 @@ struct ModelDetailView: View {
 
                             ActionRow(icon: "doc.on.doc.fill", title: "复制模型链接", subtitle: "复制该模型的原始访问地址到剪贴板", color: .blue) {
                                 UIPasteboard.general.string = model.viewerUrl
-                                toastMsg = "链接已复制到剪贴板"
-                                showToast = true
+                                toastMsg = "链接已复制"
+                                withAnimation { showToast = true }
                             }
 
                             ActionRow(icon: "square.and.arrow.up.fill", title: "分享模型", subtitle: "将这个精美角色分享给你的好友", color: .green) {
