@@ -2,129 +2,192 @@
 //  ContentView.swift
 //  Animo3D
 //
+//  视频驱动（两步流程）：
+//  第一步 选视频 → 预览可重复播放 → 下一步
+//  第二步 角色做出视频里的动作（循环）+ 录屏
+//
 
 import SwiftUI
 import PhotosUI
+import AVKit
 import AVFoundation
+import Combine
 
 struct VideoDriveView: View {
-    @StateObject private var vm = VideoPoseViewModel()
     @State private var pickerItem: PhotosPickerItem?
-    @State private var videoRect: CGRect = .zero
-    @State private var isLoadingVideo = false
-
-    // 调试开关：自动加载包内测试视频（校准完成后置为 false）
-    private let debugAutoLoadTestClip = true
-    // 调试开关：喂已知合成姿势，确定性校准坐标轴
-    private let debugSyntheticPose = false
-
-    // 3D 角色
-    private let character = CharacterSceneController()
-    @State private var retargeter: PoseRetargeter?
-    @State private var boneCount = 0
-    @State private var arMode = false
+    @State private var videoURL: URL?
+    @State private var previewPlayer: AVPlayer?
+    @State private var isLoading = false
+    @State private var loopObserver: NSObjectProtocol?
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                // 左：视频 + 2D 骨架叠加
+        NavigationStack {
+            VStack(spacing: 16) {
                 ZStack {
-                    Color.black
-                    PlayerView(player: vm.player, videoRect: $videoRect)
-                    PoseOverlayView(landmarks: vm.landmarks, videoRect: videoRect)
-                    if isLoadingVideo { ProgressView().tint(.white) }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                // 右：3D 角色（被动作驱动）—— 屏幕 / AR 两种展示
-                ZStack(alignment: .top) {
-                    if arMode {
-                        ARCharacterView(controller: character,
-                                        onAttach: { retargeter?.resetCapture() })
+                    RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemBackground))
+                    if let player = previewPlayer {
+                        VideoPlayer(player: player)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
                     } else {
-                        CharacterSceneView(controller: character,
-                                           onAttach: { retargeter?.resetCapture() })
+                        VStack(spacing: 10) {
+                            Image(systemName: "video.badge.plus").font(.largeTitle).foregroundStyle(.secondary)
+                            Text("选择一个视频作为动作来源").font(.footnote).foregroundStyle(.secondary)
+                        }
                     }
-                    Picker("", selection: $arMode) {
-                        Text("屏幕").tag(false)
-                        Text("AR").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 130)
-                    .padding(6)
+                    if isLoading { ProgressView() }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .frame(maxHeight: .infinity)
+                .padding(.horizontal)
+
+                HStack(spacing: 12) {
+                    PhotosPicker(selection: $pickerItem, matching: .videos, photoLibrary: .shared()) {
+                        Label(videoURL == nil ? "选择视频" : "重选", systemImage: "photo.on.rectangle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    NavigationLink {
+                        if let url = videoURL { CharacterMotionView(videoURL: url) }
+                    } label: {
+                        Label("下一步", systemImage: "arrow.right")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(videoURL == nil)
+                }
+                .padding([.horizontal, .bottom])
             }
-            .frame(maxHeight: .infinity)
-            .padding(.horizontal, 10)
+            .navigationTitle("视频驱动")
+            .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: pickerItem) { item in
+                guard let item else { return }
+                Task { await loadPicked(item) }
+            }
+        }
+    }
 
-            Text(vm.status)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+    private func loadPicked(_ item: PhotosPickerItem) async {
+        isLoading = true
+        defer { isLoading = false }
+        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("src_\(UUID().uuidString).mov")
+        try? data.write(to: tmp)
+        videoURL = tmp
+        setupPreview(tmp)
+    }
 
-            Text("关节点 \(vm.landmarks.count)/33 · 骨骼 \(boneCount)")
+    private func setupPreview(_ url: URL) {
+        let player = AVPlayer(url: url)
+        if let obs = loopObserver { NotificationCenter.default.removeObserver(obs) }
+        loopObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main
+        ) { _ in player.seek(to: .zero); player.play() }
+        previewPlayer = player
+        player.play()
+    }
+}
+
+/// 管理视频驱动下的角色（可换角色）。
+final class VideoCharStage: ObservableObject {
+    @Published private(set) var controller = CharacterSceneController()
+    private var retargeter: PoseRetargeter?
+
+    func load(character: String, vm: VideoPoseViewModel) {
+        let c = CharacterSceneController()
+        _ = c.loadModel(named: "\(character).scn")
+        let rt = PoseRetargeter(controller: c)
+        retargeter = rt
+        controller = c
+        vm.onWorld = { [weak rt] world in rt?.apply(world: world) }
+    }
+    func resetRetarget() { retargeter?.resetCapture() }
+}
+
+/// 第二步：角色做出视频里的动作（视频在后台循环驱动）+ 选角色 + 录屏。
+struct CharacterMotionView: View {
+    let videoURL: URL
+
+    private let catalog = Catalog.load()
+    @StateObject private var vm = VideoPoseViewModel()
+    @StateObject private var stage = VideoCharStage()
+    @StateObject private var recorder = SceneViewRecorder()
+    @StateObject private var holder = SceneHolder()
+    @State private var character = ""
+    @State private var shareURL: URL?
+    @State private var showShare = false
+
+    var body: some View {
+        VStack(spacing: 8) {
+            CharacterSceneView(controller: stage.controller, onAttach: { stage.resetRetarget() }, holder: holder)
+                .id(character)
+                .overlay(alignment: .bottom) { recordButton.padding(.bottom, 14) }
+                .frame(maxHeight: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .padding(.horizontal, 10)
+
+            picker(title: "角色", items: catalog.characters, selection: $character) { new in
+                stage.load(character: new, vm: vm)
+            }
+
+            Text("关节点 \(vm.landmarks.count)/33 · 动作循环中")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(vm.landmarks.isEmpty ? Color.secondary : Color.green)
-
-            PhotosPicker(selection: $pickerItem,
-                         matching: .videos,
-                         photoLibrary: .shared()) {
-                Label("选择视频", systemImage: "video.badge.plus")
-                    .font(.headline)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
-                    .background(.tint, in: Capsule())
-                    .foregroundStyle(.white)
-            }
-            .padding(.bottom)
+                .padding(.bottom, 6)
         }
-        .navigationTitle("视频驱动 · BlazePose")
+        .navigationTitle("角色动作")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear(perform: setupCharacter)
-        .onChange(of: pickerItem) { newItem in
-            guard let newItem else { return }
-            Task { await loadPickedVideo(newItem) }
+        .sheet(isPresented: $showShare) {
+            if let url = shareURL { ShareSheet(items: [url]) }
         }
+        .onAppear(perform: setup)
+        .onDisappear { vm.stop() }
     }
 
-    private func setupCharacter() {
-        guard retargeter == nil else { return }
-        let bones = character.loadModel(named: "character.scn")
-        boneCount = bones.count
-        let rt = PoseRetargeter(controller: character)
-        retargeter = rt
-        vm.onWorld = { world in rt.apply(world: world) }
+    private func setup() {
+        guard character.isEmpty else { return }
+        character = catalog.characters.first?.key ?? "Y_Bot"
+        stage.load(character: character, vm: vm)
+        vm.load(url: videoURL)      // 后台循环播放视频 → 驱动角色
+    }
 
-        // 调试：启动即自动加载包内测试视频，便于快速迭代重定向坐标轴
-        if debugAutoLoadTestClip,
-           let url = Bundle.main.url(forResource: "testclip", withExtension: "mp4") {
-            vm.load(url: url)
-        }
-
-        // 调试：喂一个已知姿势（双臂向前），确定性验证坐标轴
-        if debugSyntheticPose {
-            let pose = PoseRetargeter.debugArmsForwardPose()
-            Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { _ in
-                rt.apply(world: pose)
+    private func picker(title: String, items: [CatalogItem],
+                        selection: Binding<String>, onSelect: @escaping (String) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.caption).foregroundStyle(.secondary).padding(.leading, 14)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(items) { item in
+                        let sel = selection.wrappedValue == item.key
+                        Text(item.name)
+                            .font(.subheadline)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(sel ? Color.accentColor : Color(.secondarySystemBackground), in: Capsule())
+                            .foregroundStyle(sel ? .white : .primary)
+                            .onTapGesture { selection.wrappedValue = item.key; onSelect(item.key) }
+                    }
+                }.padding(.horizontal, 12)
             }
         }
     }
 
-    /// PhotosPicker 给的是数据，需要先落地成临时文件再交给 AVPlayer。
-    private func loadPickedVideo(_ item: PhotosPickerItem) async {
-        isLoadingVideo = true
-        defer { isLoadingVideo = false }
-        do {
-            guard let data = try await item.loadTransferable(type: Data.self) else {
-                vm.status = "无法读取视频数据"
-                return
+    private var recordButton: some View {
+        Button {
+            if recorder.isRecording {
+                recorder.stop { url in
+                    if let url, let saved = WorksStore.shared.add(from: url) {
+                        shareURL = saved; showShare = true
+                    }
+                }
+            } else if let v = holder.scnView {
+                recorder.start(view: v)
             }
-            let tmp = FileManager.default.temporaryDirectory
-                .appendingPathComponent("picked_\(UUID().uuidString).mov")
-            try data.write(to: tmp)
-            vm.load(url: tmp)
-        } catch {
-            vm.status = "加载失败: \(error.localizedDescription)"
+        } label: {
+            Image(systemName: recorder.isRecording ? "stop.fill" : "record.circle")
+                .font(.title)
+                .foregroundStyle(recorder.isRecording ? .red : .white)
+                .padding(12)
+                .background(.black.opacity(0.35), in: Circle())
         }
     }
 }
