@@ -89,14 +89,12 @@ struct VideoDriveView: View {
 
 /// 管理视频驱动下的角色（可换角色）。vm 固定把动作转发给 stage，stage 永远驱动当前角色。
 final class VideoCharStage: ObservableObject {
-    @Published private(set) var controller = CharacterSceneController()
+    let controller = CharacterSceneController()   // 单一实例，原地换模型
     private var retargeter: PoseRetargeter?
 
     func load(character: String) {
-        let c = CharacterSceneController()
-        _ = c.loadModel(named: "\(character).scn")
-        retargeter = PoseRetargeter(controller: c)
-        controller = c
+        _ = controller.loadModel(named: "\(character).scn")   // 复用场景，换模型
+        retargeter = PoseRetargeter(controller: controller)
     }
     func drive(_ world: [simd_float3]) { retargeter?.apply(world: world) }
     func resetRetarget() { retargeter?.resetCapture() }
@@ -128,7 +126,7 @@ struct CharacterMotionView: View {
                                            onAttach: { stage.resetRetarget() }, holder: holder)
                     }
                 }
-                .id("\(character)-\(arMode)")
+                .id(arMode)   // 只在屏幕/AR 切换时重建；换角色是原地换模型，不重建
 
                 Picker("", selection: $arMode) {
                     Text("屏幕").tag(false)

@@ -31,17 +31,14 @@ struct Catalog: Decodable {
 
 /// 管理当前角色 + 播放的舞蹈。
 final class DanceStage: ObservableObject {
-    @Published private(set) var controller = CharacterSceneController()
+    let controller = CharacterSceneController()   // 单一实例，原地换模型
     private var retargeter: PoseRetargeter?
     private var player: MocapPlayer?
 
     func load(character: String, dance: String) {
         player?.stop()
-        let c = CharacterSceneController()
-        _ = c.loadModel(named: "\(character).scn")
-        let rt = PoseRetargeter(controller: c)
-        retargeter = rt
-        controller = c
+        _ = controller.loadModel(named: "\(character).scn")   // 复用场景，换模型
+        retargeter = PoseRetargeter(controller: controller)
         playDance(dance)
     }
 
@@ -85,7 +82,7 @@ struct DanceStudioView: View {
                                            holder: holder)
                     }
                 }
-                .id("\(character)-\(arMode)")        // 换角色 / 切 AR 时重建视图
+                .id(arMode)   // 只在屏幕/AR 切换时重建；换角色原地换模型        // 换角色 / 切 AR 时重建视图
 
                 Picker("", selection: $arMode) {
                     Text("屏幕").tag(false)

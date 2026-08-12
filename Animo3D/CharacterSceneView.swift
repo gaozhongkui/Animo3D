@@ -8,8 +8,9 @@
 
 import SwiftUI
 import SceneKit
+import Combine
 
-final class CharacterSceneController {
+final class CharacterSceneController: ObservableObject {
 
     let scene = SCNScene()
     private(set) var boneNodes: [String: SCNNode] = [:]
@@ -17,6 +18,7 @@ final class CharacterSceneController {
     private(set) var cameraNode: SCNNode?
     private(set) var isLoaded = false
     private(set) var modelHeight: Float = 0   // 角色单位高度（AR 缩放用）
+    private var lightsAdded = false
 
     /// 把角色根节点挂回本控制器的屏幕场景（从 AR 切回时用）。
     func reattachToScreenScene() {
@@ -42,6 +44,11 @@ final class CharacterSceneController {
             return []
         }
 
+        // 复用同一场景：先移除旧角色，避免每次切换都累积角色/内存（真机切几次会卡死的根因）
+        characterRoot?.removeFromParentNode()
+        boneNodes.removeAll()
+        isLoaded = false
+
         // 不要 clone：克隆带蒙皮的节点会破坏 SCNSkinner 的骨骼引用（iOS 16 上尤其明显，
         // 表现为网格塌陷/拉成三角片）。直接使用加载出来的根节点。
         let root = loaded.rootNode
@@ -64,8 +71,7 @@ final class CharacterSceneController {
         print("[Character] 清除自带动画 keys=\(animCount)")
         normalizeOrientation(root)
         setupFrontCamera()
-
-        addLights()
+        if !lightsAdded { addLights(); lightsAdded = true }
         isLoaded = true
         print("[Character] 加载成功，发现 \(found.count) 根 Mixamo 骨骼")
         return found.sorted()
@@ -99,16 +105,17 @@ final class CharacterSceneController {
         print(String(format: "[Cam] head.y=%.2f foot.y=%.2f height=%.2f center=(%.2f,%.2f,%.2f)",
                      head.y, foot.y, height, center.x, center.y, center.z))
 
-        let cam = SCNNode()
-        cam.camera = SCNCamera()
+        // 复用已有相机（避免每次切换新增相机节点）
+        let cam = cameraNode ?? {
+            let n = SCNNode(); n.camera = SCNCamera()
+            scene.rootNode.addChildNode(n); cameraNode = n; return n
+        }()
         cam.camera?.fieldOfView = 62
         cam.camera?.zNear = Double(height) * 0.01
         cam.camera?.zFar = Double(height) * 50
         // 站在角色正前方(+Z)，拉远留出头顶/两侧余量（抬手/伸腿不被裁切）
         cam.position = SCNVector3(center.x, center.y, center.z + height * 1.9)
         cam.look(at: center)
-        cameraNode = cam
-        scene.rootNode.addChildNode(cam)
     }
 
     private func addLights() {
