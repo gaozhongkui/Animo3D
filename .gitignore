@@ -19,3 +19,6 @@ Pods/
 # Swift Package Manager
 .swiftpm/
 .build/
+.idea/misc.xml
+.idea/swift-settings.xml
+.idea/vcs.xml

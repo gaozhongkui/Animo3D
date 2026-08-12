@@ -3,39 +3,41 @@
 //  Animo3D
 //
 //  首页：主推「舞蹈工作室」+ 更多玩法 + 我的作品。
+//  功能入口以全屏(fullScreenCover)方式跳转。
 //
 
 import SwiftUI
+
+enum HomeDest: Int, Identifiable {
+    case studio, video, tripo
+    var id: Int { rawValue }
+}
 
 struct HomeView: View {
     @StateObject private var works = WorksStore.shared
     @State private var shareURL: URL?
     @State private var showShare = false
+    @State private var dest: HomeDest?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     Text("让你的角色在现实里跳舞")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
 
-                    // Hero：舞蹈工作室
-                    NavigationLink { DanceStudioView() } label: { heroCard }
-                        .buttonStyle(.plain)
+                    Button { dest = .studio } label: { heroCard }.buttonStyle(.plain)
 
-                    // 更多玩法
                     sectionHeader("更多玩法")
                     HStack(spacing: 12) {
-                        NavigationLink { VideoDriveView() } label: {
+                        Button { dest = .video } label: {
                             smallCard(icon: "video", title: "视频驱动", subtitle: "模仿视频动作 · Beta")
                         }.buttonStyle(.plain)
-                        NavigationLink { TripoGenerateView() } label: {
+                        Button { dest = .tripo } label: {
                             smallCard(icon: "wand.and.stars", title: "我的角色", subtitle: "个性化 · 照片生成 Beta")
                         }.buttonStyle(.plain)
                     }
 
-                    // 我的作品
                     sectionHeader("我的作品")
                     worksRow
                 }
@@ -45,6 +47,7 @@ struct HomeView: View {
             .sheet(isPresented: $showShare) {
                 if let url = shareURL { ShareSheet(items: [url]) }
             }
+            .fullScreenCover(item: $dest) { d in FeatureContainer(dest: d) }
             .onAppear { works.reload() }
         }
     }
@@ -85,7 +88,7 @@ struct HomeView: View {
 
     private var worksRow: some View {
         HStack(spacing: 10) {
-            NavigationLink { DanceStudioView() } label: {
+            Button { dest = .studio } label: {
                 RoundedRectangle(cornerRadius: 10)
                     .fill(Color(.secondarySystemBackground))
                     .aspectRatio(9.0/12.0, contentMode: .fit)
@@ -93,9 +96,7 @@ struct HomeView: View {
             }.buttonStyle(.plain)
 
             ForEach(works.works.prefix(2), id: \.self) { url in
-                Button {
-                    shareURL = url; showShare = true
-                } label: {
+                Button { shareURL = url; showShare = true } label: {
                     ZStack {
                         RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemBackground))
                         if let img = works.thumbnail(for: url) {
@@ -112,7 +113,6 @@ struct HomeView: View {
                 }.buttonStyle(.plain)
             }
 
-            // 补齐占位到 3 格
             ForEach(0..<max(0, 2 - works.works.count), id: \.self) { _ in
                 RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemBackground))
                     .aspectRatio(9.0/12.0, contentMode: .fit)
@@ -122,5 +122,32 @@ struct HomeView: View {
 
     private func sectionHeader(_ t: String) -> some View {
         Text(t).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+    }
+}
+
+/// 全屏功能容器：自带 NavigationStack + 可靠的关闭按钮（用 dismiss）。
+struct FeatureContainer: View {
+    let dest: HomeDest
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                switch dest {
+                case .studio: DanceStudioView()
+                case .video:  VideoDriveView()
+                case .tripo:  TripoGenerateView()
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.primary)
+                    }
+                }
+            }
+        }
     }
 }

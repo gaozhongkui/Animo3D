@@ -142,6 +142,8 @@ struct CharacterSceneView: UIViewRepresentable {
         view.allowsCameraControl = true
         view.backgroundColor = .init(white: 0.15, alpha: 1)
         view.autoenablesDefaultLighting = true
+        view.rendersContinuously = true      // 持续渲染，避免切换后画面冻结
+        view.isPlaying = true
         if let cam = controller.cameraNode { view.pointOfView = cam }
         holder?.scnView = view
         return view
