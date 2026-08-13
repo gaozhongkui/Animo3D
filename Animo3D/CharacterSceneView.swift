@@ -71,6 +71,15 @@ final class CharacterSceneController: ObservableObject {
         print("[Character] 清除自带动画 keys=\(animCount)")
         normalizeOrientation(root)
         setupFrontCamera()
+
+        // 兜底高度计算：骨骼识别失败（如 Tripo 静态网格无 Mixamo 骨骼）时，
+        // 遍历所有几何体、把各自局部包围盒的 8 个角点转换到世界坐标求真实 AABB。
+        // 直接用 root.boundingBox 不可靠：不一定含子节点，也没算导入缩放。
+        if modelHeight <= 0.01 {
+            modelHeight = worldBoundingHeight(root)
+            print(String(format: "[Character] 使用包围盒兜底高度=%.3f", modelHeight))
+        }
+
         if !lightsAdded { addLights(); lightsAdded = true }
         isLoaded = true
         print("[Character] 加载成功，发现 \(found.count) 根 Mixamo 骨骼")
@@ -116,6 +125,26 @@ final class CharacterSceneController: ObservableObject {
         // 站在角色正前方(+Z)，拉远留出头顶/两侧余量（抬手/伸腿不被裁切）
         cam.position = SCNVector3(center.x, center.y, center.z + height * 1.9)
         cam.look(at: center)
+    }
+
+    /// 世界坐标下遍历整棵子树的几何体，求 AABB 的 Y 向高度（米）。
+    /// 处理任意嵌套变换与导入缩放，适用于无骨骼的静态模型。
+    private func worldBoundingHeight(_ root: SCNNode) -> Float {
+        var lo = simd_float3(repeating: .greatestFiniteMagnitude)
+        var hi = simd_float3(repeating: -.greatestFiniteMagnitude)
+        var any = false
+        root.enumerateHierarchy { node, _ in
+            guard node.geometry != nil else { return }
+            let (a, b) = node.boundingBox
+            let xs = [Float(a.x), Float(b.x)]
+            let ys = [Float(a.y), Float(b.y)]
+            let zs = [Float(a.z), Float(b.z)]
+            for x in xs { for y in ys { for z in zs {
+                let w = node.simdConvertPosition(simd_float3(x, y, z), to: nil)
+                lo = simd_min(lo, w); hi = simd_max(hi, w); any = true
+            }}}
+        }
+        return any ? (hi.y - lo.y) : 0
     }
 
     private func addLights() {

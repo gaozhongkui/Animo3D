@@ -236,6 +236,12 @@ struct ModelDetailView: View {
                     }
             }
         }
+        .onAppear {
+            // 进入详情页即开始预加载示例 AR 模型
+            if !arController.isLoaded {
+                arController.loadModel(named: "tripo_sample.usdz")
+            }
+        }
         .sheet(isPresented: $showShare) {
             ShareSheet(items: ["发现一个非常棒的 3D 角色模型：\(model.name)", URL(string: model.viewerUrl)!])
         }

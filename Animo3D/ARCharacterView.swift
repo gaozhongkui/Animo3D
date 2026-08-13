@@ -24,6 +24,7 @@ struct ARCharacterView: UIViewRepresentable {
         let arView = ARSCNView(frame: .zero)
         arView.automaticallyUpdatesLighting = true
         arView.autoenablesDefaultLighting = true
+        arView.delegate = context.coordinator   // 检测到平面时自动放置
         context.coordinator.setup(arView)
 
         if ARWorldTrackingConfiguration.isSupported {
@@ -60,7 +61,7 @@ struct ARCharacterView: UIViewRepresentable {
         uiView.session.pause()
     }
 
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, ARSCNViewDelegate {
         private let controller: CharacterSceneController
         private let onAttach: (() -> Void)?
         private weak var arView: ARSCNView?
@@ -74,16 +75,28 @@ struct ARCharacterView: UIViewRepresentable {
 
         func setup(_ arView: ARSCNView) {
             self.arView = arView
-            guard let root = controller.characterRoot else { return }
+
+            // 先尝试触发加载逻辑
+            onAttach?()
+
+            guard let root = controller.characterRoot else {
+                print("[AR] 等待模型加载中...")
+                return
+            }
+
             root.removeFromParentNode()
             let c = SCNNode()
             let h = controller.modelHeight
-            if h > 0 { let s = 1.3 / h; c.scale = SCNVector3(s, s, s) }  // 约 1.3m 高
+            // 如果高度获取失败（比如模型未居中），给个默认缩放防止看不见
+            let s: Float = (h > 0.01) ? (1.3 / h) : 1.0
+            c.scale = SCNVector3(s, s, s)
+
             c.addChildNode(root)
-            c.isHidden = true                 // 放置前先隐藏
+            c.isHidden = true
             container = c
             arView.scene.rootNode.addChildNode(c)
-            onAttach?()
+            placed = false
+            print("[AR] 模型已准备好放置，高度: \(h), 缩放: \(s)")
         }
 
         @objc func handleTap(_ g: UITapGestureRecognizer) {
@@ -93,8 +106,21 @@ struct ARCharacterView: UIViewRepresentable {
             let query = arView.raycastQuery(from: pt, allowing: .existingPlaneGeometry, alignment: .horizontal)
                 ?? arView.raycastQuery(from: pt, allowing: .estimatedPlane, alignment: .horizontal)
             guard let q = query, let hit = arView.session.raycast(q).first else { return }
-            let t = hit.worldTransform
-            container.simdPosition = SIMD3(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+            place(at: hit.worldTransform)   // 点击可重新摆放/挪位
+        }
+
+        /// 检测到水平面时自动放置一次，省得用户不知道要点屏幕。之后仍可点击挪位。
+        func renderer(_ renderer: SCNSceneRenderer, didAdd node: SCNNode, for anchor: ARAnchor) {
+            guard !placed, anchor is ARPlaneAnchor else { return }
+            let t = anchor.transform
+            DispatchQueue.main.async { [weak self] in self?.place(at: t) }
+        }
+
+        private func place(at transform: simd_float4x4) {
+            guard let container else { return }
+            container.simdPosition = SIMD3(transform.columns.3.x,
+                                           transform.columns.3.y,
+                                           transform.columns.3.z)
             container.isHidden = false
             placed = true
         }

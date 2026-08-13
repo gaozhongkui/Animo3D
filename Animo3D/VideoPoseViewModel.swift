@@ -31,7 +31,10 @@ final class VideoPoseViewModel: ObservableObject {
     private var videoOutput: AVPlayerItemVideoOutput?
     private var displayLink: CADisplayLink?
     private var orientation: UIImage.Orientation = .up
-    private var lastTimestampMs: Int = -1
+    // MediaPipe 视频模式要求时间戳严格递增。视频循环会把播放时间拨回 0，
+    // 不能直接用播放时间当时间戳，否则循环一次后时间戳永远不再增大、检测彻底停摆。
+    // 改用独立的单调计数器，每处理一帧 +33ms（~30fps），永远递增。
+    private var monotonicMs: Int = 0
 
     init() {
         do {
@@ -88,13 +91,13 @@ final class VideoPoseViewModel: ObservableObject {
         guard let pixelBuffer = output.copyPixelBuffer(forItemTime: time,
                                                        itemTimeForDisplay: nil) else { return }
 
-        let ms = Int(CMTimeGetSeconds(time) * 1000)
-        guard ms > lastTimestampMs else { return }   // 时间戳必须递增
-        lastTimestampMs = ms
+        // 单调递增时间戳：hasNewPixelBuffer 已保证是新帧，这里只需喂一个永远变大的时间戳，
+        // 使其跨视频循环仍然递增（避免循环回 0 后被 MediaPipe 拒绝、驱动停摆）。
+        monotonicMs += 33
 
         guard let result = service.detect(pixelBuffer: pixelBuffer,
                                           orientation: orientation,
-                                          timestampMs: ms) else { return }
+                                          timestampMs: monotonicMs) else { return }
 
         if let first = result.normalized.first {
             landmarks = first.map {
