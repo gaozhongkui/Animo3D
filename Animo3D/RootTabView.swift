@@ -90,12 +90,9 @@ struct ModelCard: View {
 struct ModelDetailView: View {
     let model: SketchfabModel
     @Environment(\.dismiss) private var dismiss
-    @State private var showingStudio = false
     @State private var showShare = false
-    @State private var showToast = false
-    @State private var toastMsg = ""
 
-    // AR：下载真实模型 → 原生 AR Quick Look 展示
+    // 查看：下载真实模型 → App 内 3D/AR 一体查看器
     @State private var arLoading = false
     @State private var arError: String?
 
@@ -103,117 +100,93 @@ struct ModelDetailView: View {
         ZStack {
             Color(.systemBackground).ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                // 顶部 3D 交互预览（Sketchfab 网页播放器）
-                ZStack {
-                    if let url = URL(string: model.embedUrl) {
-                        WebView(url: url).frame(height: 420)
-                        VStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // 顶部大图 = 主查看入口：点它就进 3D/AR 一体查看器
+                    Button(action: startAR) {
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(Color(.secondarySystemBackground))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 380)
+                            .overlay {
+                                AsyncImage(url: URL(string: model.bestThumbnail ?? "")) { image in
+                                    image.resizable().scaledToFill()
+                                } placeholder: {
+                                    Image(systemName: "cube").font(.largeTitle).foregroundStyle(.tertiary)
+                                }
+                            }
+                            .overlay(alignment: .bottom) {
+                                LinearGradient(colors: [.clear, .black.opacity(0.55)],
+                                               startPoint: .center, endPoint: .bottom)
+                            }
+                            .overlay(alignment: .bottom) {
+                                HStack(spacing: 8) {
+                                    if arLoading {
+                                        ProgressView().tint(.white)
+                                        Text("正在下载模型…").font(.subheadline.weight(.semibold))
+                                    } else {
+                                        Image(systemName: "arkit").font(.title3.weight(.semibold))
+                                        Text("在 3D / AR 中查看").font(.subheadline.weight(.semibold))
+                                    }
+                                }
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 18).padding(.vertical, 12)
+                                .background(.black.opacity(0.45), in: Capsule())
+                                .padding(.bottom, 18)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                            .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(arLoading)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+
+                    // 名称 + 数据
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(model.name)
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(.primary)
+                        HStack(spacing: 12) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "heart.fill").foregroundStyle(.red)
+                                Text("\(model.likeCount.formattedAbbreviated)")
+                            }
+                            HStack(spacing: 4) {
+                                Image(systemName: "eye.fill").foregroundStyle(.secondary)
+                                Text("\(model.viewCount.formattedAbbreviated)")
+                            }
                             Spacer()
-                            Text("交互式预览中").font(.system(size: 10, weight: .bold))
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(.black.opacity(0.3), in: Capsule())
-                                .foregroundStyle(.white).padding(.bottom, 12)
+                            Text("精选资源")
+                                .font(.system(size: 12, weight: .medium))
+                                .padding(.horizontal, 8).padding(.vertical, 2)
+                                .background(Color.accentColor.opacity(0.1), in: Capsule())
+                                .foregroundStyle(Color.accentColor)
                         }
-                    } else {
-                        Rectangle().fill(Color(.secondarySystemBackground))
-                            .frame(height: 420)
-                            .overlay(Text("无法加载预览"))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
                     }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+                    .padding(.horizontal, 20)
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(model.name)
-                                .font(.system(size: 24, weight: .bold))
-                                .foregroundStyle(.primary)
-
-                            HStack(spacing: 12) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "heart.fill").foregroundStyle(.red)
-                                    Text("\(model.likeCount.formattedAbbreviated)")
-                                }
-                                HStack(spacing: 4) {
-                                    Image(systemName: "eye.fill").foregroundStyle(.secondary)
-                                    Text("\(model.viewCount.formattedAbbreviated)")
-                                }
-                                Spacer()
-                                Text("精选资源")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .padding(.horizontal, 8).padding(.vertical, 2)
-                                    .background(Color.accentColor.opacity(0.1), in: Capsule())
-                                    .foregroundStyle(Color.accentColor)
-                            }
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.secondary)
+                    // 次要操作
+                    VStack(spacing: 12) {
+                        ActionRow(icon: "square.and.arrow.up.fill", title: "分享模型", subtitle: "将这个精美角色分享给你的好友", color: .green) {
+                            showShare = true
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 16)
-
-                        VStack(spacing: 12) {
-                            ActionRow(icon: arLoading ? "arrow.down.circle" : "cube.transparent",
-                                      title: arLoading ? "正在下载模型…" : "查看 3D 模型",
-                                      subtitle: "下载真实模型，可旋转查看；支持的设备可进 AR(需可下载授权)",
-                                      color: .pink) {
-                                startAR()
-                            }
-                            .disabled(arLoading)
-
-                            ActionRow(icon: "figure.dance", title: "以此角色跳舞", subtitle: "将模型导入舞蹈工作室进行动作同步", color: .orange) {
-                                showingStudio = true
-                            }
-
-                            ActionRow(icon: "doc.on.doc.fill", title: "复制模型链接", subtitle: "复制该模型的原始访问地址到剪贴板", color: .blue) {
-                                UIPasteboard.general.string = model.viewerUrl
-                                toastMsg = "链接已复制"
-                                withAnimation { showToast = true }
-                            }
-
-                            ActionRow(icon: "square.and.arrow.up.fill", title: "分享模型", subtitle: "将这个精美角色分享给你的好友", color: .green) {
-                                showShare = true
-                            }
-
-                            ActionRow(icon: "safari.fill", title: "详情与下载", subtitle: "在浏览器中查看更多细节并获取源文件", color: .purple) {
-                                if let url = URL(string: model.viewerUrl) {
-                                    UIApplication.shared.open(url)
-                                }
+                        ActionRow(icon: "safari.fill", title: "详情与下载", subtitle: "在浏览器中查看更多细节并获取源文件", color: .purple) {
+                            if let url = URL(string: model.viewerUrl) {
+                                UIApplication.shared.open(url)
                             }
                         }
-                        .padding(.horizontal, 16)
                     }
+                    .padding(.horizontal, 16)
                 }
                 .padding(.bottom, 40)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .overlay(alignment: .bottom) {
-            if showToast {
-                Text(toastMsg)
-                    .font(.system(size: 14, weight: .medium))
-                    .padding(.horizontal, 20).padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .foregroundStyle(.white)
-                    .padding(.bottom, 50)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            withAnimation { showToast = false }
-                        }
-                    }
-            }
-        }
         .sheet(isPresented: $showShare) {
             ShareSheet(items: ["发现一个非常棒的 3D 角色模型：\(model.name)", URL(string: model.viewerUrl)!])
-        }
-        .alert("功能开发中", isPresented: $showingStudio) {
-            Button("知道了", role: .cancel) { }
-        } message: {
-            Text("我们正在优化社区模型的自动绑骨与动作驱动。敬请期待后续更新！")
         }
         .alert("无法在 AR 中打开", isPresented: .constant(arError != nil)) {
             Button("知道了", role: .cancel) { arError = nil }
