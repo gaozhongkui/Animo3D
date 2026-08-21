@@ -94,6 +94,7 @@ struct ModelDetailView: View {
 
     // 查看：下载真实模型 → App 内 3D/AR 一体查看器
     @State private var arLoading = false
+    @State private var arProgress: Double = 0
     @State private var arError: String?
 
     var body: some View {
@@ -116,23 +117,25 @@ struct ModelDetailView: View {
                                 }
                             }
                             .overlay(alignment: .bottom) {
-                                LinearGradient(colors: [.clear, .black.opacity(0.55)],
-                                               startPoint: .center, endPoint: .bottom)
+                                if !arLoading {
+                                    LinearGradient(colors: [.clear, .black.opacity(0.55)],
+                                                   startPoint: .center, endPoint: .bottom)
+                                }
                             }
                             .overlay(alignment: .bottom) {
-                                HStack(spacing: 8) {
-                                    if arLoading {
-                                        ProgressView().tint(.white)
-                                        Text("正在下载模型…").font(.subheadline.weight(.semibold))
-                                    } else {
+                                if !arLoading {
+                                    HStack(spacing: 8) {
                                         Image(systemName: "arkit").font(.title3.weight(.semibold))
                                         Text("在 3D / AR 中查看").font(.subheadline.weight(.semibold))
                                     }
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 18).padding(.vertical, 12)
+                                    .background(.black.opacity(0.45), in: Capsule())
+                                    .padding(.bottom, 18)
                                 }
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 18).padding(.vertical, 12)
-                                .background(.black.opacity(0.45), in: Capsule())
-                                .padding(.bottom, 18)
+                            }
+                            .overlay {
+                                if arLoading { DownloadOverlay(progress: arProgress) }
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                             .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
@@ -198,10 +201,13 @@ struct ModelDetailView: View {
     /// 下载该社区模型的 USDZ，然后用系统 AR Quick Look 打开。
     private func startAR() {
         guard !arLoading else { return }
+        arProgress = 0
         arLoading = true
         Task {
             do {
-                let local = try await SketchfabClient.shared.downloadUSDZ(uid: model.uid)
+                let local = try await SketchfabClient.shared.downloadUSDZ(uid: model.uid) { p in
+                    withAnimation(.easeOut(duration: 0.25)) { arProgress = p }
+                }
                 await MainActor.run {
                     arLoading = false
                     // App 内轻量 3D 预览（运行时不透明、低内存）；高内存设备预览内可再进 AR
@@ -212,6 +218,39 @@ struct ModelDetailView: View {
                     arLoading = false
                     arError = error.localizedDescription
                 }
+            }
+        }
+    }
+}
+
+/// 友好的下载中覆盖层：磨砂遮罩 + 圆环进度 + 百分比 + 文案。
+struct DownloadOverlay: View {
+    let progress: Double   // 0…1
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial)
+            Color.black.opacity(0.25)
+
+            VStack(spacing: 16) {
+                ZStack {
+                    Circle()
+                        .stroke(Color.white.opacity(0.25), lineWidth: 6)
+                    Circle()
+                        .trim(from: 0, to: max(0.001, progress))
+                        .stroke(Color.white, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Image(systemName: "arkit")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 84, height: 84)
+
+                VStack(spacing: 4) {
+                    Text("正在准备 3D 模型").font(.subheadline.weight(.semibold))
+                    Text("\(Int(progress * 100))%").font(.title3.weight(.bold).monospacedDigit())
+                }
+                .foregroundStyle(.white)
             }
         }
     }

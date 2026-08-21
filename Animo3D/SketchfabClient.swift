@@ -102,20 +102,27 @@ final class SketchfabClient {
     }
 
     /// 下载 USDZ 到缓存目录（按 uid 命名，已存在则直接复用）。返回本地文件 URL。
-    func downloadUSDZ(uid: String) async throws -> URL {
+    /// onProgress 回调 0…1 的下载进度（主线程），用于展示进度条。
+    func downloadUSDZ(uid: String, onProgress: ((Double) -> Void)? = nil) async throws -> URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let dir = caches.appendingPathComponent("sketchfab_usdz", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let dest = dir.appendingPathComponent("\(uid).usdz")
-        if FileManager.default.fileExists(atPath: dest.path) { return dest }
+        if FileManager.default.fileExists(atPath: dest.path) {
+            onProgress?(1)
+            return dest
+        }
 
         let remote = try await fetchUSDZURL(uid: uid)
-        // 用 data(from:) 取字节后自己写盘（专用 dlSession 绕过系统代理，避免连接卡住）。
-        let (data, response) = try await dlSession.data(from: remote)
+        // 用带进度的下载任务（专用 dlSession 绕过系统代理，避免连接卡住）。
+        let req = URLRequest(url: remote)
+        let delegate = onProgress.map { DownloadProgressDelegate(onProgress: $0) }
+        let (tmp, response) = try await dlSession.download(for: req, delegate: delegate)
         let code = (response as? HTTPURLResponse)?.statusCode ?? -1
         guard (200...299).contains(code) else { throw SketchfabError.httpError(code) }
         try? FileManager.default.removeItem(at: dest)
-        try data.write(to: dest)
+        try FileManager.default.moveItem(at: tmp, to: dest)
+        onProgress?(1)
         return dest
     }
 
@@ -140,4 +147,23 @@ final class SketchfabClient {
         // Sketchfab API 使用 camelCase，不需要转换
         return try decoder.decode(SketchfabResponse.self, from: data)
     }
+}
+
+/// 下载进度代理：把 0…1 进度回调到主线程（用于进度条）。
+private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
+    private let onProgress: (Double) -> Void
+    init(onProgress: @escaping (Double) -> Void) { self.onProgress = onProgress }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64,
+                    totalBytesExpectedToWrite: Int64) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        let p = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        DispatchQueue.main.async { self.onProgress(min(max(p, 0), 1)) }
+    }
+
+    // 使用 async download(for:delegate:) 时文件由系统 API 返回，这里无需处理落地。
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didFinishDownloadingTo location: URL) {}
 }
