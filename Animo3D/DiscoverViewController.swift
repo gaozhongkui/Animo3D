@@ -12,6 +12,7 @@ final class DiscoverViewController: UIViewController {
     private var collectionView: UICollectionView!
     private var activityIndicator: UIActivityIndicatorView!
     private let refreshControl = UIRefreshControl()
+    private let bottomLoader = UIActivityIndicatorView(style: .medium)
 
     private var nextUrl: String?
     private var isFetching = false
@@ -25,7 +26,18 @@ final class DiscoverViewController: UIViewController {
         view.backgroundColor = .systemBackground
         setupCollectionView()
         setupActivityIndicator()
+        setupBottomLoader()
         loadInitialData()
+    }
+
+    private func setupBottomLoader() {
+        bottomLoader.hidesWhenStopped = true
+        bottomLoader.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bottomLoader)
+        NSLayoutConstraint.activate([
+            bottomLoader.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            bottomLoader.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
+        ])
     }
 
     private func setupCollectionView() {
@@ -94,15 +106,18 @@ final class DiscoverViewController: UIViewController {
         guard !isFetching else { return }
         isFetching = true
 
+        let requestingNext = nextUrl
         if models.isEmpty && !isRefreshing {
             activityIndicator.startAnimating()
+        } else if requestingNext != nil {
+            bottomLoader.startAnimating()   // 加载下一页：底部转圈，让用户看到在加载
         }
 
         Task {
             do {
-                let resp = try await SketchfabClient.shared.fetchModels(query: currentQuery, nextUrl: nextUrl)
+                let resp = try await SketchfabClient.shared.fetchModels(query: currentQuery, nextUrl: requestingNext)
                 await MainActor.run {
-                    if self.nextUrl == nil {
+                    if requestingNext == nil {
                         self.models = resp.results
                     } else {
                         self.models.append(contentsOf: resp.results)
@@ -110,6 +125,7 @@ final class DiscoverViewController: UIViewController {
                     self.nextUrl = resp.next
                     self.collectionView.reloadData()
                     self.activityIndicator.stopAnimating()
+                    self.bottomLoader.stopAnimating()
                     self.refreshControl.endRefreshing()
                     self.isFetching = false
                 }
@@ -117,6 +133,7 @@ final class DiscoverViewController: UIViewController {
                 print("Fetch error: \(error)")
                 await MainActor.run {
                     self.activityIndicator.stopAnimating()
+                    self.bottomLoader.stopAnimating()
                     self.refreshControl.endRefreshing()
                     self.isFetching = false
                 }
@@ -145,7 +162,8 @@ extension DiscoverViewController: UICollectionViewDataSource, UICollectionViewDe
         let contentHeight = scrollView.contentSize.height
         let frameHeight = scrollView.frame.size.height
 
-        if offsetY > contentHeight - frameHeight * 1.5, nextUrl != nil {
+        // 提前 2.5 屏预加载，让翻页更顺滑（原来只在最底部才触发，像"加载不出"）
+        if offsetY > contentHeight - frameHeight * 2.5, nextUrl != nil, !isFetching {
             fetchPage()
         }
     }
