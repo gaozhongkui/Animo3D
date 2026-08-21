@@ -41,9 +41,83 @@ struct SketchfabResponse: Codable {
     let next: String?
 }
 
+/// 下载接口返回的各格式条目。
+private struct SketchfabDownload: Codable {
+    struct Entry: Codable { let url: String; let size: Int }
+    let usdz: Entry?
+    let glb: Entry?
+    let gltf: Entry?
+}
+
+enum SketchfabError: LocalizedError {
+    case notDownloadable
+    case noUSDZ
+    case rateLimited
+    case httpError(Int)
+    var errorDescription: String? {
+        switch self {
+        case .notDownloadable: return "该模型不可下载（作者未开放或授权不允许）"
+        case .noUSDZ:          return "该模型没有可用的 AR(USDZ)格式"
+        case .rateLimited:     return "请求过于频繁，请稍等几秒再试"
+        case .httpError(let c): return "请求失败（\(c)）"
+        }
+    }
+}
+
 final class SketchfabClient {
     static let shared = SketchfabClient()
     private let session = URLSession.shared
+
+    // 专用于大文件下载：绕过系统代理（sing-box 等）直连，带超时，避免连接卡住。
+    private lazy var dlSession: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.connectionProxyDictionary = [:]
+        cfg.timeoutIntervalForRequest = 60
+        cfg.timeoutIntervalForResource = 180
+        cfg.waitsForConnectivity = true
+        return URLSession(configuration: cfg)
+    }()
+
+    // 内置 API Token（base64，仅做简单遮挡，非加密）。
+    private var apiToken: String {
+        let b64 = "MzZmOGNlNDIwNmQ5NDk5OWEyNmI3MzIxZWM2NDBkMDU="
+        return String(data: Data(base64Encoded: b64) ?? Data(), encoding: .utf8) ?? ""
+    }
+
+    /// 取模型的 USDZ 临时下载地址（下载接口需鉴权；链接约 5 分钟后过期，需即取即用）。
+    func fetchUSDZURL(uid: String) async throws -> URL {
+        guard let ep = URL(string: "https://api.sketchfab.com/v3/models/\(uid)/download") else {
+            throw SketchfabError.httpError(-2)
+        }
+        var req = URLRequest(url: ep)
+        req.setValue("Token \(apiToken)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await session.data(for: req)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+        if code == 403 || code == 404 { throw SketchfabError.notDownloadable }
+        if code == 429 { throw SketchfabError.rateLimited }
+        guard (200...299).contains(code) else { throw SketchfabError.httpError(code) }
+        let dl = try JSONDecoder().decode(SketchfabDownload.self, from: data)
+        guard let usdz = dl.usdz, let url = URL(string: usdz.url) else { throw SketchfabError.noUSDZ }
+        return url
+    }
+
+    /// 下载 USDZ 到缓存目录（按 uid 命名，已存在则直接复用）。返回本地文件 URL。
+    func downloadUSDZ(uid: String) async throws -> URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dir = caches.appendingPathComponent("sketchfab_usdz", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dest = dir.appendingPathComponent("\(uid).usdz")
+        if FileManager.default.fileExists(atPath: dest.path) { return dest }
+
+        let remote = try await fetchUSDZURL(uid: uid)
+        // 用 data(from:) 取字节后自己写盘（专用 dlSession 绕过系统代理，避免连接卡住）。
+        let (data, response) = try await dlSession.data(from: remote)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard (200...299).contains(code) else { throw SketchfabError.httpError(code) }
+        try? FileManager.default.removeItem(at: dest)
+        try data.write(to: dest)
+        return dest
+    }
 
     func fetchModels(query: String? = nil, nextUrl: String? = nil) async throws -> SketchfabResponse {
         var urlString = nextUrl ?? "https://api.sketchfab.com/v3/models?type=models&downloadable=true&sort_by=-likeCount"

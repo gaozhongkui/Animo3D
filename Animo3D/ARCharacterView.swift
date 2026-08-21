@@ -15,9 +15,11 @@ struct ARCharacterView: UIViewRepresentable {
     let controller: CharacterSceneController
     var onAttach: (() -> Void)? = nil
     var holder: SceneHolder? = nil
+    /// true=扫地面后落到地板；false=不做地面检测，直接摆到镜头正前方（快速验证用）。
+    var detectGround: Bool = true
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(controller: controller, onAttach: onAttach)
+        Coordinator(controller: controller, onAttach: onAttach, detectGround: detectGround)
     }
 
     func makeUIView(context: Context) -> ARSCNView {
@@ -29,27 +31,29 @@ struct ARCharacterView: UIViewRepresentable {
 
         if ARWorldTrackingConfiguration.isSupported {
             let config = ARWorldTrackingConfiguration()
-            config.planeDetection = [.horizontal]
+            config.planeDetection = detectGround ? [.horizontal] : []
             arView.session.run(config)
 
-            // 找地面的引导蒙层
-            let coaching = ARCoachingOverlayView()
-            coaching.session = arView.session
-            coaching.goal = .horizontalPlane
-            coaching.activatesAutomatically = true
-            coaching.translatesAutoresizingMaskIntoConstraints = false
-            arView.addSubview(coaching)
-            NSLayoutConstraint.activate([
-                coaching.topAnchor.constraint(equalTo: arView.topAnchor),
-                coaching.bottomAnchor.constraint(equalTo: arView.bottomAnchor),
-                coaching.leadingAnchor.constraint(equalTo: arView.leadingAnchor),
-                coaching.trailingAnchor.constraint(equalTo: arView.trailingAnchor),
-            ])
+            if detectGround {
+                // 找地面的引导蒙层
+                let coaching = ARCoachingOverlayView()
+                coaching.session = arView.session
+                coaching.goal = .horizontalPlane
+                coaching.activatesAutomatically = true
+                coaching.translatesAutoresizingMaskIntoConstraints = false
+                arView.addSubview(coaching)
+                NSLayoutConstraint.activate([
+                    coaching.topAnchor.constraint(equalTo: arView.topAnchor),
+                    coaching.bottomAnchor.constraint(equalTo: arView.bottomAnchor),
+                    coaching.leadingAnchor.constraint(equalTo: arView.leadingAnchor),
+                    coaching.trailingAnchor.constraint(equalTo: arView.trailingAnchor),
+                ])
 
-            // 点击地面放置
-            let tap = UITapGestureRecognizer(target: context.coordinator,
-                                             action: #selector(Coordinator.handleTap(_:)))
-            arView.addGestureRecognizer(tap)
+                // 点击地面放置
+                let tap = UITapGestureRecognizer(target: context.coordinator,
+                                                 action: #selector(Coordinator.handleTap(_:)))
+                arView.addGestureRecognizer(tap)
+            }
         }
         holder?.scnView = arView
         return arView
@@ -64,13 +68,15 @@ struct ARCharacterView: UIViewRepresentable {
     final class Coordinator: NSObject, ARSCNViewDelegate {
         private let controller: CharacterSceneController
         private let onAttach: (() -> Void)?
+        private let detectGround: Bool
         private weak var arView: ARSCNView?
         private var container: SCNNode?      // 承载角色：缩放 + 摆到地面
         private(set) var placed = false
 
-        init(controller: CharacterSceneController, onAttach: (() -> Void)?) {
+        init(controller: CharacterSceneController, onAttach: (() -> Void)?, detectGround: Bool) {
             self.controller = controller
             self.onAttach = onAttach
+            self.detectGround = detectGround
         }
 
         func setup(_ arView: ARSCNView) {
@@ -92,11 +98,40 @@ struct ARCharacterView: UIViewRepresentable {
             c.scale = SCNVector3(s, s, s)
 
             c.addChildNode(root)
-            c.isHidden = true
+            // 让模型底部落在容器原点：放置到平面时是“脚踩地”，而非中心埋进地板。
+            let minY = lowestY(of: root, in: c)
+            if minY.isFinite { root.simdPosition.y -= minY }
             container = c
             arView.scene.rootNode.addChildNode(c)
-            placed = false
-            print("[AR] 模型已准备好放置，高度: \(h), 缩放: \(s)")
+
+            if detectGround {
+                c.isHidden = true          // 等扫到地面/点击后再显示
+                placed = false
+            } else {
+                // 不做地面检测：直接摆到镜头正前方 1.6m、略低于视线，立即可见。
+                c.simdPosition = simd_float3(0, -0.8, -1.6)
+                c.isHidden = false
+                placed = true
+            }
+            print("[AR] 模型已准备, 高度=\(h) 缩放=\(s) 落地偏移=\(minY) 地面检测=\(detectGround)")
+        }
+
+        /// 在容器 c 的局部坐标系里，求整棵子树几何体的最低 Y（用于落地偏移）。
+        private func lowestY(of root: SCNNode, in c: SCNNode) -> Float {
+            var minY = Float.greatestFiniteMagnitude
+            root.enumerateHierarchy { node, _ in
+                guard node.geometry != nil else { return }
+                let (a, b) = node.boundingBox
+                for x in [Float(a.x), Float(b.x)] {
+                    for y in [Float(a.y), Float(b.y)] {
+                        for z in [Float(a.z), Float(b.z)] {
+                            let p = node.simdConvertPosition(simd_float3(x, y, z), to: c)
+                            minY = min(minY, p.y)
+                        }
+                    }
+                }
+            }
+            return minY
         }
 
         @objc func handleTap(_ g: UITapGestureRecognizer) {

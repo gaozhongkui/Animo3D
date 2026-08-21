@@ -94,77 +94,40 @@ struct ModelDetailView: View {
     @State private var showShare = false
     @State private var showToast = false
     @State private var toastMsg = ""
-    @State private var arMode = false
 
-    @StateObject private var arController = CharacterSceneController()
-    @StateObject private var holder = SceneHolder()
+    // AR：下载真实模型 → 原生 AR Quick Look 展示
+    @State private var arLoading = false
+    @State private var arError: String?
 
     var body: some View {
         ZStack {
             Color(.systemBackground).ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // 顶部预览/AR 切换区
-                ZStack(alignment: .top) {
-                    if arMode {
-                        ARCharacterView(controller: arController, onAttach: {
-                            if !arController.isLoaded {
-                                arController.loadModel(named: "tripo_sample.usdz")
-                            }
-                        }, holder: holder)
-                        .background(Color.black)
-                        .frame(height: 420)
-                    } else {
-                        if let url = URL(string: model.embedUrl) {
-                            ZStack {
-                                WebView(url: url)
-                                    .frame(height: 420)
-
-                                // 微弱的遮罩提示
-                                VStack {
-                                    Spacer()
-                                    Text("交互式预览中").font(.system(size: 10, weight: .bold))
-                                        .padding(.horizontal, 8).padding(.vertical, 4)
-                                        .background(.black.opacity(0.3), in: Capsule())
-                                        .foregroundStyle(.white).padding(.bottom, 12)
-                                }
-                            }
-                        } else {
-                            Rectangle().fill(Color(.secondarySystemBackground))
-                                .frame(height: 420)
-                                .overlay(Text("无法加载预览"))
+                // 顶部 3D 交互预览（Sketchfab 网页播放器）
+                ZStack {
+                    if let url = URL(string: model.embedUrl) {
+                        WebView(url: url).frame(height: 420)
+                        VStack {
+                            Spacer()
+                            Text("交互式预览中").font(.system(size: 10, weight: .bold))
+                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                .background(.black.opacity(0.3), in: Capsule())
+                                .foregroundStyle(.white).padding(.bottom, 12)
                         }
+                    } else {
+                        Rectangle().fill(Color(.secondarySystemBackground))
+                            .frame(height: 420)
+                            .overlay(Text("无法加载预览"))
                     }
-
-                    Picker("", selection: $arMode) {
-                        Text("3D 视角").tag(false)
-                        Text("AR 模式").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 180)
-                    .padding(.top, 12)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: arMode ? 0 : 24, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
-                .padding(.horizontal, arMode ? 0 : 16)
-                .padding(.top, arMode ? 0 : 8)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
-                        if arMode {
-                            HStack(spacing: 8) {
-                                Image(systemName: "hand.tap.fill")
-                                Text("移动手机寻找平面，点击即可放置模型")
-                            }
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.orange)
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 16)
-                            .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-                            .padding(.horizontal)
-                            .padding(.top, 16)
-                        }
-
                         VStack(alignment: .leading, spacing: 6) {
                             Text(model.name)
                                 .font(.system(size: 24, weight: .bold))
@@ -190,9 +153,17 @@ struct ModelDetailView: View {
                             .foregroundStyle(.secondary)
                         }
                         .padding(.horizontal, 20)
-                        .padding(.top, arMode ? 0 : 16)
+                        .padding(.top, 16)
 
                         VStack(spacing: 12) {
+                            ActionRow(icon: arLoading ? "arrow.down.circle" : "cube.transparent",
+                                      title: arLoading ? "正在下载模型…" : "查看 3D 模型",
+                                      subtitle: "下载真实模型，可旋转查看；支持的设备可进 AR(需可下载授权)",
+                                      color: .pink) {
+                                startAR()
+                            }
+                            .disabled(arLoading)
+
                             ActionRow(icon: "figure.dance", title: "以此角色跳舞", subtitle: "将模型导入舞蹈工作室进行动作同步", color: .orange) {
                                 showingStudio = true
                             }
@@ -236,19 +207,39 @@ struct ModelDetailView: View {
                     }
             }
         }
-        .onAppear {
-            // 进入详情页即开始预加载示例 AR 模型
-            if !arController.isLoaded {
-                arController.loadModel(named: "tripo_sample.usdz")
-            }
-        }
         .sheet(isPresented: $showShare) {
             ShareSheet(items: ["发现一个非常棒的 3D 角色模型：\(model.name)", URL(string: model.viewerUrl)!])
         }
         .alert("功能开发中", isPresented: $showingStudio) {
             Button("知道了", role: .cancel) { }
         } message: {
-            Text("我们正在优化社区模型的自动下载与绑定技术。目前 AR 模式下显示的是示例预览模型，敬请期待后续更新！")
+            Text("我们正在优化社区模型的自动绑骨与动作驱动。敬请期待后续更新！")
+        }
+        .alert("无法在 AR 中打开", isPresented: .constant(arError != nil)) {
+            Button("知道了", role: .cancel) { arError = nil }
+        } message: {
+            Text(arError ?? "")
+        }
+    }
+
+    /// 下载该社区模型的 USDZ，然后用系统 AR Quick Look 打开。
+    private func startAR() {
+        guard !arLoading else { return }
+        arLoading = true
+        Task {
+            do {
+                let local = try await SketchfabClient.shared.downloadUSDZ(uid: model.uid)
+                await MainActor.run {
+                    arLoading = false
+                    // App 内轻量 3D 预览（运行时不透明、低内存）；高内存设备预览内可再进 AR
+                    ARQuickLookPresenter.shared.presentPreview(url: local, title: model.name)
+                }
+            } catch {
+                await MainActor.run {
+                    arLoading = false
+                    arError = error.localizedDescription
+                }
+            }
         }
     }
 }
