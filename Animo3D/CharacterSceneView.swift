@@ -19,6 +19,7 @@ final class CharacterSceneController: ObservableObject {
     private(set) var isLoaded = false
     private(set) var modelHeight: Float = 0   // 角色单位高度（AR 缩放用）
     private(set) var scheme: BoneScheme = .mixamo   // 骨骼命名方案（Mixamo / VRM）
+    var groundEnabled = false   // 仅表演大画面开启地面+俯视;缩略图/小卡片关闭
     private var lightsAdded = false
 
     /// 把角色根节点挂回本控制器的屏幕场景（从 AR 切回时用）。
@@ -85,9 +86,39 @@ final class CharacterSceneController: ObservableObject {
         }
 
         if !lightsAdded { addLights(); lightsAdded = true }
+        setupGround(root)
         isLoaded = true
         print("[Character] 加载成功，发现 \(found.count) 根 Mixamo 骨骼")
         return found.sorted()
+    }
+
+    private var floorNode: SCNNode?
+    private var feetY: Float = 0
+
+    /// 地面：一块与背景底色相近的地板,承接角色投下的真实阴影(随动作变化)。
+    private func setupGround(_ root: SCNNode) {
+        guard groundEnabled else { floorNode?.removeFromParentNode(); floorNode = nil; return }
+        // 脚底世界 Y
+        var minY = Float.greatestFiniteMagnitude
+        root.enumerateHierarchy { node, _ in
+            guard node.geometry != nil else { return }
+            let (a, b) = node.boundingBox
+            for x in [Float(a.x), Float(b.x)] { for y in [Float(a.y), Float(b.y)] { for z in [Float(a.z), Float(b.z)] {
+                minY = min(minY, node.simdConvertPosition(simd_float3(x, y, z), to: nil).y)
+            }}}
+        }
+        guard minY.isFinite else { return }
+        feetY = minY
+
+        floorNode?.removeFromParentNode()
+        let floor = SCNFloor()
+        floor.reflectivity = 0
+        floor.firstMaterial?.diffuse.contents = UIColor(red: 0.10, green: 0.10, blue: 0.15, alpha: 1) // 近背景底色
+        floor.firstMaterial?.lightingModel = .lambert
+        let node = SCNNode(geometry: floor)
+        node.simdPosition = simd_float3(0, minY, 0)
+        scene.rootNode.addChildNode(node)
+        floorNode = node
     }
 
     /// 用骨骼位置算出角色实际的 上/左/前 三轴，强制把根节点旋正为 Y-up、面朝 +Z。
@@ -123,12 +154,19 @@ final class CharacterSceneController: ObservableObject {
             let n = SCNNode(); n.camera = SCNCamera()
             scene.rootNode.addChildNode(n); cameraNode = n; return n
         }()
-        cam.camera?.fieldOfView = 62
         cam.camera?.zNear = Double(height) * 0.01
         cam.camera?.zFar = Double(height) * 50
-        // 站在角色正前方(+Z)，拉远留出头顶/两侧余量（抬手/伸腿不被裁切）
-        cam.position = SCNVector3(center.x, center.y, center.z + height * 1.9)
-        cam.look(at: center)
+        if groundEnabled {
+            // 表演大画面：略微俯视,让脚下地面与影子可见,像站在地上
+            cam.camera?.fieldOfView = 60
+            cam.position = SCNVector3(center.x, foot.y + height * 1.05, center.z + height * 2.15)
+            cam.look(at: SCNVector3(center.x, foot.y + height * 0.5, center.z))
+        } else {
+            // 缩略图/卡片：正面平视,居中框全身
+            cam.camera?.fieldOfView = 62
+            cam.position = SCNVector3(center.x, center.y, center.z + height * 1.9)
+            cam.look(at: center)
+        }
     }
 
     /// 世界坐标下遍历整棵子树的几何体，求 AABB 的 Y 向高度（米）。
@@ -159,8 +197,20 @@ final class CharacterSceneController: ObservableObject {
 
         let ambient = SCNNode()
         ambient.light = SCNLight(); ambient.light?.type = .ambient
-        ambient.light?.intensity = 400
+        ambient.light?.intensity = 500
         scene.rootNode.addChildNode(ambient)
+
+        // 从上前方打下的方向光，投出随动作变化的真实软阴影
+        let sun = SCNNode()
+        let l = SCNLight(); l.type = .directional
+        l.castsShadow = true
+        l.shadowMode = .deferred
+        l.shadowColor = UIColor(white: 0, alpha: 0.45)
+        l.shadowRadius = 8
+        l.shadowSampleCount = 16
+        sun.light = l
+        sun.eulerAngles = SCNVector3(-Float.pi / 2.6, Float.pi / 10, 0)
+        scene.rootNode.addChildNode(sun)
     }
 }
 

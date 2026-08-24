@@ -31,7 +31,11 @@ struct Catalog: Decodable {
 
 /// 管理当前角色 + 播放的舞蹈。
 final class DanceStage: ObservableObject {
-    let controller = CharacterSceneController()   // 单一实例，原地换模型
+    let controller: CharacterSceneController = {
+        let c = CharacterSceneController()
+        c.groundEnabled = true   // 表演页显示地面+阴影
+        return c
+    }()
     private var retargeter: PoseRetargeter?
     private var player: MocapPlayer?
 
@@ -68,6 +72,8 @@ struct DanceStudioView: View {
     @StateObject private var holder = SceneHolder()
     @StateObject private var music = MusicController()
     @StateObject private var localMusic = LocalMusicStore.shared
+    @ObservedObject private var pro = ProStore.shared
+    @State private var showPaywall = false
 
     enum Step: Int, CaseIterable { case character, dance, music, perform }
     @State private var step: Step = .character
@@ -281,11 +287,13 @@ struct DanceStudioView: View {
             if recorder.isRecording {
                 recorder.stop { url in
                     guard let url else { return }
-                    if let track = selectedMusic {
-                        // 有背景音乐 → 合成进视频再保存
+                    let watermark = !ProStore.shared.isPro
+                    // 有音乐 或 需要水印 → 走导出;否则直接保存
+                    if selectedMusic != nil || watermark {
                         processing = true
                         Task {
-                            let final = await VideoAudioMixer.mix(video: url, audio: track.url) ?? url
+                            let final = await VideoAudioMixer.export(video: url, audio: selectedMusic?.url,
+                                                                     watermark: watermark) ?? url
                             await MainActor.run {
                                 processing = false
                                 if let saved = WorksStore.shared.add(from: final) { shareURL = saved; showShare = true }
