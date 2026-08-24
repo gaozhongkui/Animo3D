@@ -20,6 +20,7 @@ final class CharacterSceneController: ObservableObject {
     private(set) var modelHeight: Float = 0   // 角色单位高度（AR 缩放用）
     private(set) var scheme: BoneScheme = .mixamo   // 骨骼命名方案（Mixamo / VRM）
     var groundEnabled = false   // 仅表演大画面开启地面+俯视;缩略图/小卡片关闭
+    var portraitMode = false    // 静态展示(缩略图/角色详情):摆 A-pose,避开 SceneKit 在 T 绑定姿势下的蒙皮塌陷
     private var lightsAdded = false
 
     /// 把角色根节点挂回本控制器的屏幕场景（从 AR 切回时用）。
@@ -74,6 +75,7 @@ final class CharacterSceneController: ObservableObject {
         // 按骨骼命名判定方案：VRoid(VRM) 用 J_Bip_ 前缀，否则按 Mixamo
         scheme = (boneNodes["J_Bip_C_Hips"] != nil) ? .vrm : .mixamo
         print("[Character] 骨骼方案: \(boneNodes["J_Bip_C_Hips"] != nil ? "VRM" : "Mixamo")")
+        if portraitMode { applyPortraitPose() }
         normalizeOrientation(root)
         setupFrontCamera()
 
@@ -164,6 +166,22 @@ final class CharacterSceneController: ObservableObject {
 
     /// 用骨骼位置算出角色实际的 上/左/前 三轴，强制把根节点旋正为 Y-up、面朝 +Z。
     /// 不依赖 USD 的 upAxis 元数据（该模型元数据不可信）。
+    /// 静态肖像姿势：仅 VRM(VRoid) 需要。手臂放下成 A 字,并轻微扰动躯干链,
+    /// 让 SceneKit 重新求值蒙皮——否则这些骨架在 T 绑定姿势下会塌陷(手臂成片、头飘)。
+    /// 跳舞路径不调用(重定向器会自行驱动骨骼)。
+    private func applyPortraitPose() {
+        guard boneNodes["J_Bip_C_Hips"] != nil else { return }   // 仅 VRM
+        rotateBone(scheme.leftArm,  angle:  1.0, axis: simd_float3(0, 0, 1))
+        rotateBone(scheme.rightArm, angle: -1.0, axis: simd_float3(0, 0, 1))
+        rotateBone(scheme.spine,    angle: 0.03, axis: simd_float3(1, 0, 0))
+        rotateBone(scheme.head,     angle: 0.03, axis: simd_float3(1, 0, 0))
+    }
+
+    private func rotateBone(_ name: String, angle: Float, axis: simd_float3) {
+        guard let b = boneNodes[name] else { return }
+        b.simdOrientation = simd_mul(b.simdOrientation, simd_quatf(angle: angle, axis: axis))
+    }
+
     private func normalizeOrientation(_ root: SCNNode) {
         guard let hips = boneNodes[scheme.hips]?.simdWorldPosition,
               let head = boneNodes[scheme.head]?.simdWorldPosition,

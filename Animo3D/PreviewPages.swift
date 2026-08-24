@@ -58,6 +58,7 @@ final class PreviewStage: ObservableObject {
     func ensure(model: String, dance: String?) {
         guard !loaded else { return }
         loaded = true
+        if dance == nil { controller.portraitMode = true }   // 角色静态详情:摆 A-pose
         _ = controller.loadModel(named: model)
         guard let dance else { return }
         let rt = PoseRetargeter(controller: controller); retargeter = rt

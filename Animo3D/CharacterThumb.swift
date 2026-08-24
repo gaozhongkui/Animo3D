@@ -32,6 +32,7 @@ enum CharacterThumb {
     /// 离屏渲染一个角色的正面全身缩略图。较重，应在后台调用。
     static func render(_ key: String, size: CGSize = CGSize(width: 360, height: 460)) -> UIImage? {
         let controller = CharacterSceneController()
+        controller.portraitMode = true   // 静态缩略图:摆 A-pose,避开 VRoid 在 T 绑定下的塌陷
         _ = controller.loadModel(named: characterModelFile(key))
         guard controller.isLoaded, let cam = controller.cameraNode,
               let device = MTLCreateSystemDefaultDevice() else { return nil }
