@@ -180,7 +180,9 @@ struct CharacterSceneView: UIViewRepresentable {
         let view = SCNView()
         view.scene = controller.scene
         view.allowsCameraControl = true
-        view.backgroundColor = .init(white: 0.15, alpha: 1)
+        // 渐变"舞台"背景，比纯色好看（AR 模式用相机画面，不受影响）
+        controller.scene.background.contents = Self.studioBackdrop()
+        view.backgroundColor = .clear
         view.autoenablesDefaultLighting = true
         view.rendersContinuously = true      // 持续渲染，避免切换后画面冻结
         view.isPlaying = true
@@ -191,5 +193,27 @@ struct CharacterSceneView: UIViewRepresentable {
 
     func updateUIView(_ uiView: SCNView, context: Context) {
         if let cam = controller.cameraNode { uiView.pointOfView = cam }
+    }
+
+    /// 生成一张竖向渐变 + 底部聚光的"舞台"背景图。
+    private static func studioBackdrop() -> UIImage {
+        let size = CGSize(width: 300, height: 650)
+        return UIGraphicsImageRenderer(size: size).image { ctx in
+            let c = ctx.cgContext
+            // 竖向渐变：顶部偏冷紫 → 底部近黑
+            let colors = [UIColor(red: 0.22, green: 0.20, blue: 0.32, alpha: 1).cgColor,
+                          UIColor(red: 0.11, green: 0.10, blue: 0.16, alpha: 1).cgColor,
+                          UIColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 1).cgColor]
+            let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray,
+                               locations: [0, 0.55, 1])!
+            c.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+            // 底部中心一圈柔光，像舞台聚光
+            let glow = [UIColor.white.withAlphaComponent(0.10).cgColor, UIColor.clear.cgColor]
+            let rg = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: glow as CFArray, locations: [0, 1])!
+            c.drawRadialGradient(rg,
+                                 startCenter: CGPoint(x: size.width/2, y: size.height*0.78), startRadius: 0,
+                                 endCenter: CGPoint(x: size.width/2, y: size.height*0.78), endRadius: size.width*0.7,
+                                 options: [])
+        }
     }
 }

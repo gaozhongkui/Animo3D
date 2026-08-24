@@ -35,26 +35,18 @@ struct ModelPreviewView: View {
 
             // 顶部栏：关闭 + 标题 +（可选）AR
             HStack {
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark").font(.body.weight(.semibold))
-                        .foregroundStyle(.white).padding(10)
-                        .background(.black.opacity(0.5), in: Circle())
-                }
+                CircleButton(system: "xmark") { dismiss() }
                 Spacer()
                 Text(title).font(.subheadline.weight(.medium)).foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer()
                 if let onOpenAR {
-                    Button { onOpenAR() } label: {
-                        Image(systemName: "arkit").font(.body.weight(.semibold))
-                            .foregroundStyle(.white).padding(10)
-                            .background(.black.opacity(0.5), in: Circle())
-                    }
+                    CircleButton(system: "arkit", action: onOpenAR)
                 } else {
-                    Color.clear.frame(width: 44, height: 44)
+                    Color.clear.frame(width: 38, height: 38)
                 }
             }
-            .padding(.horizontal, 16).padding(.top, 12)
+            .padding(.horizontal, 12).padding(.top, 6)
         }
         .task { load() }
     }

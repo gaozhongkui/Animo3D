@@ -12,9 +12,9 @@ struct RootTabView: View {
     var body: some View {
         TabView {
             HomeView()
-                .tabItem { Label("首页", systemImage: "house") }
-            DiscoverView()
-                .tabItem { Label("发现", systemImage: "safari") }
+                .tabItem { Label("创作", systemImage: "sparkles") }
+            CharactersView()
+                .tabItem { Label("角色", systemImage: "person.3") }
             ProfileView()
                 .tabItem { Label("我的", systemImage: "person") }
         }
@@ -26,29 +26,33 @@ struct DiscoverView: View {
     @State private var selectedModel: SketchfabModel?
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            // 自带搜索框（不再用 NavigationStack，避免顶部空出一条导航栏）
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("搜索 3D 模型", text: $searchText)
+                    .textInputAutocapitalization(.never)
+                    .submitLabel(.search)
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(Color(.secondarySystemBackground), in: Capsule())
+            .padding(.horizontal).padding(.bottom, 8)
+
             DiscoverViewControllerRepresentable(searchText: $searchText) { model in
                 self.selectedModel = model
             }
-            .navigationTitle("社区发现")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索 3D 模型")
-            .fullScreenCover(item: $selectedModel) { model in
-                NavigationStack {
-                    ModelDetailView(model: model)
-                        .toolbar {
-                            ToolbarItem(placement: .topBarLeading) {
-                                Button {
-                                    selectedModel = nil
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                        .font(.title3)
-                                }
-                            }
-                        }
+        }
+        .fullScreenCover(item: $selectedModel) { model in
+            ModelDetailView(model: model)
+                .overlay(alignment: .topLeading) {
+                    CircleButton(system: "xmark") { selectedModel = nil }
+                        .padding(.leading, 12).padding(.top, 6)
                 }
-            }
         }
     }
 }
@@ -290,24 +294,3 @@ struct ActionRow: View {
     }
 }
 
-/// 我的（作品、设置、实验功能）—— 占位。
-struct ProfileView: View {
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("作品") {
-                    Text("我录制的跳舞视频").foregroundStyle(.secondary)
-                }
-                Section("实验功能") {
-                    NavigationLink { ARBodyEntryView() } label: {
-                        Label("ARKit 实时人体追踪", systemImage: "figure.walk.motion")
-                    }
-                }
-                Section("关于") {
-                    Text("Animo3D").foregroundStyle(.secondary)
-                }
-            }
-            .navigationTitle("我的")
-        }
-    }
-}
