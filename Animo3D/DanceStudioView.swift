@@ -41,7 +41,7 @@ final class DanceStage: ObservableObject {
 
     func load(character: String, dance: String) {
         player?.stop()
-        _ = controller.loadModel(named: "\(character).scn")   // 复用场景，换模型
+        _ = controller.loadModel(named: characterModelFile(character))   // 复用场景，换模型(.scn/.usdz)
         retargeter = PoseRetargeter(controller: controller)
         playDance(dance)
     }

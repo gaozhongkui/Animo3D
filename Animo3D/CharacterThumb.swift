@@ -9,6 +9,14 @@
 import SwiftUI
 import SceneKit
 
+/// 按角色 key 找到实际模型文件（.scn 或 .usdz）。
+func characterModelFile(_ key: String) -> String {
+    for ext in ["scn", "usdz"] {
+        if Bundle.main.url(forResource: key, withExtension: ext) != nil { return "\(key).\(ext)" }
+    }
+    return "\(key).scn"
+}
+
 enum CharacterThumb {
     private static let dir: URL = {
         let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -24,7 +32,7 @@ enum CharacterThumb {
     /// 离屏渲染一个角色的正面全身缩略图。较重，应在后台调用。
     static func render(_ key: String, size: CGSize = CGSize(width: 360, height: 460)) -> UIImage? {
         let controller = CharacterSceneController()
-        _ = controller.loadModel(named: "\(key).scn")
+        _ = controller.loadModel(named: characterModelFile(key))
         guard controller.isLoaded, let cam = controller.cameraNode,
               let device = MTLCreateSystemDefaultDevice() else { return nil }
 
