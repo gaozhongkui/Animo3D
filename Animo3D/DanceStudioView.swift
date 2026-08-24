@@ -85,6 +85,8 @@ struct DanceStudioView: View {
     @State private var showShare = false
     @State private var showAudioDoc = false
     @State private var processing = false   // 合成音乐中
+    @State private var zoomChar: CatalogItem?   // 角色放大预览
+    @State private var zoomDance: CatalogItem?  // 舞蹈放大预览
 
     private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
 
@@ -111,6 +113,14 @@ struct DanceStudioView: View {
         }
         .onAppear(perform: setupInitial)
         .onDisappear { music.stop() }
+        .fullScreenCover(item: $zoomChar) { c in
+            let idx = catalog.characters.firstIndex { $0.key == c.key } ?? 0
+            CharacterPreviewPage(key: c.key, name: c.name, style: idx)
+        }
+        .fullScreenCover(item: $zoomDance) { d in
+            let idx = catalog.dances.firstIndex { $0.key == d.key } ?? 0
+            DancePreviewPage(dance: d.key, name: d.name, style: idx)
+        }
     }
 
     // MARK: 步骤头部（进度）
@@ -162,6 +172,7 @@ struct DanceStudioView: View {
                     .aspectRatio(3.0/4.0, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.accentColor, lineWidth: character == c.key ? 3 : 0))
+                    .overlay(alignment: .topTrailing) { ZoomButton { zoomChar = c }.padding(8) }
                     .onTapGesture { character = c.key }
                 }
             }
@@ -203,6 +214,7 @@ struct DanceStudioView: View {
                     .aspectRatio(3.0/4.0, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.accentColor, lineWidth: dance == d.key ? 3 : 0))
+                    .overlay(alignment: .topTrailing) { ZoomButton { zoomDance = d }.padding(8) }
                     .onTapGesture { dance = d.key }
                 }
             }
@@ -344,13 +356,18 @@ struct DanceStudioView: View {
     private func setupInitial() {
         if let ic = initialCharacter, catalog.characters.contains(where: { $0.key == ic }) { character = ic }
         if let id = initialDance, catalog.dances.contains(where: { $0.key == id }) { dance = id }
-        // 从角色库带入角色 → 直接到选舞蹈；从热门舞蹈带入 → 仍从选角色开始
-        if !character.isEmpty && initialCharacter != nil { step = .dance }
+        // 从角色库带入角色 → 直接到选舞蹈,并默认选中第一支舞
+        if !character.isEmpty && initialCharacter != nil { step = .dance; ensureDefaultDance() }
+    }
+
+    /// 进入选舞蹈时,若还没选,默认选第一支。
+    private func ensureDefaultDance() {
+        if dance.isEmpty { dance = catalog.dances.first?.key ?? "" }
     }
 
     private func next() {
         switch step {
-        case .character: step = .dance
+        case .character: step = .dance; ensureDefaultDance()
         case .dance:     step = .music
         case .music:     startPerform()
         case .perform:   break

@@ -178,6 +178,11 @@ final class ProfileViewController: UIViewController {
         vc.popoverPresentationController?.sourceView = view
         present(vc, animated: true)
     }
+    private func openWork(_ url: URL) {
+        let host = UIHostingController(rootView: WorkDetailView(url: url) { [weak self] in self?.dismiss(animated: true) })
+        host.modalPresentationStyle = .fullScreen
+        present(host, animated: true)
+    }
     private func openPaywall() {
         let host = UIHostingController(rootView: PaywallView { [weak self] in self?.dismiss(animated: true) })
         present(host, animated: true)
@@ -190,7 +195,7 @@ extension ProfileViewController: UICollectionViewDelegate {
         guard let item = dataSource.itemIdentifier(for: indexPath) else { return }
         switch item {
         case .pro: openPaywall()
-        case .work(let url): shareWork(url)
+        case .work(let url): openWork(url)
         case .setting: break
         case .empty: break
         }

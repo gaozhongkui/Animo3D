@@ -11,6 +11,7 @@ import SceneKit
 struct LiveDanceView: UIViewRepresentable {
     let model: String   // 含扩展名
     let dance: String
+    var interactive = false   // 详情页：允许手势旋转/缩放
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -37,6 +38,7 @@ struct LiveDanceView: UIViewRepresentable {
         v.rendersContinuously = true
         v.isPlaying = true
         v.autoenablesDefaultLighting = true
+        v.allowsCameraControl = interactive
         if let cam = c.controller.cameraNode { v.pointOfView = cam }
         return v
     }

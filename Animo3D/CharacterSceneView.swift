@@ -93,32 +93,73 @@ final class CharacterSceneController: ObservableObject {
     }
 
     private var floorNode: SCNNode?
+    private var contactShadow: SCNNode?
     private var feetY: Float = 0
 
-    /// 地面：一块与背景底色相近的地板,承接角色投下的真实阴影(随动作变化)。
+    /// 地面：可见的地板(带轻微反射) + 脚下始终可见的柔和接触阴影,消除"悬空"感。
     private func setupGround(_ root: SCNNode) {
-        guard groundEnabled else { floorNode?.removeFromParentNode(); floorNode = nil; return }
-        // 脚底世界 Y
+        guard groundEnabled else {
+            floorNode?.removeFromParentNode(); floorNode = nil
+            contactShadow?.removeFromParentNode(); contactShadow = nil
+            return
+        }
+        // 脚底世界 Y + 水平范围
         var minY = Float.greatestFiniteMagnitude
+        var minX = Float.greatestFiniteMagnitude, maxX = -Float.greatestFiniteMagnitude
+        var minZ = Float.greatestFiniteMagnitude, maxZ = -Float.greatestFiniteMagnitude
         root.enumerateHierarchy { node, _ in
             guard node.geometry != nil else { return }
             let (a, b) = node.boundingBox
             for x in [Float(a.x), Float(b.x)] { for y in [Float(a.y), Float(b.y)] { for z in [Float(a.z), Float(b.z)] {
-                minY = min(minY, node.simdConvertPosition(simd_float3(x, y, z), to: nil).y)
+                let w = node.simdConvertPosition(simd_float3(x, y, z), to: nil)
+                minY = min(minY, w.y)
+                minX = min(minX, w.x); maxX = max(maxX, w.x)
+                minZ = min(minZ, w.z); maxZ = max(maxZ, w.z)
             }}}
         }
         guard minY.isFinite else { return }
         feetY = minY
+        let cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2
+        let footSpan = max(maxX - minX, 0.001)
 
+        // 地板：比背景底色略亮 + 轻微反射，形成清晰的"地面"参照
         floorNode?.removeFromParentNode()
         let floor = SCNFloor()
-        floor.reflectivity = 0
-        floor.firstMaterial?.diffuse.contents = UIColor(red: 0.10, green: 0.10, blue: 0.15, alpha: 1) // 近背景底色
-        floor.firstMaterial?.lightingModel = .lambert
+        floor.reflectivity = 0.16
+        floor.firstMaterial?.lightingModel = .physicallyBased
+        floor.firstMaterial?.diffuse.contents = UIColor(red: 0.13, green: 0.13, blue: 0.18, alpha: 1)
+        floor.firstMaterial?.roughness.contents = 0.82
         let node = SCNNode(geometry: floor)
         node.simdPosition = simd_float3(0, minY, 0)
         scene.rootNode.addChildNode(node)
         floorNode = node
+
+        // 脚下柔和接触阴影(始终可见,即使方向光阴影渲染不到也有"着地"线索)
+        contactShadow?.removeFromParentNode()
+        let blob = SCNPlane(width: CGFloat(footSpan * 2.4), height: CGFloat(footSpan * 1.5))
+        let bm = blob.firstMaterial!
+        bm.diffuse.contents = Self.contactShadowImage()
+        bm.lightingModel = .constant
+        bm.isDoubleSided = true
+        bm.writesToDepthBuffer = false
+        let bnode = SCNNode(geometry: blob)
+        bnode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)          // 平铺在地面上
+        bnode.simdPosition = simd_float3(cx, minY + 0.003, cz)
+        bnode.renderingOrder = 1                                     // 画在地板之上
+        scene.rootNode.addChildNode(bnode)
+        contactShadow = bnode
+    }
+
+    /// 柔和圆形接触阴影贴图：中心黑、边缘透明。
+    private static func contactShadowImage() -> UIImage {
+        let s = CGSize(width: 256, height: 256)
+        return UIGraphicsImageRenderer(size: s).image { ctx in
+            let colors = [UIColor(white: 0, alpha: 0.55).cgColor, UIColor(white: 0, alpha: 0).cgColor]
+            let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray, locations: [0, 1])!
+            ctx.cgContext.drawRadialGradient(g,
+                startCenter: CGPoint(x: s.width/2, y: s.height/2), startRadius: 0,
+                endCenter: CGPoint(x: s.width/2, y: s.height/2), endRadius: s.width/2, options: [])
+        }
     }
 
     /// 用骨骼位置算出角色实际的 上/左/前 三轴，强制把根节点旋正为 Y-up、面朝 +Z。
@@ -204,12 +245,12 @@ final class CharacterSceneController: ObservableObject {
         let sun = SCNNode()
         let l = SCNLight(); l.type = .directional
         l.castsShadow = true
-        l.shadowMode = .deferred
-        l.shadowColor = UIColor(white: 0, alpha: 0.45)
-        l.shadowRadius = 8
+        l.shadowMode = .forward            // 通用可靠(含模拟器),阴影落在地板上可见
+        l.shadowColor = UIColor(white: 0, alpha: 0.5)
+        l.shadowRadius = 6
         l.shadowSampleCount = 16
         sun.light = l
-        sun.eulerAngles = SCNVector3(-Float.pi / 2.6, Float.pi / 10, 0)
+        sun.eulerAngles = SCNVector3(-Float.pi / 2.2, Float.pi / 12, 0)  // 更接近正上方 → 影子聚在脚下
         scene.rootNode.addChildNode(sun)
     }
 }

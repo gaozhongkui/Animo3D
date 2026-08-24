@@ -74,6 +74,11 @@ final class WorksStore: ObservableObject {
         catch { return nil }
     }
 
+    func delete(_ url: URL) {
+        try? FileManager.default.removeItem(at: url)
+        reload()
+    }
+
     func thumbnail(for url: URL) -> UIImage? {
         let asset = AVURLAsset(url: url)
         let gen = AVAssetImageGenerator(asset: asset)
