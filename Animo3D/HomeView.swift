@@ -48,12 +48,16 @@ struct HomeView: View {
                         }
                     }
 
-                    // 热门舞蹈（横滑，女孩摆出动作，点→带入工作室）
+                    // 热门舞蹈（横滑，女孩摆出动作，第一张实时跳动，点→带入工作室）
                     section("热门舞蹈") {
                         ForEach(Array(catalog.dances.prefix(12).enumerated()), id: \.element.id) { i, d in
                             Button { launch = StudioLaunch(dance: d.key) } label: {
                                 posterCard(title: d.name) {
-                                    DanceThumbView(model: "vroid_preview.usdz", dance: d.key, tint: tints[i % tints.count])
+                                    if i == 0 {
+                                        CardBackdrop(style: 0).overlay(LiveDanceView(model: "vroid_preview.usdz", dance: d.key))
+                                    } else {
+                                        DanceThumbView(model: "vroid_preview.usdz", dance: d.key, style: i)
+                                    }
                                 }
                             }.buttonStyle(.plain)
                         }

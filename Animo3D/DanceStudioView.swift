@@ -166,6 +166,14 @@ struct DanceStudioView: View {
     // 选动作预览用的女孩模型
     private let previewModel = "vroid_preview.usdz"
 
+    /// 每支舞的副标题（BPM · 风格），由名字确定性生成,仅作展示氛围。
+    private func danceMeta(_ key: String) -> String {
+        let styles = ["Pop", "Hip Hop", "House", "Jazz", "K-Pop", "EDM"]
+        let hash = abs(key.hashValue)
+        let bpm = 96 + (hash % 8) * 8            // 96…152
+        return "\(bpm) BPM · \(styles[hash % styles.count])"
+    }
+
     // MARK: 步骤2 选舞蹈（每张卡展示女孩摆出该动作）
     private var danceStep: some View {
         ScrollView {
@@ -173,17 +181,18 @@ struct DanceStudioView: View {
                 ForEach(Array(catalog.dances.enumerated()), id: \.element.id) { i, d in
                     ZStack(alignment: .bottomLeading) {
                         if dance == d.key {
-                            // 选中的卡片：实时跳动
-                            LinearGradient(colors: [tints[i % tints.count].opacity(0.16), tints[i % tints.count].opacity(0.04)],
-                                           startPoint: .top, endPoint: .bottom)
-                                .overlay(LiveDanceView(model: previewModel, dance: d.key))
+                            // 选中的卡片：实时跳动（同样用装饰背景）
+                            CardBackdrop(style: i).overlay(LiveDanceView(model: previewModel, dance: d.key))
                         } else {
-                            DanceThumbView(model: previewModel, dance: d.key, tint: tints[i % tints.count])
+                            DanceThumbView(model: previewModel, dance: d.key, style: i)
                                 .aspectRatio(3.0/4.0, contentMode: .fill)
                         }
-                        LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
-                        Text(d.name).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
-                            .lineLimit(2).padding(10)
+                        LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .center, endPoint: .bottom)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(d.name).font(.subheadline.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
+                            Text(danceMeta(d.key)).font(.caption2).foregroundStyle(.white.opacity(0.85))
+                        }
+                        .padding(10)
                     }
                     .aspectRatio(3.0/4.0, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))

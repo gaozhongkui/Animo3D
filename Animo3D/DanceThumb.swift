@@ -59,17 +59,16 @@ enum DanceThumb {
 struct DanceThumbView: View {
     let model: String   // 含扩展名
     let dance: String
-    var tint: Color = .accentColor
+    var style: Int = 0
     @State private var image: UIImage?
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: [tint.opacity(0.16), tint.opacity(0.04)],
-                           startPoint: .top, endPoint: .bottom)
+            CardBackdrop(style: style)
             if let image {
                 Image(uiImage: image).resizable().scaledToFit()
             } else {
-                Image(systemName: "figure.dance").font(.largeTitle).foregroundStyle(tint.opacity(0.5))
+                Image(systemName: "figure.dance").font(.largeTitle).foregroundStyle(.white.opacity(0.6))
             }
         }
         .task(id: dance) {
