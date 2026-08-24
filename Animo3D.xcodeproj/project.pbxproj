@@ -306,6 +306,7 @@
 				DEVELOPMENT_TEAM = 5738CWZ4VT;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Livo 3D";
 				INFOPLIST_KEY_NSCameraUsageDescription = "需要使用摄像头进行实时人体动作追踪";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -341,6 +342,7 @@
 				DEVELOPMENT_TEAM = 5738CWZ4VT;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Livo 3D";
 				INFOPLIST_KEY_NSCameraUsageDescription = "需要使用摄像头进行实时人体动作追踪";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
