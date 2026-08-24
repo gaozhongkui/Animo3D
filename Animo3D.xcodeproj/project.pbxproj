@@ -18,6 +18,11 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		05D3E53E303BE70E00B8E85A /* data */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = data;
+			sourceTree = "<group>";
+		};
 		05E2C0C83025ACE200A42B38 /* Animo3D */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Animo3D;
@@ -40,6 +45,7 @@
 		05E2C0BD3025ACE200A42B38 = {
 			isa = PBXGroup;
 			children = (
+				05D3E53E303BE70E00B8E85A /* data */,
 				05E2C0C83025ACE200A42B38 /* Animo3D */,
 				05E2C0C73025ACE200A42B38 /* Products */,
 				61D106D6035FD5FB37627CD6 /* Pods */,
@@ -89,6 +95,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
+				05D3E53E303BE70E00B8E85A /* data */,
 				05E2C0C83025ACE200A42B38 /* Animo3D */,
 			);
 			name = Animo3D;
