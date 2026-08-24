@@ -31,6 +31,21 @@ final class PoseRetargeter {
     private var captured = false
     private var smoothed: [simd_float3]?             // 时间平滑后的关节点
 
+    // 髋部位移：让腿弯时身体自然下沉、有踩点/重心（否则四肢在动、躯干钉死，很僵）
+    private var hipsNode: SCNNode?
+    private var charHipsRestWorld = simd_float3(repeating: 0)
+    private var charTorsoLen: Float = 1
+    private var srcCaptured = false
+    private var srcRestHip = simd_float3(repeating: 0)
+    private var srcRestFrame = simd_float3x3(1)      // 源静止躯干系
+    private var srcRestFrameInv = simd_float3x3(1)
+    private var srcTorsoLen: Float = 1
+
+    // 脊柱驱动：让躯干跟着肩线扭动/前后倾（去掉上半身的板感）
+    private var spineNode: SCNNode?
+    private var spineRestWorldOrient = simd_quatf(angle: 0, axis: [0, 1, 0])
+    private let spineGain: Float = 0.7               // 阻尼，避免噪声放大 / 过冲
+
     init(controller: CharacterSceneController) {
         self.controller = controller
     }
@@ -38,6 +53,7 @@ final class PoseRetargeter {
     /// 切换展示场景（屏幕↔AR，角色被重新挂载）后调用，下一帧重新采样静止姿态。
     func resetCapture() {
         captured = false
+        srcCaptured = false
         smoothed = nil
     }
 
@@ -54,7 +70,7 @@ final class PoseRetargeter {
     private func captureRestIfNeeded() {
         guard !captured, controller.isLoaded else { return }
         rests.removeAll()
-        for def in MixamoBoneMap.bones {
+        for def in controller.scheme.bones {
             guard let bone = controller.boneNodes[def.node],
                   let child = controller.boneNodes[def.childNode] else { continue }
             let dir = simd_normalize(child.simdWorldPosition - bone.simdWorldPosition)
@@ -64,14 +80,22 @@ final class PoseRetargeter {
                               def: def))
         }
         // 角色躯干坐标系：上 = 肩中心-髋中心，右 = 左髋-右髋（世界坐标）
-        if let lArm = controller.boneNodes["mixamorig_LeftArm"]?.simdWorldPosition,
-           let rArm = controller.boneNodes["mixamorig_RightArm"]?.simdWorldPosition,
-           let lUp = controller.boneNodes["mixamorig_LeftUpLeg"]?.simdWorldPosition,
-           let rUp = controller.boneNodes["mixamorig_RightUpLeg"]?.simdWorldPosition {
+        let s = controller.scheme
+        if let lArm = controller.boneNodes[s.leftArm]?.simdWorldPosition,
+           let rArm = controller.boneNodes[s.rightArm]?.simdWorldPosition,
+           let lUp = controller.boneNodes[s.leftUpLeg]?.simdWorldPosition,
+           let rUp = controller.boneNodes[s.rightUpLeg]?.simdWorldPosition {
             let shC = (lArm + rArm) / 2
             let hipC = (lUp + rUp) / 2
             characterFrame = Self.makeFrame(up: shC - hipC, right: lUp - rUp)
+            charTorsoLen = max(1e-3, simd_length(shC - hipC))
         }
+        // 髋骨节点 + 其静止世界位置（位移基准）
+        hipsNode = controller.boneNodes[s.hips]
+        charHipsRestWorld = hipsNode?.simdWorldPosition ?? .init(repeating: 0)
+        // 脊柱骨 + 静止世界朝向（躯干扭动基准）
+        spineNode = controller.boneNodes[s.spine]
+        spineRestWorldOrient = spineNode?.simdWorldOrientation ?? simd_quatf(angle: 0, axis: [0, 1, 0])
         captured = !rests.isEmpty
         if captured { print("[Retarget] 采样静止姿态成功，\(rests.count) 根骨头") }
     }
@@ -135,6 +159,35 @@ final class PoseRetargeter {
         let hipC = (w[23] + w[24]) / 2
         let srcFrame = Self.makeFrame(up: shC - hipC, right: w[23] - w[24])
         let srcFrameInv = srcFrame.transpose   // 正交阵，逆=转置：世界→躯干局部
+
+        // 首帧记录源静止参考（髋位移基准，用固定的静止躯干系分解，保证稳定）
+        if !srcCaptured {
+            srcCaptured = true
+            srcRestHip = hipC
+            srcRestFrame = srcFrame
+            srcRestFrameInv = srcFrame.transpose
+            srcTorsoLen = max(1e-3, simd_length(shC - hipC))
+        }
+        // 髋部位移：源髋相对静止的位移 → 角色髋骨（按躯干长度比例缩放）。
+        // 这样腿一弯，髋部随之下沉、脚基本留在地面，不再"腿动身不动"。
+        if let hips = hipsNode {
+            let deltaLocal = srcRestFrameInv * (hipC - srcRestHip)      // 源躯干局部位移
+            let deltaChar = characterFrame * (deltaLocal * (charTorsoLen / srcTorsoLen))
+            let target = charHipsRestWorld + deltaChar
+            hips.simdWorldPosition = simd_mix(hips.simdWorldPosition, target, simd_float3(repeating: 0.5))
+        }
+
+        // 脊柱驱动：躯干相对静止的旋转 → 角色脊柱骨（在四肢之前，四肢会据父骨新朝向自校正）。
+        if let spine = spineNode {
+            let rLocal = srcRestFrameInv * srcFrame                     // 躯干相对静止的旋转(躯干局部)
+            let rChar = characterFrame * rLocal * characterFrame.transpose  // 转到角色世界基
+            var q = simd_quatf(rChar)
+            q = simd_slerp(simd_quatf(angle: 0, axis: [0, 1, 0]), q, spineGain)   // 阻尼
+            let desiredWorld = q * spineRestWorldOrient
+            let parentWorld = spine.parent?.simdWorldOrientation ?? simd_quatf(angle: 0, axis: [0, 1, 0])
+            let local = parentWorld.inverse * desiredWorld
+            spine.simdOrientation = simd_slerp(spine.simdOrientation, local, 0.5)
+        }
 
         for r in rests {
             let target = lm(r.def.to) - lm(r.def.from)

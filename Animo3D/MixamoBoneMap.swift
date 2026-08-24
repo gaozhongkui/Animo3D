@@ -47,3 +47,48 @@ enum MixamoBoneMap {
 
     static let rootNode = "mixamorig_Hips"
 }
+
+/// 骨骼命名方案：同一套重定向逻辑，适配不同来源的骨架命名（Mixamo / VRM）。
+/// 让 VRoid(VRM) 模型也能被现有的 Mixamo 动捕舞蹈驱动。
+struct BoneScheme {
+    let bones: [MixamoBoneMap.BoneDef]   // 8 根肢体骨（角色驱动）
+    // 姿态旋正 / 取景用
+    let hips: String
+    let head: String
+    let leftShoulder: String
+    let rightShoulder: String
+    let leftFoot: String
+    let spine: String   // 驱动躯干扭动/前倾的脊柱骨（髋与肩之间）
+    // 躯干坐标系用
+    let leftArm: String
+    let rightArm: String
+    let leftUpLeg: String
+    let rightUpLeg: String
+
+    /// Mixamo（我们自带角色）
+    static let mixamo = BoneScheme(
+        bones: MixamoBoneMap.bones,
+        hips: "mixamorig_Hips", head: "mixamorig_Head",
+        leftShoulder: "mixamorig_LeftShoulder", rightShoulder: "mixamorig_RightShoulder",
+        leftFoot: "mixamorig_LeftFoot", spine: "mixamorig_Spine",
+        leftArm: "mixamorig_LeftArm", rightArm: "mixamorig_RightArm",
+        leftUpLeg: "mixamorig_LeftUpLeg", rightUpLeg: "mixamorig_RightUpLeg")
+
+    /// VRM（VRoid 导出，J_Bip_ 命名）
+    static let vrm = BoneScheme(
+        bones: [
+            .init(node: "J_Bip_L_UpperArm", childNode: "J_Bip_L_LowerArm", from: 11, to: 13),
+            .init(node: "J_Bip_L_LowerArm", childNode: "J_Bip_L_Hand",     from: 13, to: 15),
+            .init(node: "J_Bip_R_UpperArm", childNode: "J_Bip_R_LowerArm", from: 12, to: 14),
+            .init(node: "J_Bip_R_LowerArm", childNode: "J_Bip_R_Hand",     from: 14, to: 16),
+            .init(node: "J_Bip_L_UpperLeg", childNode: "J_Bip_L_LowerLeg", from: 23, to: 25),
+            .init(node: "J_Bip_L_LowerLeg", childNode: "J_Bip_L_Foot",     from: 25, to: 27),
+            .init(node: "J_Bip_R_UpperLeg", childNode: "J_Bip_R_LowerLeg", from: 24, to: 26),
+            .init(node: "J_Bip_R_LowerLeg", childNode: "J_Bip_R_Foot",     from: 26, to: 28),
+        ],
+        hips: "J_Bip_C_Hips", head: "J_Bip_C_Head",
+        leftShoulder: "J_Bip_L_Shoulder", rightShoulder: "J_Bip_R_Shoulder",
+        leftFoot: "J_Bip_L_Foot", spine: "J_Bip_C_Spine",
+        leftArm: "J_Bip_L_UpperArm", rightArm: "J_Bip_R_UpperArm",
+        leftUpLeg: "J_Bip_L_UpperLeg", rightUpLeg: "J_Bip_R_UpperLeg")
+}

@@ -18,6 +18,7 @@ final class CharacterSceneController: ObservableObject {
     private(set) var cameraNode: SCNNode?
     private(set) var isLoaded = false
     private(set) var modelHeight: Float = 0   // 角色单位高度（AR 缩放用）
+    private(set) var scheme: BoneScheme = .mixamo   // 骨骼命名方案（Mixamo / VRM）
     private var lightsAdded = false
 
     /// 把角色根节点挂回本控制器的屏幕场景（从 AR 切回时用）。
@@ -69,6 +70,9 @@ final class CharacterSceneController: ObservableObject {
             }
         }
         print("[Character] 清除自带动画 keys=\(animCount)")
+        // 按骨骼命名判定方案：VRoid(VRM) 用 J_Bip_ 前缀，否则按 Mixamo
+        scheme = (boneNodes["J_Bip_C_Hips"] != nil) ? .vrm : .mixamo
+        print("[Character] 骨骼方案: \(boneNodes["J_Bip_C_Hips"] != nil ? "VRM" : "Mixamo")")
         normalizeOrientation(root)
         setupFrontCamera()
 
@@ -89,10 +93,10 @@ final class CharacterSceneController: ObservableObject {
     /// 用骨骼位置算出角色实际的 上/左/前 三轴，强制把根节点旋正为 Y-up、面朝 +Z。
     /// 不依赖 USD 的 upAxis 元数据（该模型元数据不可信）。
     private func normalizeOrientation(_ root: SCNNode) {
-        guard let hips = boneNodes["mixamorig_Hips"]?.simdWorldPosition,
-              let head = boneNodes["mixamorig_Head"]?.simdWorldPosition,
-              let lsh = boneNodes["mixamorig_LeftShoulder"]?.simdWorldPosition,
-              let rsh = boneNodes["mixamorig_RightShoulder"]?.simdWorldPosition else { return }
+        guard let hips = boneNodes[scheme.hips]?.simdWorldPosition,
+              let head = boneNodes[scheme.head]?.simdWorldPosition,
+              let lsh = boneNodes[scheme.leftShoulder]?.simdWorldPosition,
+              let rsh = boneNodes[scheme.rightShoulder]?.simdWorldPosition else { return }
         let up = simd_normalize(head - hips)            // 角色的“上”
         let right0 = simd_normalize(lsh - rsh)           // 角色左肩→，作为 +X
         let forward = simd_normalize(simd_cross(right0, up))
@@ -104,9 +108,9 @@ final class CharacterSceneController: ObservableObject {
 
     /// 用骨骼位置摆一个固定正面全身相机（比包围盒可靠，不受骨架外延干扰）。
     private func setupFrontCamera() {
-        guard let hips = boneNodes["mixamorig_Hips"]?.simdWorldPosition,
-              let head = boneNodes["mixamorig_Head"]?.simdWorldPosition,
-              let foot = boneNodes["mixamorig_LeftFoot"]?.simdWorldPosition else { return }
+        guard let hips = boneNodes[scheme.hips]?.simdWorldPosition,
+              let head = boneNodes[scheme.head]?.simdWorldPosition,
+              let foot = boneNodes[scheme.leftFoot]?.simdWorldPosition else { return }
         let height = abs(head.y - foot.y)
         guard height > 0 else { return }
         modelHeight = height
