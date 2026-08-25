@@ -87,6 +87,9 @@ struct DanceStudioView: View {
     @State private var processing = false   // 合成音乐中
     @State private var zoomChar: CatalogItem?   // 角色放大预览
     @State private var zoomDance: CatalogItem?  // 舞蹈放大预览
+    @State private var vfx = DanceVFX()         // 舞台特效
+    @State private var vfxOn = true
+    @State private var vfxPreset = 0
 
     private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
 
@@ -112,7 +115,7 @@ struct DanceStudioView: View {
             }
         }
         .onAppear(perform: setupInitial)
-        .onDisappear { music.stop() }
+        .onDisappear { music.stop(); vfx.remove() }
         .fullScreenCover(item: $zoomChar) { c in
             let idx = catalog.characters.firstIndex { $0.key == c.key } ?? 0
             CharacterPreviewPage(key: c.key, name: c.name, style: idx)
@@ -154,7 +157,7 @@ struct DanceStudioView: View {
         case .character: dismiss()          // 第一步返回=退出工作室
         case .dance:     step = .character
         case .music:     step = .dance
-        case .perform:   step = .music; music.stop()
+        case .perform:   step = .music; music.stop(); vfx.remove()
         }
     }
 
@@ -280,18 +283,50 @@ struct DanceStudioView: View {
             .id(arMode)
             .ignoresSafeArea()   // 沉浸式：铺满到顶部/底部
 
-            VStack {
+            VStack(spacing: 0) {
                 HStack {
                     circleButton("chevron.left") { back() }
                     Spacer()
                     Picker("", selection: $arMode) { Text("屏幕").tag(false); Text("AR").tag(true) }
-                        .pickerStyle(.segmented).frame(width: 130)
+                        .pickerStyle(.segmented).frame(width: 120)
                 }
+                .padding(.horizontal, 12).padding(.top, 6)
+
                 Spacer()
-                recordButton.padding(.bottom, 24)
+
+                vfxBar
+                recordButton.padding(.top, 14).padding(.bottom, 24)
             }
-            .padding(.horizontal, 12).padding(.top, 6)
         }
+    }
+
+    // 底部特效选择条(参考拍摄类产品：横滑 chips + 中间大录制键)
+    private var vfxBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                vfxChip(title: "关闭", icon: "nosign", on: !vfxOn) { vfxOn = false; installVFX() }
+                ForEach(Array(VFXPreset.all.enumerated()), id: \.offset) { i, p in
+                    vfxChip(title: p.name, icon: "sparkles", on: vfxOn && vfxPreset == i) {
+                        vfxOn = true; vfxPreset = i; installVFX()
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private func vfxChip(title: String, icon: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.caption2)
+                Text(title).font(.footnote.weight(.medium))
+            }
+            .foregroundStyle(on ? Color.black : Color.white)
+            .padding(.horizontal, 14).padding(.vertical, 9)
+            .background(on ? AnyShapeStyle(.white) : AnyShapeStyle(.ultraThinMaterial), in: Capsule())
+            .overlay(Capsule().stroke(.white.opacity(on ? 0 : 0.25), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
     }
 
     private var recordButton: some View {
@@ -378,6 +413,18 @@ struct DanceStudioView: View {
         stage.load(character: character, dance: dance)
         if let m = selectedMusic { music.play(m) } else { music.stop() }
         step = .perform
+        installVFX()
+    }
+
+    /// 安装/刷新舞台特效(挂到角色屏幕场景,读音乐能量脉动)。
+    private func installVFX() {
+        vfx.remove()
+        guard vfxOn else { return }
+        vfx.preset = vfxPreset
+        vfx.install(in: stage.controller.scene,
+                    feetY: stage.controller.feetY,
+                    height: stage.controller.modelHeight,
+                    level: { [weak music] in music?.currentLevel() ?? 0 })
     }
 
     private func select(music track: MusicTrack) {

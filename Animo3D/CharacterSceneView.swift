@@ -96,7 +96,7 @@ final class CharacterSceneController: ObservableObject {
 
     private var floorNode: SCNNode?
     private var contactShadow: SCNNode?
-    private var feetY: Float = 0
+    private(set) var feetY: Float = 0   // 脚底世界 Y(特效地面定位用)
 
     /// 地面：可见的地板(带轻微反射) + 脚下始终可见的柔和接触阴影,消除"悬空"感。
     private func setupGround(_ root: SCNNode) {

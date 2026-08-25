@@ -32,6 +32,8 @@ struct MusicTrack: Identifiable, Hashable {
         switch raw {
         case "sample_beat":  return "示例 · 节奏"
         case "sample_chill": return "示例 · 舒缓"
+        case "anime_dance":  return "动感 · 二次元"
+        case "delta_works":  return "电子 · Delta"
         default:             return raw.replacingOccurrences(of: "_", with: " ")
         }
     }
@@ -49,12 +51,21 @@ final class MusicController: ObservableObject {
             try AVAudioSession.sharedInstance().setActive(true)
             let p = try AVAudioPlayer(contentsOf: track.url)
             p.numberOfLoops = -1
+            p.isMeteringEnabled = true   // 供特效读实时能量(节拍驱动)
             p.play()
             player = p
             current = track
         } catch {
             print("[Music] 播放失败: \(error.localizedDescription)")
         }
+    }
+
+    /// 当前瞬时音量能量(0…1),供舞台特效跟随节奏脉动。无音乐时返回 0。
+    func currentLevel() -> Float {
+        guard let p = player, p.isPlaying else { return 0 }
+        p.updateMeters()
+        let db = p.averagePower(forChannel: 0)          // 约 -160…0 dB
+        return max(0, min(1, (db + 45) / 45))            // -45dB…0 → 0…1
     }
 
     func stop() {
