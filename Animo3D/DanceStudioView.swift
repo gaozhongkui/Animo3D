@@ -296,10 +296,38 @@ struct DanceStudioView: View {
 
                 Spacer()
 
+                sceneSelectionBar
                 vfxBar
                 recordButton.padding(.top, 14).padding(.bottom, 24)
             }
         }
+    }
+
+    // 场景选择条：舞台 vs 天空
+    private var sceneSelectionBar: some View {
+        HStack(spacing: 12) {
+            sceneChip(type: .studio, title: "舞台", icon: "house.fill")
+            sceneChip(type: .sky, title: "天空", icon: "cloud.sun.fill")
+        }
+        .padding(.bottom, 10)
+    }
+
+    private func sceneChip(type: CharacterSceneController.BackgroundType, title: String, icon: String) -> some View {
+        let on = stage.controller.backgroundType == type
+        return Button {
+            stage.controller.backgroundType = type
+            stage.objectWillChange.send() // 强制刷新 UI 以更新按钮状态
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.caption2)
+                Text(title).font(.footnote.weight(.medium))
+            }
+            .foregroundStyle(on ? Color.black : Color.white)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(on ? AnyShapeStyle(.white) : AnyShapeStyle(.ultraThinMaterial), in: Capsule())
+            .overlay(Capsule().stroke(.white.opacity(on ? 0 : 0.25), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
     }
 
     // 底部特效选择条(参考拍摄类产品：横滑 chips + 中间大录制键)

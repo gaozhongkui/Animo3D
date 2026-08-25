@@ -12,6 +12,10 @@ import Combine
 
 final class CharacterSceneController: ObservableObject {
 
+    enum BackgroundType: String, CaseIterable {
+        case studio, sky
+    }
+
     let scene = SCNScene()
     private(set) var boneNodes: [String: SCNNode] = [:]
     private(set) var characterRoot: SCNNode?
@@ -23,6 +27,10 @@ final class CharacterSceneController: ObservableObject {
     var contactShadowOnly = false   // 详情页:只加脚下接触阴影(给着地感),不加深色地板
     var portraitMode = false    // 静态展示(缩略图/角色详情):摆 A-pose,避开 SceneKit 在 T 绑定姿势下的蒙皮塌陷
     private var lightsAdded = false
+
+    @Published var backgroundType: BackgroundType = .studio {
+        didSet { updateBackgroundAndGround() }
+    }
 
     /// 把角色根节点挂回本控制器的屏幕场景（从 AR 切回时用）。
     func reattachToScreenScene() {
@@ -90,9 +98,28 @@ final class CharacterSceneController: ObservableObject {
 
         if !lightsAdded { addLights(); lightsAdded = true }
         setupGround(root)
+        updateBackgroundAndGround()
         isLoaded = true
         print("[Character] 加载成功，发现 \(found.count) 根 Mixamo 骨骼")
         return found.sorted()
+    }
+
+    func updateBackgroundAndGround() {
+        switch backgroundType {
+        case .studio:
+            scene.background.contents = CharacterSceneView.studioBackdrop()
+            scene.fogEndDistance = 0
+        case .sky:
+            scene.fogEndDistance = 0
+            if let skyImage = UIImage(named: "sky_park") {
+                scene.background.contents = skyImage
+            } else {
+                scene.background.contents = CharacterSceneView.skyBackdrop()
+            }
+        }
+        if let root = characterRoot {
+            setupGround(root)
+        }
     }
 
     private var floorNode: SCNNode?
@@ -128,9 +155,17 @@ final class CharacterSceneController: ObservableObject {
         // 地板：比背景底色略亮 + 轻微反射，形成清晰的"地面"参照
         floorNode?.removeFromParentNode()
         let floor = SCNFloor()
-        floor.reflectivity = 0.16
-        floor.firstMaterial?.lightingModel = .physicallyBased
-        floor.firstMaterial?.diffuse.contents = UIColor(red: 0.13, green: 0.13, blue: 0.18, alpha: 1)
+        if backgroundType == .sky {
+            // 天空模式：只保留倒影，材质彻底透明且不捕捉光照，避免出现白色层
+            floor.reflectivity = 0.5
+            floor.firstMaterial?.diffuse.contents = UIColor.clear
+            floor.firstMaterial?.lightingModel = .constant
+        } else {
+            // 恢复原始舞台模式：深色反射地板
+            floor.reflectivity = 0.16
+            floor.firstMaterial?.diffuse.contents = UIColor(red: 0.13, green: 0.13, blue: 0.18, alpha: 1)
+            floor.firstMaterial?.lightingModel = .physicallyBased
+        }
         floor.firstMaterial?.roughness.contents = 0.82
         let node = SCNNode(geometry: floor)
         node.simdPosition = simd_float3(0, minY, 0)
@@ -297,8 +332,8 @@ struct CharacterSceneView: UIViewRepresentable {
         cc.minimumVerticalAngle = -6      // 不能太仰
         cc.maximumVerticalAngle = 55      // 不能俯到贴地看地面特效
         cc.target = SCNVector3(0, controller.feetY + controller.modelHeight * 0.5, 0)
-        // 渐变"舞台"背景，比纯色好看（AR 模式用相机画面，不受影响）
-        controller.scene.background.contents = Self.studioBackdrop()
+        // 根据背景类型设置背景与地面
+        controller.updateBackgroundAndGround()
         view.backgroundColor = .clear
         view.autoenablesDefaultLighting = true
         view.rendersContinuously = true      // 持续渲染，避免切换后画面冻结
@@ -313,7 +348,7 @@ struct CharacterSceneView: UIViewRepresentable {
     }
 
     /// 生成一张竖向渐变 + 底部聚光的"舞台"背景图。
-    private static func studioBackdrop() -> UIImage {
+    static func studioBackdrop() -> UIImage {
         let size = CGSize(width: 300, height: 650)
         return UIGraphicsImageRenderer(size: size).image { ctx in
             let c = ctx.cgContext
@@ -331,6 +366,20 @@ struct CharacterSceneView: UIViewRepresentable {
                                  startCenter: CGPoint(x: size.width/2, y: size.height*0.78), startRadius: 0,
                                  endCenter: CGPoint(x: size.width/2, y: size.height*0.78), endRadius: size.width*0.7,
                                  options: [])
+        }
+    }
+
+    /// 兜底程序化天空背景
+    static func skyBackdrop() -> UIImage {
+        let size = CGSize(width: 400, height: 800)
+        return UIGraphicsImageRenderer(size: size).image { ctx in
+            let c = ctx.cgContext
+            let colors = [UIColor(red: 0.45, green: 0.65, blue: 0.88, alpha: 1).cgColor,
+                          UIColor(red: 0.75, green: 0.85, blue: 0.95, alpha: 1).cgColor,
+                          UIColor.white.cgColor]
+            let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray,
+                               locations: [0, 0.6, 1])!
+            c.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
         }
     }
 }
