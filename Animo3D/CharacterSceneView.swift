@@ -289,6 +289,13 @@ struct CharacterSceneView: UIViewRepresentable {
         let view = SCNView()
         view.scene = controller.scene
         view.allowsCameraControl = true
+        // 受控转盘：绕角色水平环绕 + 限制俯仰角,避免转到贴地平视把地面光环糊到脸上
+        let cc = view.defaultCameraController
+        cc.interactionMode = .orbitTurntable
+        cc.inertiaEnabled = true
+        cc.minimumVerticalAngle = -6      // 不能太仰
+        cc.maximumVerticalAngle = 55      // 不能俯到贴地看地面特效
+        cc.target = SCNVector3(0, controller.feetY + controller.modelHeight * 0.5, 0)
         // 渐变"舞台"背景，比纯色好看（AR 模式用相机画面，不受影响）
         controller.scene.background.contents = Self.studioBackdrop()
         view.backgroundColor = .clear
