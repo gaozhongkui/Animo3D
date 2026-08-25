@@ -419,7 +419,12 @@ struct DanceStudioView: View {
     /// 安装/刷新舞台特效(挂到角色屏幕场景,读音乐能量脉动)。
     private func installVFX() {
         vfx.remove()
-        guard vfxOn else { return }
+        let cam = stage.controller.cameraNode?.camera
+        guard vfxOn else { cam?.bloomIntensity = 0; return }
+        // Bloom 辉光后处理：只让超亮的发光粒子产生柔和光晕(高阈值,避免角色白衣过曝)
+        cam?.bloomIntensity = 1.1
+        cam?.bloomThreshold = 0.92
+        cam?.bloomBlurRadius = 14
         vfx.preset = vfxPreset
         vfx.install(in: stage.controller.scene,
                     feetY: stage.controller.feetY,
