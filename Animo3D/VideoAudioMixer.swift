@@ -57,7 +57,13 @@ enum VideoAudioMixer {
             }
 
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                export.exportAsynchronously { cont.resume() }
+                var resumed = false
+                export.exportAsynchronously {
+                    if !resumed {
+                        resumed = true
+                        cont.resume()
+                    }
+                }
             }
             if export.status == .completed { return out }
             print("[Export] 失败: \(export.error?.localizedDescription ?? "unknown")")

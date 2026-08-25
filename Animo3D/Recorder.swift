@@ -49,22 +49,34 @@ final class WorksStore: ObservableObject {
     @Published var works: [URL] = []
 
     private var dir: URL {
-        let d = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("works", isDirectory: true)
-        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
-        return d
+        guard let d = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            // 极低概率：文档目录不可访问。回退到临时目录避免崩溃。
+            return FileManager.default.temporaryDirectory.appendingPathComponent("works")
+        }
+        let worksDir = d.appendingPathComponent("works", isDirectory: true)
+        try? FileManager.default.createDirectory(at: worksDir, withIntermediateDirectories: true)
+        return worksDir
     }
 
     init() { reload() }
 
     func reload() {
+        // 确保 UI 属性在主线程更新
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { self.reload() }
+            return
+        }
+
         let items = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: [.creationDateKey])) ?? []
-        works = items.filter { $0.pathExtension == "mp4" }.sorted {
+
+        // 先排序再赋值，避免排序过程中 works 被外部修改
+        let sortedWorks = items.filter { $0.pathExtension == "mp4" }.sorted {
             let a = (try? $0.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
             let b = (try? $1.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
             return a > b
         }
+        self.works = sortedWorks
     }
 
     @discardableResult
