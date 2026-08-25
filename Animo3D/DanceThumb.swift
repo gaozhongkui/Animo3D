@@ -68,13 +68,15 @@ struct DanceThumbView: View {
             if let image {
                 Image(uiImage: image).resizable().scaledToFit()
             } else {
-                Image(systemName: "figure.dance").font(.largeTitle).foregroundStyle(.white.opacity(0.6))
+                ProgressView().tint(.white).scaleEffect(1.2)   // 渲染中 loading
             }
         }
-        .task(id: dance) {
+        .task(id: model + "|" + dance) {   // 角色(model)或舞蹈变化都重渲染
+            image = nil
             if let c = DanceThumb.cached(model: model, dance: dance) { image = c; return }
+            let m = model, d = dance
             let rendered = await Task.detached(priority: .utility) {
-                DanceThumb.render(model: model, dance: dance)
+                DanceThumb.render(model: m, dance: d)
             }.value
             await MainActor.run { image = rendered }
         }

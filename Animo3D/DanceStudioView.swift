@@ -183,8 +183,10 @@ struct DanceStudioView: View {
         }
     }
 
-    // 选动作预览用的女孩模型
-    private let previewModel = "vroid_preview.usdz"
+    // 选动作预览：用当前已选中的角色(没选到则用兜底模型)
+    private var previewModel: String {
+        character.isEmpty ? "vroid_preview.usdz" : characterModelFile(character)
+    }
 
     /// 每支舞的副标题（BPM · 风格），由名字确定性生成,仅作展示氛围。
     private func danceMeta(_ key: String) -> String {

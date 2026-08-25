@@ -24,6 +24,7 @@ struct HomeView: View {
     private let catalog = Catalog.load()
     @State private var launch: StudioLaunch?
     @State private var showVideo = false
+    @State private var showAnimTest = false
 
     var body: some View {
         NavigationStack {
@@ -68,6 +69,9 @@ struct HomeView: View {
                     Button { showVideo = true } label: {
                         smallCard(icon: "video", title: "视频驱动", subtitle: "模仿视频动作 · Beta")
                     }.buttonStyle(.plain).padding(.horizontal)
+                    Button { showAnimTest = true } label: {
+                        smallCard(icon: "figure.walk", title: "完整动画(实验)", subtitle: "SceneKit 原生全身动作 · X Bot 走路")
+                    }.buttonStyle(.plain).padding(.horizontal)
                 }
                 .padding(.vertical)
             }
@@ -77,6 +81,9 @@ struct HomeView: View {
             }
             .fullScreenCover(isPresented: $showVideo) {
                 studioCover(VideoDriveView())
+            }
+            .fullScreenCover(isPresented: $showAnimTest) {
+                AnimClipTestPage { showAnimTest = false }
             }
         }
     }
