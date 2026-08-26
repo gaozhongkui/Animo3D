@@ -23,6 +23,7 @@ final class CharacterSceneController: ObservableObject {
     private(set) var isLoaded = false
     private(set) var modelHeight: Float = 0   // 角色单位高度（AR 缩放用）
     private(set) var scheme: BoneScheme = .mixamo   // 骨骼命名方案（Mixamo / VRM）
+    var isVRM: Bool { boneNodes["J_Bip_C_Hips"] != nil }   // VRoid 用完整动画 JSON 回放
     var groundEnabled = false   // 仅表演大画面开启地面+俯视;缩略图/小卡片关闭
     var contactShadowOnly = false   // 详情页:只加脚下接触阴影(给着地感),不加深色地板
     var portraitMode = false    // 静态展示(缩略图/角色详情):摆 A-pose,避开 SceneKit 在 T 绑定姿势下的蒙皮塌陷

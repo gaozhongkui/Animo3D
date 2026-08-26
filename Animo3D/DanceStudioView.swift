@@ -38,18 +38,35 @@ final class DanceStage: ObservableObject {
     }()
     private var retargeter: PoseRetargeter?
     private var player: MocapPlayer?
+    private var vroidPlayer: VRoidClipPlayer?
 
     func load(character: String, dance: String) {
-        player?.stop()
+        player?.stop(); vroidPlayer?.stop()
         _ = controller.loadModel(named: characterModelFile(character))   // 复用场景，换模型(.scn/.usdz)
-        retargeter = PoseRetargeter(controller: controller)
-        playDance(dance)
+        NSLog("[DanceStage] load char=%@ isVRM=%d dance=%@", character, controller.isVRM ? 1 : 0, dance)
+        if controller.isVRM {
+            // VRoid：完整骨骼动画(three-vrm 重定向导出的四元数 JSON)
+            retargeter = nil
+            playVroid(dance)
+        } else {
+            retargeter = PoseRetargeter(controller: controller)
+            playDance(dance)
+        }
     }
 
     /// 屏幕↔AR 切换后重新采样静止姿态。
     func resetRetarget() { retargeter?.resetCapture() }
 
+    func playVroid(_ dance: String) {
+        vroidPlayer?.stop()
+        let p = VRoidClipPlayer(clipName: "vr_\(dance)", controller: controller)
+        vroidPlayer = p
+        p?.start()
+    }
+
     func playDance(_ dance: String) {
+        // VRoid 走完整动画分支
+        if controller.isVRM { playVroid(dance); return }
         guard let rt = retargeter else { return }
         player?.stop()
         rt.resetCapture()
