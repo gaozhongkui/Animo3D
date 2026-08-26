@@ -325,6 +325,7 @@ struct CharacterSceneView: UIViewRepresentable {
         onAttach?()
         let view = SCNView()
         view.scene = controller.scene
+        view.antialiasingMode = DeviceTier.antialiasing   // 低端降抗锯齿,减卡顿
         view.allowsCameraControl = true
         // 受控转盘：绕角色水平环绕 + 限制俯仰角,避免转到贴地平视把地面光环糊到脸上
         let cc = view.defaultCameraController

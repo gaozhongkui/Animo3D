@@ -219,8 +219,8 @@ struct DanceStudioView: View {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
                 ForEach(Array(catalog.dances.enumerated()), id: \.element.id) { i, d in
                     ZStack(alignment: .bottomLeading) {
-                        if dance == d.key {
-                            // 选中的卡片：实时跳动（同样用装饰背景）
+                        if dance == d.key && DeviceTier.allowsLiveDanceCards {
+                            // 选中的卡片：实时跳动（低端机改用静态姿势图,省性能）
                             CardBackdrop(style: i).overlay(LiveDanceView(model: previewModel, dance: d.key))
                         } else {
                             DanceThumbView(model: previewModel, dance: d.key, style: i)
@@ -313,9 +313,19 @@ struct DanceStudioView: View {
 
                 Spacer()
 
-                sceneSelectionBar
-                vfxBar
-                recordButton.padding(.top, 14).padding(.bottom, 24)
+                VStack(spacing: 14) {
+                    sceneSelectionBar
+                    vfxBar
+                    recordButton.padding(.top, 2)
+                }
+                .padding(.top, 26).padding(.bottom, 26)
+                .frame(maxWidth: .infinity)
+                .background(
+                    LinearGradient(colors: [.clear, .black.opacity(0.55)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .allowsHitTesting(false)
+                        .ignoresSafeArea(edges: .bottom)
+                )
             }
         }
     }
@@ -399,17 +409,19 @@ struct DanceStudioView: View {
                 }
             } else if let v = holder.scnView { recorder.start(view: v) }
         } label: {
-            Group {
+            ZStack {
+                Circle().stroke(.white, lineWidth: 4).frame(width: 74, height: 74)
                 if processing {
                     ProgressView().tint(.white)
                 } else {
-                    Image(systemName: recorder.isRecording ? "stop.fill" : "record.circle")
-                        .font(.system(size: 34))
-                        .foregroundStyle(recorder.isRecording ? .red : .white)
+                    RoundedRectangle(cornerRadius: recorder.isRecording ? 7 : 30, style: .continuous)
+                        .fill(Color.red)
+                        .frame(width: recorder.isRecording ? 30 : 60,
+                               height: recorder.isRecording ? 30 : 60)
                 }
             }
-            .frame(width: 62, height: 62)
-            .background(.black.opacity(0.35), in: Circle())
+            .frame(width: 80, height: 80)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: recorder.isRecording)
         }
         .disabled(processing)
     }
@@ -469,7 +481,8 @@ struct DanceStudioView: View {
         let cam = stage.controller.cameraNode?.camera
         guard vfxOn else { cam?.bloomIntensity = 0; return }
         // Bloom 辉光后处理：只让超亮的发光粒子产生柔和光晕(高阈值,避免角色白衣过曝)
-        cam?.bloomIntensity = 1.1
+        // 低端机(DeviceTier)关闭 bloom,消除全屏高斯模糊带来的卡顿。
+        cam?.bloomIntensity = DeviceTier.bloomIntensity
         cam?.bloomThreshold = 0.92
         cam?.bloomBlurRadius = 14
         vfx.preset = vfxPreset

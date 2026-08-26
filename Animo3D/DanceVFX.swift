@@ -273,7 +273,7 @@ final class DanceVFX {
             ring.opacity = CGFloat(0.35 + level * 0.55)
         }
         let rate = cur.birthBase * CGFloat(0.6 + level * 1.1)   // 安静时也有基础量
-        for s in systems { s.birthRate = rate }
+        for s in systems { s.birthRate = rate * DeviceTier.particleScale }   // 低端降密度
         if beatCooldown > 0 { beatCooldown -= 1 }
         if cur.ripples, level > env * 1.28, level > 0.18, beatCooldown == 0 {
             fireRipple(intensity: level)
