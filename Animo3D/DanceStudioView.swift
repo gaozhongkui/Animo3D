@@ -132,6 +132,11 @@ struct DanceStudioView: View {
             }
         }
         .onAppear(perform: setupInitial)
+        // 音乐只该在「选音乐(试听)」和「表演」时响：任何路径退回前两步都收掉,
+        // 避免每个跳转点各写一遍 music.stop() 漏掉某条路。
+        .onChange(of: step) { s in
+            if s == .character || s == .dance { music.stop() }
+        }
         .onDisappear { music.stop(); vfx.remove() }
         .fullScreenCover(item: $zoomChar) { c in
             let idx = catalog.characters.firstIndex { $0.key == c.key } ?? 0
@@ -174,7 +179,10 @@ struct DanceStudioView: View {
         case .character: dismiss()          // 第一步返回=退出工作室
         case .dance:     step = .character
         case .music:     step = .dance
-        case .perform:   step = .music; music.stop(); vfx.remove()
+        case .perform:                      // 舞台页返回=直接回主页,不退回选音乐
+            if recorder.isRecording { recorder.stop { _ in } }   // 录制中直接丢弃,别让写入器悬着
+            music.stop(); vfx.remove()
+            dismiss()
         }
     }
 
