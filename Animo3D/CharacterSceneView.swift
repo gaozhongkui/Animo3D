@@ -106,17 +106,28 @@ final class CharacterSceneController: ObservableObject {
     }
 
     func updateBackgroundAndGround() {
+        var fog: UIColor
         switch backgroundType {
         case .studio:
             scene.background.contents = CharacterSceneView.studioBackdrop()
-            scene.fogEndDistance = 0
+            fog = UIColor(red: 0.06, green: 0.06, blue: 0.10, alpha: 1)   // = 背景底色,地平线无缝
         case .sky:
-            scene.fogEndDistance = 0
             if let skyImage = UIImage(named: "sky_park") {
                 scene.background.contents = skyImage
             } else {
                 scene.background.contents = CharacterSceneView.skyBackdrop()
             }
+            fog = UIColor(red: 0.82, green: 0.88, blue: 0.95, alpha: 1)   // = 天空地平线色
+        }
+        // 雾:地面远处渐隐到背景色 → 地面与背景无缝融合,产生纵深与着地感(仅表演大画面开)
+        if groundEnabled {
+            let h = max(modelHeight, 1)
+            scene.fogColor = fog
+            scene.fogStartDistance = CGFloat(h * 2.2)
+            scene.fogEndDistance = CGFloat(h * 6.5)
+            scene.fogDensityExponent = 1.5
+        } else {
+            scene.fogEndDistance = 0
         }
         if let root = characterRoot {
             setupGround(root)
@@ -354,14 +365,21 @@ struct CharacterSceneView: UIViewRepresentable {
         let size = CGSize(width: 300, height: 650)
         return UIGraphicsImageRenderer(size: size).image { ctx in
             let c = ctx.cgContext
-            // 竖向渐变：顶部偏冷紫 → 底部近黑
-            let colors = [UIColor(red: 0.22, green: 0.20, blue: 0.32, alpha: 1).cgColor,
-                          UIColor(red: 0.11, green: 0.10, blue: 0.16, alpha: 1).cgColor,
-                          UIColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 1).cgColor]
+            // 竖向渐变：顶部冷紫 → 底部深色(=fogColor 0.06,0.06,0.10,与雾/地面无缝)
+            let colors = [UIColor(red: 0.17, green: 0.15, blue: 0.28, alpha: 1).cgColor,
+                          UIColor(red: 0.11, green: 0.10, blue: 0.17, alpha: 1).cgColor,
+                          UIColor(red: 0.06, green: 0.06, blue: 0.10, alpha: 1).cgColor]
             let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray,
-                               locations: [0, 0.55, 1])!
+                               locations: [0, 0.5, 1])!
             c.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
-            // 底部中心一圈柔光，像舞台聚光
+            // 地平线辉光：中下部一片暖紫柔光，像舞台后墙的聚光,给纵深
+            let halo = [UIColor(red: 0.42, green: 0.33, blue: 0.7, alpha: 0.38).cgColor, UIColor.clear.cgColor]
+            let hg = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: halo as CFArray, locations: [0, 1])!
+            c.drawRadialGradient(hg,
+                                 startCenter: CGPoint(x: size.width/2, y: size.height*0.64), startRadius: 0,
+                                 endCenter: CGPoint(x: size.width/2, y: size.height*0.64), endRadius: size.width*0.85,
+                                 options: [])
+            // 底部中心一圈柔光，像脚下舞台聚光
             let glow = [UIColor.white.withAlphaComponent(0.10).cgColor, UIColor.clear.cgColor]
             let rg = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: glow as CFArray, locations: [0, 1])!
             c.drawRadialGradient(rg,
