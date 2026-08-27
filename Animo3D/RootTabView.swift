@@ -2,7 +2,7 @@
 //  RootTabView.swift
 //  Animo3D
 //
-//  产品主结构：首页 / 发现 / 我的 三个底部标签。
+//  产品主结构：首页 / 角色 / 我的 三个底部标签。
 //
 
 import SwiftUI
@@ -17,15 +17,16 @@ struct RootTabView: View {
                 .tabItem { Label("创作", systemImage: "sparkles") }
                 .tag(0)
             CharactersView()
-                .tabItem { Label("角色", systemImage: "person.3") }
+                .tabItem { Label("角色", systemImage: "person.2.fill") }
                 .tag(1)
             ProfileView()
-                .tabItem { Label("我的", systemImage: "person") }
+                .tabItem { Label("我的", systemImage: "person.fill") }
                 .tag(2)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SwitchToCharactersTab"))) { _ in
             selection = 1
         }
+        .accentColor(.accentColor)
     }
 }
 
@@ -35,21 +36,25 @@ struct DiscoverView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 自带搜索框（不再用 NavigationStack，避免顶部空出一条导航栏）
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("搜索 3D 模型", text: $searchText)
-                    .textInputAutocapitalization(.never)
-                    .submitLabel(.search)
-                if !searchText.isEmpty {
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            // 精致搜索框
+            HStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                        .font(.system(size: 14, weight: .bold))
+                    TextField("搜索 3D 模型", text: $searchText)
+                        .font(.system(size: 15))
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.search)
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }
                     }
                 }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .background(Color(.secondarySystemBackground), in: Capsule())
-            .padding(.horizontal).padding(.bottom, 8)
+            .padding(.horizontal, 20).padding(.bottom, 12)
 
             DiscoverViewControllerRepresentable(searchText: $searchText) { model in
                 self.selectedModel = model
@@ -59,7 +64,7 @@ struct DiscoverView: View {
             ModelDetailView(model: model)
                 .overlay(alignment: .topLeading) {
                     CircleButton(system: "xmark") { selectedModel = nil }
-                        .padding(.leading, 12).padding(.top, 6)
+                        .padding(.leading, 20).padding(.top, 10)
                 }
         }
     }
@@ -69,33 +74,34 @@ struct ModelCard: View {
     let model: SketchfabModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             ZStack(alignment: .bottomTrailing) {
                 AsyncImage(url: URL(string: model.bestThumbnail ?? "")) { image in
                     image.resizable().scaledToFill()
                 } placeholder: {
                     Rectangle().fill(Color(.secondarySystemBackground))
-                        .overlay(Image(systemName: "cube").foregroundStyle(.tertiary))
+                        .overlay(Image(systemName: "cube.fill").foregroundStyle(.tertiary).font(.title))
                 }
-                .frame(height: 120)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .frame(height: 140)
+                .frame(maxWidth: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
-                Text("\(model.likeCount) ❤️")
-                    .font(.caption2.bold())
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(.black.opacity(0.6), in: Capsule())
-                    .foregroundStyle(.white)
-                    .padding(6)
+                Text("\(model.likeCount.formattedAbbreviated) ❤️")
+                    .font(.system(size: 10, weight: .bold))
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(8)
             }
 
             Text(model.name)
-                .font(.caption.weight(.medium))
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .lineLimit(1)
                 .padding(.horizontal, 4)
         }
+        .padding(6)
         .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 2)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 5)
     }
 }
 
@@ -104,7 +110,6 @@ struct ModelDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showShare = false
 
-    // 查看：下载真实模型 → App 内 3D/AR 一体查看器
     @State private var arLoading = false
     @State private var arProgress: Double = 0
     @State private var arError: String?
@@ -114,103 +119,92 @@ struct ModelDetailView: View {
             Color(.systemBackground).ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // 顶部大图 = 主查看入口：点它就进 3D/AR 一体查看器
+                VStack(alignment: .leading, spacing: 24) {
+                    // 顶部大图 = 主查看入口
                     Button(action: startAR) {
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .fill(Color(.secondarySystemBackground))
+                        ZStack(alignment: .bottom) {
+                            AsyncImage(url: URL(string: model.bestThumbnail ?? "")) { image in
+                                image.resizable().scaledToFill()
+                            } placeholder: {
+                                Color(.secondarySystemBackground)
+                                    .overlay(Image(systemName: "cube.fill").font(.largeTitle).foregroundStyle(.tertiary))
+                            }
                             .frame(maxWidth: .infinity)
-                            .frame(height: 380)
-                            .overlay {
-                                AsyncImage(url: URL(string: model.bestThumbnail ?? "")) { image in
-                                    image.resizable().scaledToFill()
-                                } placeholder: {
-                                    Image(systemName: "cube").font(.largeTitle).foregroundStyle(.tertiary)
+                            .frame(height: 420)
+                            .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+
+                            if !arLoading {
+                                LinearGradient(colors: [.clear, .black.opacity(0.6)],
+                                               startPoint: .center, endPoint: .bottom)
+                                    .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+
+                                HStack(spacing: 10) {
+                                    Image(systemName: "arkit").font(.title3.bold())
+                                    Text("进入 AR / 3D 预览").font(.subheadline.bold())
                                 }
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 24).padding(.vertical, 14)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .padding(.bottom, 30)
                             }
-                            .overlay(alignment: .bottom) {
-                                if !arLoading {
-                                    LinearGradient(colors: [.clear, .black.opacity(0.55)],
-                                                   startPoint: .center, endPoint: .bottom)
-                                }
-                            }
-                            .overlay(alignment: .bottom) {
-                                if !arLoading {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "arkit").font(.title3.weight(.semibold))
-                                        Text("在 3D / AR 中查看").font(.subheadline.weight(.semibold))
-                                    }
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 18).padding(.vertical, 12)
-                                    .background(.black.opacity(0.45), in: Capsule())
-                                    .padding(.bottom, 18)
-                                }
-                            }
-                            .overlay {
-                                if arLoading { DownloadOverlay(progress: arProgress) }
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                            .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
+
+                            if arLoading { DownloadOverlay(progress: arProgress) }
+                        }
+                        .shadow(color: .black.opacity(0.12), radius: 20, y: 10)
                     }
                     .buttonStyle(.plain)
                     .disabled(arLoading)
                     .padding(.horizontal, 16)
-                    .padding(.top, 8)
+                    .padding(.top, 12)
 
-                    // 名称 + 数据
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 12) {
                         Text(model.name)
-                            .font(.system(size: 24, weight: .bold))
+                            .font(.system(size: 26, weight: .black, design: .rounded))
                             .foregroundStyle(.primary)
-                        HStack(spacing: 12) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "heart.fill").foregroundStyle(.red)
-                                Text("\(model.likeCount.formattedAbbreviated)")
-                            }
-                            HStack(spacing: 4) {
-                                Image(systemName: "eye.fill").foregroundStyle(.secondary)
-                                Text("\(model.viewCount.formattedAbbreviated)")
-                            }
+
+                        HStack(spacing: 16) {
+                            statLabel(icon: "heart.fill", value: model.likeCount.formattedAbbreviated, color: .red)
+                            statLabel(icon: "eye.fill", value: model.viewCount.formattedAbbreviated, color: .secondary)
                             Spacer()
-                            Text("精选资源")
-                                .font(.system(size: 12, weight: .medium))
-                                .padding(.horizontal, 8).padding(.vertical, 2)
+                            Text("社区精品")
+                                .font(.system(size: 11, weight: .bold))
+                                .padding(.horizontal, 10).padding(.vertical, 4)
                                 .background(Color.accentColor.opacity(0.1), in: Capsule())
                                 .foregroundStyle(Color.accentColor)
                         }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 24)
 
-                    // 次要操作
-                    VStack(spacing: 12) {
-                        ActionRow(icon: "square.and.arrow.up.fill", title: "分享模型", subtitle: "将这个精美角色分享给你的好友", color: .green) {
+                    VStack(spacing: 14) {
+                        ActionRow(icon: "square.and.arrow.up.fill", title: "分享给好友", subtitle: "发现有趣的 3D 灵魂", color: .blue) {
                             showShare = true
                         }
-                        ActionRow(icon: "safari.fill", title: "详情与下载", subtitle: "在浏览器中查看更多细节并获取源文件", color: .purple) {
-                            if let url = URL(string: model.viewerUrl) {
-                                UIApplication.shared.open(url)
-                            }
+                        ActionRow(icon: "safari.fill", title: "访问源地址", subtitle: "前往 Sketchfab 查看详情", color: .indigo) {
+                            if let url = URL(string: model.viewerUrl) { UIApplication.shared.open(url) }
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 20)
                 }
-                .padding(.bottom, 40)
+                .padding(.bottom, 50)
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showShare) {
-            ShareSheet(items: ["发现一个非常棒的 3D 角色模型：\(model.name)", URL(string: model.viewerUrl)!])
+            ShareSheet(items: ["看看这个 3D 模型：\(model.name)", URL(string: model.viewerUrl)!])
         }
-        .alert("无法在 AR 中打开", isPresented: .constant(arError != nil)) {
-            Button("知道了", role: .cancel) { arError = nil }
+        .alert("加载失败", isPresented: .constant(arError != nil)) {
+            Button("知道了") { arError = nil }
         } message: {
             Text(arError ?? "")
         }
     }
 
-    /// 下载该社区模型的 USDZ，然后用系统 AR Quick Look 打开。
+    private func statLabel(icon: String, value: String, color: Color) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).foregroundStyle(color)
+            Text(value).font(.system(size: 14, weight: .bold).monospacedDigit())
+        }
+    }
+
     private func startAR() {
         guard !arLoading else { return }
         arProgress = 0
@@ -218,11 +212,10 @@ struct ModelDetailView: View {
         Task {
             do {
                 let local = try await SketchfabClient.shared.downloadUSDZ(uid: model.uid) { p in
-                    withAnimation(.easeOut(duration: 0.25)) { arProgress = p }
+                    withAnimation(.easeOut(duration: 0.2)) { arProgress = p }
                 }
                 await MainActor.run {
                     arLoading = false
-                    // App 内轻量 3D 预览（运行时不透明、低内存）；高内存设备预览内可再进 AR
                     ARQuickLookPresenter.shared.presentPreview(url: local, title: model.name)
                 }
             } catch {
@@ -235,36 +228,32 @@ struct ModelDetailView: View {
     }
 }
 
-/// 友好的下载中覆盖层：磨砂遮罩 + 圆环进度 + 百分比 + 文案。
 struct DownloadOverlay: View {
-    let progress: Double   // 0…1
+    let progress: Double
 
     var body: some View {
         ZStack {
             Rectangle().fill(.ultraThinMaterial)
-            Color.black.opacity(0.25)
 
-            VStack(spacing: 16) {
+            VStack(spacing: 20) {
                 ZStack {
                     Circle()
-                        .stroke(Color.white.opacity(0.25), lineWidth: 6)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 8)
                     Circle()
-                        .trim(from: 0, to: max(0.001, progress))
-                        .stroke(Color.white, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                        .trim(from: 0, to: max(0.01, progress))
+                        .stroke(Color.white, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                    Image(systemName: "arkit")
-                        .font(.system(size: 22, weight: .semibold))
+
+                    Text("\(Int(progress * 100))%")
+                        .font(.system(size: 18, weight: .black, design: .rounded))
                         .foregroundStyle(.white)
                 }
-                .frame(width: 84, height: 84)
+                .frame(width: 100, height: 100)
 
-                VStack(spacing: 4) {
-                    Text("正在准备 3D 模型").font(.subheadline.weight(.semibold))
-                    Text("\(Int(progress * 100))%").font(.title3.weight(.bold).monospacedDigit())
-                }
-                .foregroundStyle(.white)
+                Text("正在同步空间资产...").font(.subheadline.bold()).foregroundStyle(.white)
             }
         }
+        .clipShape(RoundedRectangle(cornerRadius: 32))
     }
 }
 
@@ -277,28 +266,27 @@ struct ActionRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 15) {
+            HStack(spacing: 16) {
                 Image(systemName: icon)
-                    .font(.title2)
+                    .font(.title3.bold())
                     .foregroundStyle(.white)
-                    .frame(width: 50, height: 50)
-                    .background(color, in: RoundedRectangle(cornerRadius: 12))
+                    .frame(width: 48, height: 48)
+                    .background(color, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.subheadline.bold()).foregroundStyle(.primary)
-                    Text(subtitle).font(.caption2).foregroundStyle(.secondary)
+                    Text(title).font(.system(size: 16, weight: .bold)).foregroundStyle(.primary)
+                    Text(subtitle).font(.system(size: 13)).foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .font(.caption.bold())
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(10)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+            .padding(12)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
     }
 }
-
