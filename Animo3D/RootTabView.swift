@@ -9,14 +9,22 @@ import SwiftUI
 import Foundation
 
 struct RootTabView: View {
+    @State private var selection = 0
+
     var body: some View {
-        TabView {
+        TabView(selection: $selection) {
             HomeView()
                 .tabItem { Label("创作", systemImage: "sparkles") }
+                .tag(0)
             CharactersView()
                 .tabItem { Label("角色", systemImage: "person.3") }
+                .tag(1)
             ProfileView()
                 .tabItem { Label("我的", systemImage: "person") }
+                .tag(2)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SwitchToCharactersTab"))) { _ in
+            selection = 1
         }
     }
 }

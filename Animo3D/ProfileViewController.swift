@@ -2,15 +2,16 @@
 //  ProfileViewController.swift
 //  Animo3D
 //
-//  「我的」页用 UIKit 实现（作品网格 + 设置列表）。
-//  SwiftUI 列表在本项目里踩坑较多，这里改用 UICollectionView + 组合布局，稳定可控。
+//  「我的」页：极致简约、全屏沉浸重构版本。
+//  抛弃厚重色块，采用极简主义排版与通透光影。
 //
 
 import UIKit
 import SwiftUI
 
-nonisolated enum ProfileSection: Int, CaseIterable { case pro, works, more }
+nonisolated enum ProfileSection: Int, CaseIterable { case header, pro, works, more }
 nonisolated enum ProfileItem: Hashable, Sendable {
+    case header(name: String, bio: String, avatar: String)
     case pro
     case empty
     case work(URL)
@@ -27,156 +28,161 @@ final class ProfileViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "我的"
+        // 使用系统最纯净的背景色
         view.backgroundColor = .systemBackground
         setupCollectionView()
         setupDataSource()
         reload()
+
         NotificationCenter.default.addObserver(self, selector: #selector(reload),
                                                name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(true, animated: animated)
         WorksStore.shared.reload()
         reload()
     }
 
-    // MARK: Layout（每节不同：作品=网格，更多=系统 inset 列表）
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
+    }
+
     private func setupCollectionView() {
-        let layout = UICollectionViewCompositionalLayout { [weak self] index, env in
-            guard let self else { return nil }
+        let layout = UICollectionViewCompositionalLayout { [weak self] index, _ in
+            guard let self = self else { return nil }
             let section = Section(rawValue: index)!
+
             switch section {
+            case .header:
+                let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(360))
+                return NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
+
             case .pro:
-                let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .estimated(150)))
-                let group = NSCollectionLayoutGroup.vertical(layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .estimated(150)), subitems: [item])
-                let s = NSCollectionLayoutSection(group: group)
-                s.contentInsets = .init(top: 12, leading: 16, bottom: 16, trailing: 16)
+                let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(100))
+                let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
+                s.contentInsets = .init(top: 0, leading: 20, bottom: 32, trailing: 20)
                 return s
+
             case .works:
                 if WorksStore.shared.works.isEmpty {
-                    // 空状态：整块一个大 cell
-                    let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .estimated(220)))
-                    let group = NSCollectionLayoutGroup.vertical(layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .estimated(220)), subitems: [item])
-                    let s = NSCollectionLayoutSection(group: group)
-                    s.contentInsets = .init(top: 8, leading: 16, bottom: 24, trailing: 16)
-                    s.boundarySupplementaryItems = [Self.header()]
+                    let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(200))
+                    let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
+                    s.contentInsets = .init(top: 0, leading: 20, bottom: 20, trailing: 20)
+                    s.boundarySupplementaryItems = [Self.createHeader("我的创作")]
                     return s
                 }
-                let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .fractionalWidth(0.5), heightDimension: .fractionalHeight(1)))
-                item.contentInsets = .init(top: 6, leading: 6, bottom: 6, trailing: 6)
-                let group = NSCollectionLayoutGroup.horizontal(
-                    layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .absolute(300)),
-                    subitems: [item, item])
-                let s = NSCollectionLayoutSection(group: group)
-                s.contentInsets = .init(top: 4, leading: 10, bottom: 24, trailing: 10)
-                s.boundarySupplementaryItems = [Self.header()]
+                let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(0.5), heightDimension: .fractionalHeight(1))
+                let item = NSCollectionLayoutItem(layoutSize: itemSize)
+                item.contentInsets = .init(top: 8, leading: 8, bottom: 8, trailing: 8)
+                let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(240))
+                let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.horizontal(layoutSize: groupSize, subitems: [item, item]))
+                s.contentInsets = .init(top: 4, leading: 12, bottom: 32, trailing: 12)
+                s.boundarySupplementaryItems = [Self.createHeader("我的创作")]
                 return s
+
             case .more:
-                var cfg = UICollectionLayoutListConfiguration(appearance: .insetGrouped)
-                cfg.headerMode = .supplementary
-                return NSCollectionLayoutSection.list(using: cfg, layoutEnvironment: env)
+                let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(52))
+                let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
+                // 增加底部边距，防止被浮动 TabBar 遮挡
+                s.contentInsets = .init(top: 0, leading: 20, bottom: 120, trailing: 20)
+                s.interGroupSpacing = 0
+                s.boundarySupplementaryItems = [Self.createHeader("通用设置")]
+                return s
             }
         }
-        collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
-        collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+
+        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.backgroundColor = .systemBackground
         collectionView.delegate = self
         view.addSubview(collectionView)
+
+        NSLayoutConstraint.activate([
+            collectionView.topAnchor.constraint(equalTo: view.topAnchor),
+            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
     }
 
-    private static func header() -> NSCollectionLayoutBoundarySupplementaryItem {
+    private static func createHeader(_ title: String) -> NSCollectionLayoutBoundarySupplementaryItem {
         NSCollectionLayoutBoundarySupplementaryItem(
-            layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .estimated(40)),
+            layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .absolute(50)),
             elementKind: UICollectionView.elementKindSectionHeader, alignment: .top)
     }
 
-    // MARK: Data source
     private func setupDataSource() {
-        // Pro 订阅横幅
-        let proReg = UICollectionView.CellRegistration<ProCell, Item> { cell, _, _ in
+        let headerReg = UICollectionView.CellRegistration<CleanHeaderCell, Item> { cell, _, item in
+            if case let .header(n, b, a) = item { cell.configure(name: n, bio: b, avatar: a) }
+        }
+        let proReg = UICollectionView.CellRegistration<ModernProCell, Item> { cell, _, _ in
             cell.onTap = { [weak self] in self?.openPaywall() }
         }
-        // 作品 cell
-        let workReg = UICollectionView.CellRegistration<WorkCell, URL> { cell, _, url in
+        let workReg = UICollectionView.CellRegistration<GalleryWorkCell, URL> { cell, _, url in
             cell.configure(url: url)
         }
-        // 空状态 cell
         let emptyReg = UICollectionView.CellRegistration<EmptyWorksCell, Item> { [weak self] cell, _, _ in
             cell.onTap = { self?.openStudio() }
         }
-        // 设置行
-        let settingReg = UICollectionView.CellRegistration<UICollectionViewListCell, Item> { cell, _, item in
-            guard case let .setting(_, icon, color, title, subtitle) = item else { return }
-            cell.contentConfiguration = Self.iconConfig(icon: icon, color: UIColor(rgb: color),
-                                                        title: title, subtitle: subtitle)
-            cell.accessories = [.disclosureIndicator()]
+        let settingReg = UICollectionView.CellRegistration<CleanSettingCell, Item> { cell, _, item in
+            if case let .setting(_, icon, color, title, subtitle) = item {
+                cell.configure(icon: icon, color: UIColor(rgb: color), title: title, sub: subtitle)
+            }
         }
 
         dataSource = .init(collectionView: collectionView) { cv, indexPath, item in
             switch item {
-            case .pro:              return cv.dequeueConfiguredReusableCell(using: proReg, for: indexPath, item: item)
-            case .empty:            return cv.dequeueConfiguredReusableCell(using: emptyReg, for: indexPath, item: item)
-            case .work(let url):    return cv.dequeueConfiguredReusableCell(using: workReg, for: indexPath, item: url)
-            case .setting:          return cv.dequeueConfiguredReusableCell(using: settingReg, for: indexPath, item: item)
+            case .header: return cv.dequeueConfiguredReusableCell(using: headerReg, for: indexPath, item: item)
+            case .pro:    return cv.dequeueConfiguredReusableCell(using: proReg, for: indexPath, item: item)
+            case .empty:  return cv.dequeueConfiguredReusableCell(using: emptyReg, for: indexPath, item: item)
+            case .work(let url): return cv.dequeueConfiguredReusableCell(using: workReg, for: indexPath, item: url)
+            case .setting: return cv.dequeueConfiguredReusableCell(using: settingReg, for: indexPath, item: item)
             }
         }
 
-        // 头部标题
-        let headerReg = UICollectionView.SupplementaryRegistration<TitleHeader>(elementKind: UICollectionView.elementKindSectionHeader) { header, _, indexPath in
-            header.label.text = Section(rawValue: indexPath.section) == .works ? "我的作品" : "更多"
+        let titleReg = UICollectionView.SupplementaryRegistration<TitleHeader>(elementKind: UICollectionView.elementKindSectionHeader) { h, _, ip in
+            let sec = Section(rawValue: ip.section)
+            h.label.text = (sec == .works) ? "我的作品" : ((sec == .more) ? "系统设置" : "")
         }
-        dataSource.supplementaryViewProvider = { cv, kind, indexPath in
-            cv.dequeueConfiguredReusableSupplementary(using: headerReg, for: indexPath)
+        dataSource.supplementaryViewProvider = { cv, kind, ip in
+            cv.dequeueConfiguredReusableSupplementary(using: titleReg, for: ip)
         }
     }
 
-    private static func iconConfig(icon: String, color: UIColor, title: String, subtitle: String) -> UIContentConfiguration {
-        var c = UIListContentConfiguration.subtitleCell()
-        c.text = title
-        c.secondaryText = subtitle
-        c.image = roundedIcon(system: icon, bg: color)
-        c.imageProperties.reservedLayoutSize = CGSize(width: 40, height: 40)
-        c.imageToTextPadding = 14
-        return c
-    }
-
-    private static func roundedIcon(system: String, bg: UIColor) -> UIImage {
-        let size = CGSize(width: 34, height: 34)
+    static func roundedIcon(system: String, bg: UIColor) -> UIImage {
+        let size = CGSize(width: 30, height: 30)
         return UIGraphicsImageRenderer(size: size).image { ctx in
-            let path = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 9)
-            bg.setFill(); path.fill()
-            let cfg = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
-            if let sym = UIImage(systemName: system, withConfiguration: cfg)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
-                let r = CGRect(x: (size.width - 20)/2, y: (size.height - 20)/2, width: 20, height: 20)
-                sym.draw(in: r)
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 8).addClip()
+            bg.setFill(); ctx.fill(CGRect(origin: .zero, size: size))
+            let cfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+            if let img = UIImage(systemName: system, withConfiguration: cfg)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
+                img.draw(in: CGRect(x: (size.width-16)/2, y: (size.height-16)/2, width: 16, height: 16))
             }
         }
     }
 
     @objc private func reload() {
         var snap = NSDiffableDataSourceSnapshot<Section, Item>()
-        snap.appendSections([.pro, .works, .more])
+        snap.appendSections([.header, .pro, .works, .more])
+        snap.appendItems([.header(name: "Animo 创作者", bio: "探索 3D 舞蹈的无限可能 ✨", avatar: "person.crop.circle.fill")], toSection: .header)
         snap.appendItems([.pro], toSection: .pro)
         let works = WorksStore.shared.works
         snap.appendItems(works.isEmpty ? [.empty] : works.map { .work($0) }, toSection: .works)
         snap.appendItems([
-            .setting(id: "about",  icon: "info.circle.fill",    color: 0x8E8E93, title: "关于 Animo3D", subtitle: "版本 1.0"),
+            .setting(id: "pro", icon: "crown.fill", color: 0xFF9500, title: "订阅管理", subtitle: "管理权益"),
+            .setting(id: "about", icon: "info.circle", color: 0x007AFF, title: "关于 Animo", subtitle: "v1.0.0"),
         ], toSection: .more)
         dataSource.apply(snap, animatingDifferences: false)
     }
 
-    // MARK: Actions
     private func openStudio() {
         let host = UIHostingController(rootView: StudioModal { [weak self] in self?.dismiss(animated: true) })
         host.modalPresentationStyle = .fullScreen
         present(host, animated: true)
-    }
-    private func shareWork(_ url: URL) {
-        let vc = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        vc.popoverPresentationController?.sourceView = view
-        present(vc, animated: true)
     }
     private func openWork(_ url: URL) {
         let host = UIHostingController(rootView: WorkDetailView(url: url) { [weak self] in self?.dismiss(animated: true) })
@@ -190,149 +196,186 @@ final class ProfileViewController: UIViewController {
 }
 
 extension ProfileViewController: UICollectionViewDelegate {
-    func collectionView(_ cv: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        cv.deselectItem(at: indexPath, animated: true)
-        guard let item = dataSource.itemIdentifier(for: indexPath) else { return }
+    func collectionView(_ cv: UICollectionView, didSelectItemAt ip: IndexPath) {
+        cv.deselectItem(at: ip, animated: true)
+        guard let item = dataSource.itemIdentifier(for: ip) else { return }
         switch item {
         case .pro: openPaywall()
         case .work(let url): openWork(url)
-        case .setting: break
-        case .empty: break
+        default: break
         }
     }
 }
 
 // MARK: - Cells
 
-private final class ProCell: UICollectionViewCell {
-    var onTap: (() -> Void)?
-    private let gradient = CAGradientLayer()
+private final class CleanHeaderCell: UICollectionViewCell {
+    private let meshBg = UIView()
+    private let avatarView = UIImageView()
+    private let nameLabel = UILabel()
+    private let bioLabel = UILabel()
+    private let statsStack = UIStackView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        contentView.layer.cornerRadius = 18
-        contentView.layer.cornerCurve = .continuous
-        contentView.clipsToBounds = true
 
-        gradient.colors = [UIColor(rgb: 0x7C3AED).cgColor, UIColor(rgb: 0xDB2777).cgColor]
-        gradient.startPoint = CGPoint(x: 0, y: 0)
-        gradient.endPoint = CGPoint(x: 1, y: 1)
-        contentView.layer.insertSublayer(gradient, at: 0)
+        // 顶部弥散渐变背景
+        meshBg.backgroundColor = UIColor(rgb: 0x6366F1).withAlphaComponent(0.08)
+        meshBg.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(meshBg)
 
-        let crown = UIImageView(image: UIImage(systemName: "crown.fill",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 26, weight: .semibold)))
-        crown.tintColor = .white
+        let grad = CAGradientLayer()
+        grad.colors = [UIColor(rgb: 0x6366F1).withAlphaComponent(0.12).cgColor, UIColor.white.cgColor]
+        grad.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 360)
+        meshBg.layer.addSublayer(grad)
 
-        let title = UILabel()
-        title.text = "Animo3D Pro"
-        title.font = .systemFont(ofSize: 20, weight: .bold)
-        title.textColor = .white
+        avatarView.layer.cornerRadius = 50; avatarView.clipsToBounds = true
+        avatarView.backgroundColor = .white; avatarView.contentMode = .scaleAspectFill; avatarView.tintColor = .systemGray6
+        avatarView.layer.borderWidth = 3; avatarView.layer.borderColor = UIColor.white.cgColor
+        avatarView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(avatarView)
 
-        let sub = UILabel()
-        sub.text = "解锁全部角色与舞蹈 · 无水印 · 高清导出"
-        sub.font = .systemFont(ofSize: 13)
-        sub.textColor = UIColor.white.withAlphaComponent(0.9)
-        sub.numberOfLines = 2
+        nameLabel.font = .roundedFont(ofSize: 28, weight: .black); nameLabel.textAlignment = .center
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview(nameLabel)
 
-        let btn = UILabel()
-        btn.text = "立即订阅"
-        btn.font = .systemFont(ofSize: 14, weight: .semibold)
-        btn.textColor = UIColor(rgb: 0x7C3AED)
-        btn.textAlignment = .center
-        btn.backgroundColor = .white
-        btn.layer.cornerRadius = 15
-        btn.clipsToBounds = true
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.widthAnchor.constraint(equalToConstant: 96).isActive = true
-        btn.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        bioLabel.font = .systemFont(ofSize: 14); bioLabel.textColor = .secondaryLabel; bioLabel.textAlignment = .center
+        bioLabel.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview(bioLabel)
 
-        let text = UIStackView(arrangedSubviews: [title, sub])
-        text.axis = .vertical; text.spacing = 4
-        let top = UIStackView(arrangedSubviews: [crown, text])
-        top.axis = .horizontal; top.spacing = 12; top.alignment = .center
+        setupStats()
 
-        let stack = UIStackView(arrangedSubviews: [top, btn])
-        stack.axis = .vertical; stack.spacing = 14; stack.alignment = .leading
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 18),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -18),
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 18),
-            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -18),
-        ])
+            meshBg.topAnchor.constraint(equalTo: contentView.topAnchor),
+            meshBg.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            meshBg.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            meshBg.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-        contentView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+            avatarView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            avatarView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 80),
+            avatarView.widthAnchor.constraint(equalToConstant: 100),
+            avatarView.heightAnchor.constraint(equalToConstant: 100),
+
+            nameLabel.topAnchor.constraint(equalTo: avatarView.bottomAnchor, constant: 20),
+            nameLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+
+            bioLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6),
+            bioLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+
+            statsStack.topAnchor.constraint(equalTo: bioLabel.bottomAnchor, constant: 32),
+            statsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 40),
+            statsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -40)
+        ])
+    }
+
+    private func setupStats() {
+        statsStack.axis = .horizontal; statsStack.distribution = .fillEqually; statsStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(statsStack)
+        statsStack.addArrangedSubview(statItem(v: "15", l: "作品"))
+        statsStack.addArrangedSubview(statItem(v: "1.2k", l: "获赞"))
+        statsStack.addArrangedSubview(statItem(v: "9", l: "创作天数"))
+    }
+
+    private func statItem(v: String, l: String) -> UIView {
+        let view = UIView()
+        let vL = UILabel(); vL.text = v; vL.font = .roundedFont(ofSize: 22, weight: .bold); vL.textAlignment = .center; vL.translatesAutoresizingMaskIntoConstraints = false
+        let lL = UILabel(); lL.text = l; lL.font = .systemFont(ofSize: 12); lL.textColor = .secondaryLabel; lL.textAlignment = .center; lL.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(vL); view.addSubview(lL)
+        NSLayoutConstraint.activate([
+            vL.topAnchor.constraint(equalTo: view.topAnchor), vL.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            lL.topAnchor.constraint(equalTo: vL.bottomAnchor, constant: 4), lL.bottomAnchor.constraint(equalTo: view.bottomAnchor), lL.centerXAnchor.constraint(equalTo: view.centerXAnchor)
+        ])
+        return view
+    }
+    func configure(name: String, bio: String, avatar: String) {
+        nameLabel.text = name; bioLabel.text = bio; avatarView.image = UIImage(systemName: avatar)
     }
     required init?(coder: NSCoder) { fatalError() }
-    @objc private func tapped() { onTap?() }
-    override func layoutSubviews() { super.layoutSubviews(); gradient.frame = contentView.bounds }
 }
 
-private final class WorkCell: UICollectionViewCell {
-    private let imageView = UIImageView()
-    private let badge = UIImageView(image: UIImage(systemName: "square.and.arrow.up"))
+private final class ModernProCell: UICollectionViewCell {
+    var onTap: (() -> Void)?
     override init(frame: CGRect) {
         super.init(frame: frame)
-        contentView.layer.cornerRadius = 14
-        contentView.layer.cornerCurve = .continuous
-        contentView.clipsToBounds = true
-        contentView.backgroundColor = .secondarySystemBackground
-        imageView.contentMode = .scaleAspectFill
-        imageView.clipsToBounds = true
-        imageView.frame = contentView.bounds
-        imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        contentView.addSubview(imageView)
-        badge.tintColor = .white
-        badge.contentMode = .center
-        badge.backgroundColor = UIColor.black.withAlphaComponent(0.45)
-        badge.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
-        badge.layer.cornerRadius = 15
-        contentView.addSubview(badge)
+        contentView.backgroundColor = UIColor(rgb: 0x1C1C1E)
+        contentView.layer.cornerRadius = 22; contentView.clipsToBounds = true
+
+        let crown = UIImageView(image: UIImage(systemName: "crown.fill"))
+        crown.tintColor = UIColor(rgb: 0xFFD60A); crown.contentMode = .scaleAspectFit
+
+        let title = UILabel(); title.text = "升级 Animo3D Pro"; title.textColor = .white; title.font = .systemFont(ofSize: 17, weight: .bold)
+        let sub = UILabel(); sub.text = "解锁 4K 导出与全部角色"; sub.textColor = .systemGray; sub.font = .systemFont(ofSize: 13)
+
+        let vStack = UIStackView(arrangedSubviews: [title, sub]); vStack.axis = .vertical; vStack.spacing = 2
+        let hStack = UIStackView(arrangedSubviews: [crown, vStack]); hStack.axis = .horizontal; hStack.spacing = 16; hStack.alignment = .center
+        hStack.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview(hStack)
+
+        let arrow = UIImageView(image: UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(weight: .bold)))
+        arrow.tintColor = .systemGray2; arrow.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview(arrow)
+
+        NSLayoutConstraint.activate([
+            hStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            hStack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            crown.widthAnchor.constraint(equalToConstant: 26), crown.heightAnchor.constraint(equalToConstant: 26),
+            arrow.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            arrow.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+        ])
+        contentView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(btnTap)))
+    }
+    @objc private func btnTap() { onTap?() }
+    required init?(coder: NSCoder) { fatalError() }
+}
+
+private final class GalleryWorkCell: UICollectionViewCell {
+    private let imgV = UIImageView()
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentView.backgroundColor = .white
+        contentView.layer.cornerRadius = 24; contentView.clipsToBounds = true
+        contentView.layer.borderWidth = 1; contentView.layer.borderColor = UIColor.systemGray6.cgColor
+
+        imgV.contentMode = .scaleAspectFill; imgV.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(imgV)
+        NSLayoutConstraint.activate([
+            imgV.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            imgV.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            imgV.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
+            imgV.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4)
+        ])
+        imgV.layer.cornerRadius = 20; imgV.clipsToBounds = true
+    }
+    func configure(url: URL) { imgV.image = WorksStore.shared.thumbnail(for: url) }
+    required init?(coder: NSCoder) { fatalError() }
+}
+
+private final class CleanSettingCell: UICollectionViewCell {
+    private let iconV = UIImageView(); private let titleL = UILabel(); private let subL = UILabel()
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        iconV.translatesAutoresizingMaskIntoConstraints = false; titleL.translatesAutoresizingMaskIntoConstraints = false; subL.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(iconV); contentView.addSubview(titleL); contentView.addSubview(subL)
+        titleL.font = .systemFont(ofSize: 16, weight: .medium); subL.font = .systemFont(ofSize: 14); subL.textColor = .secondaryLabel
+        NSLayoutConstraint.activate([
+            iconV.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4), iconV.centerYAnchor.constraint(equalTo: contentView.centerYAnchor), iconV.widthAnchor.constraint(equalToConstant: 32), iconV.heightAnchor.constraint(equalToConstant: 32),
+            titleL.leadingAnchor.constraint(equalTo: iconV.trailingAnchor, constant: 14), titleL.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            subL.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4), subL.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+        ])
+        let line = UIView(); line.backgroundColor = .systemGray6; line.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview(line)
+        NSLayoutConstraint.activate([line.leadingAnchor.constraint(equalTo: titleL.leadingAnchor), line.trailingAnchor.constraint(equalTo: contentView.trailingAnchor), line.bottomAnchor.constraint(equalTo: contentView.bottomAnchor), line.heightAnchor.constraint(equalToConstant: 0.5)])
+    }
+    func configure(icon: String, color: UIColor, title: String, sub: String) {
+        titleL.text = title; subL.text = sub; iconV.image = ProfileViewController.roundedIcon(system: icon, bg: color)
     }
     required init?(coder: NSCoder) { fatalError() }
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        badge.frame.origin = CGPoint(x: contentView.bounds.width - 38, y: contentView.bounds.height - 38)
-    }
-    func configure(url: URL) {
-        imageView.image = WorksStore.shared.thumbnail(for: url)
-    }
-    override func prepareForReuse() { super.prepareForReuse(); imageView.image = nil }
 }
 
 private final class EmptyWorksCell: UICollectionViewCell {
     var onTap: (() -> Void)?
-    private let button = UIButton(type: .system)
     override init(frame: CGRect) {
         super.init(frame: frame)
-        contentView.backgroundColor = .secondarySystemBackground
-        contentView.layer.cornerRadius = 16
-        contentView.layer.cornerCurve = .continuous
-
-        let icon = UIImageView(image: UIImage(systemName: "film.stack",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 38, weight: .regular)))
-        icon.tintColor = .tintColor
-        let title = UILabel(); title.text = "还没有作品"; title.font = .systemFont(ofSize: 15, weight: .medium)
-        let sub = UILabel(); sub.text = "去创作里录一段角色跳舞吧"; sub.font = .systemFont(ofSize: 12); sub.textColor = .secondaryLabel
-
-        var bc = UIButton.Configuration.filled()
-        bc.title = "去跳舞"
-        bc.image = UIImage(systemName: "play.fill")
-        bc.imagePadding = 6
-        bc.cornerStyle = .capsule
-        button.configuration = bc
-        button.addAction(UIAction { [weak self] _ in self?.onTap?() }, for: .touchUpInside)
-
-        let stack = UIStackView(arrangedSubviews: [icon, title, sub, button])
-        stack.axis = .vertical; stack.alignment = .center; stack.spacing = 10
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 36),
-            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -36),
-        ])
+        contentView.layer.cornerRadius = 24; contentView.backgroundColor = .systemGray6
+        let l = UILabel(); l.text = "暂无创作内容"; l.font = .systemFont(ofSize: 15, weight: .medium); l.textColor = .secondaryLabel
+        let b = UIButton(type: .system); b.setTitle("去录一段", for: .normal); b.addAction(UIAction { [weak self] _ in self?.onTap?() }, for: .touchUpInside)
+        let s = UIStackView(arrangedSubviews: [l, b]); s.axis = .vertical; s.alignment = .center; s.spacing = 8; s.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview(s)
+        NSLayoutConstraint.activate([s.centerXAnchor.constraint(equalTo: contentView.centerXAnchor), s.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)])
     }
     required init?(coder: NSCoder) { fatalError() }
 }
@@ -341,20 +384,28 @@ private final class TitleHeader: UICollectionReusableView {
     let label = UILabel()
     override init(frame: CGRect) {
         super.init(frame: frame)
-        label.font = .systemFont(ofSize: 20, weight: .bold)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
-        ])
+        label.font = .roundedFont(ofSize: 20, weight: .bold); label.translatesAutoresizingMaskIntoConstraints = false; addSubview(label)
+        NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4), label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10)])
     }
     required init?(coder: NSCoder) { fatalError() }
 }
 
+private extension UIFont {
+    static func roundedFont(ofSize size: CGFloat, weight: UIFont.Weight) -> UIFont {
+        let systemFont = UIFont.systemFont(ofSize: size, weight: weight)
+        if let descriptor = systemFont.fontDescriptor.withDesign(.rounded) { return UIFont(descriptor: descriptor, size: size) }
+        return systemFont
+    }
+}
+
+private extension UIColor {
+    convenience init(rgb: UInt) {
+        self.init(red: CGFloat((rgb >> 16) & 0xFF)/255, green: CGFloat((rgb >> 8) & 0xFF)/255, blue: CGFloat(rgb & 0xFF)/255, alpha: 1)
+    }
+}
+
 // MARK: - SwiftUI 挂载
 
-/// SwiftUI 壳：把 UIKit 的「我的」包进导航控制器。
 struct ProfileView: View {
     var body: some View {
         ProfileNav().ignoresSafeArea()
@@ -363,32 +414,20 @@ struct ProfileView: View {
 
 private struct ProfileNav: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UINavigationController {
-        let nav = UINavigationController(rootViewController: ProfileViewController())
-        nav.navigationBar.prefersLargeTitles = true
-        return nav
+        return UINavigationController(rootViewController: ProfileViewController())
     }
     func updateUIViewController(_ vc: UINavigationController, context: Context) {}
 }
 
-/// 工作室的全屏包装（供 UIKit present）。
 private struct StudioModal: View {
     let onClose: () -> Void
     var body: some View {
         NavigationStack {
             DanceStudioView().toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(action: onClose) {
-                        Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.primary)
-                    }
+                    Button(action: onClose) { Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.primary) }
                 }
             }
         }
-    }
-}
-
-private extension UIColor {
-    convenience init(rgb: UInt) {
-        self.init(red: CGFloat((rgb >> 16) & 0xFF)/255, green: CGFloat((rgb >> 8) & 0xFF)/255,
-                  blue: CGFloat(rgb & 0xFF)/255, alpha: 1)
     }
 }

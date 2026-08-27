@@ -9,9 +9,16 @@ import SwiftUI
 
 @main
 struct Animo3DApp: App {
+    @State private var showMainView = false
+
     var body: some Scene {
         WindowGroup {
-            RootTabView()
+            if showMainView {
+                RootTabView()
+                    .transition(.opacity.combined(with: .scale(scale: 1.1)))
+            } else {
+                SplashView(isActive: $showMainView)
+            }
         }
     }
 }

@@ -24,142 +24,221 @@ struct HomeView: View {
     private let catalog = Catalog.load()
     @State private var launch: StudioLaunch?
     @State private var showVideo = false
-    @State private var showAnimTest = false
+
+    private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    Text("让你的角色在现实里跳舞")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                        .padding(.horizontal)
+                VStack(alignment: .leading, spacing: 32) {
+                    // Header
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("你好，创作者")
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                        Text("让你的 3D 角色在现实世界中起舞")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
 
-                    // 主推
+                    // 主推：大横幅
                     Button { launch = StudioLaunch() } label: { heroCard }
-                        .buttonStyle(.plain).padding(.horizontal)
+                        .buttonStyle(PlainButtonStyle())
+                        .padding(.horizontal)
+                        .shadow(color: Color.accentColor.opacity(0.3), radius: 12, x: 0, y: 8)
 
-                    // 推荐角色（横滑，真实角色形象，点→带入工作室）
-                    section("推荐角色") {
-                        ForEach(Array(catalog.characters.enumerated()), id: \.element.id) { i, c in
-                            Button { launch = StudioLaunch(character: c.key) } label: {
-                                posterCard(title: c.name) {
-                                    CharacterThumbView(characterKey: c.key, tint: tints[i % tints.count])
+                    // 推荐角色
+                    VStack(alignment: .leading, spacing: 16) {
+                        sectionHeader("推荐角色") {
+                            NotificationCenter.default.post(name: NSNotification.Name("SwitchToCharactersTab"), object: nil)
+                        }
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 16) {
+                                ForEach(Array(catalog.characters.enumerated()), id: \.element.id) { i, c in
+                                    Button { launch = StudioLaunch(character: c.key) } label: {
+                                        posterCard(title: c.name, subtitle: "Ready to Dance") {
+                                            CharacterThumbView(characterKey: c.key, tint: tints[i % tints.count])
+                                        }
+                                    }.buttonStyle(.plain)
                                 }
-                            }.buttonStyle(.plain)
+                            }
+                            .padding(.horizontal)
                         }
                     }
 
-                    // 热门舞蹈（横滑，女孩摆出动作，第一张实时跳动，点→带入工作室）
-                    section("热门舞蹈") {
-                        ForEach(Array(catalog.dances.prefix(12).enumerated()), id: \.element.id) { i, d in
-                            Button { launch = StudioLaunch(dance: d.key) } label: {
-                                posterCard(title: d.name) {
-                                    if i == 0 {
-                                        CardBackdrop(style: 0).overlay(LiveDanceView(model: "vroid_preview.usdz", dance: d.key))
-                                    } else {
-                                        DanceThumbView(model: "vroid_preview.usdz", dance: d.key, style: i)
-                                    }
+                    // 热门舞蹈
+                    VStack(alignment: .leading, spacing: 16) {
+                        sectionHeader("热门舞蹈") {
+                            launch = StudioLaunch()
+                        }
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 16) {
+                                ForEach(Array(catalog.dances.prefix(12).enumerated()), id: \.element.id) { i, d in
+                                    Button { launch = StudioLaunch(dance: d.key) } label: {
+                                        posterCard(title: d.name, subtitle: "Hot Trend") {
+                                            if i == 0 {
+                                                CardBackdrop(style: 0)
+                                                    .overlay(LiveDanceView(model: "vroid_preview.usdz", dance: d.key))
+                                            } else {
+                                                DanceThumbView(model: "vroid_preview.usdz", dance: d.key, style: i)
+                                            }
+                                        }
+                                    }.buttonStyle(.plain)
                                 }
-                            }.buttonStyle(.plain)
+                            }
+                            .padding(.horizontal)
                         }
                     }
 
                     // 更多玩法
-                    sectionHeader("更多玩法")
-                    Button { showVideo = true } label: {
-                        smallCard(icon: "video", title: "视频驱动", subtitle: "模仿视频动作 · Beta")
-                    }.buttonStyle(.plain).padding(.horizontal)
-                    Button { showAnimTest = true } label: {
-                        smallCard(icon: "figure.walk", title: "完整动画(实验)", subtitle: "SceneKit 原生全身动作 · X Bot 走路")
-                    }.buttonStyle(.plain).padding(.horizontal)
+                    VStack(alignment: .leading, spacing: 16) {
+                        sectionHeader("更多发现")
+                        VStack(spacing: 12) {
+                            Button { showVideo = true } label: {
+                                actionCard(icon: "video.fill", title: "视频驱动动作", subtitle: "上传视频，让模型实时模仿", color: .blue)
+                            }.buttonStyle(.plain)
+                        }
+                        .padding(.horizontal)
+                    }
                 }
                 .padding(.vertical)
             }
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("创作")
+            .navigationBarTitleDisplayMode(.large)
             .fullScreenCover(item: $launch) { l in
                 studioCover(DanceStudioView(initialCharacter: l.character, initialDance: l.dance))
             }
             .fullScreenCover(isPresented: $showVideo) {
                 studioCover(VideoDriveView())
             }
-            .fullScreenCover(isPresented: $showAnimTest) {
-                AnimClipTestPage { showAnimTest = false }
-            }
         }
     }
 
-    // MARK: 组件
+    // MARK: - 精致组件
 
     private var heroCard: some View {
-        HStack(spacing: 14) {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.systemBackground).opacity(0.6))
-                .frame(width: 60, height: 60)
-                .overlay(Image(systemName: "figure.dance").font(.title).foregroundStyle(.tint))
-            VStack(alignment: .leading, spacing: 4) {
-                Text("舞蹈工作室").font(.title3.weight(.semibold)).foregroundStyle(.tint)
-                Text("选角色 · 选舞蹈 · AR 投射到房间")
-                    .font(.caption).foregroundStyle(.tint.opacity(0.85))
-                Label("开始跳舞", systemImage: "play.fill")
-                    .font(.subheadline.weight(.medium))
-                    .padding(.horizontal, 14).padding(.vertical, 6)
-                    .background(Color(.systemBackground), in: Capsule())
-                    .foregroundStyle(.tint)
-                    .padding(.top, 6)
+        ZStack(alignment: .leading) {
+            // 背景装饰
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing))
+
+            // 玻璃感图形
+            Circle()
+                .fill(Color.white.opacity(0.15))
+                .frame(width: 150, height: 150)
+                .offset(x: 200, y: -40)
+
+            HStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("进入舞蹈工作室")
+                            .font(.title2.bold())
+                            .foregroundStyle(.white)
+                        Text("开启沉浸式 AR 创作之旅")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+
+                    HStack(spacing: 8) {
+                        Text("立即开始")
+                            .font(.system(size: 14, weight: .bold))
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 12, weight: .bold))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.white)
+                    .foregroundStyle(Color.accentColor)
+                    .clipShape(Capsule())
+                    .shadow(color: .black.opacity(0.1), radius: 5, y: 2)
+                }
+
+                Spacer()
+
+                Image(systemName: "arkit")
+                    .font(.system(size: 60))
+                    .foregroundStyle(.white.opacity(0.2))
+                    .padding(.trailing, 10)
             }
-            Spacer()
+            .padding(24)
         }
-        .padding(16)
-        .background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 18))
+        .frame(height: 160)
+        .shadow(color: Color.accentColor.opacity(0.3), radius: 15, x: 0, y: 10)
     }
 
-    /// 带横滑内容的分区
-    private func section<Content: View>(_ title: String,
-                                        @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(title)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) { content() }.padding(.horizontal)
+    private func posterCard<Thumb: View>(title: String, subtitle: String, @ViewBuilder thumb: () -> Thumb) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topTrailing) {
+                thumb()
+                    .frame(width: 140, height: 180)
+                    .background(Color(.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                // 装饰小标
+                Image(systemName: "sparkles")
+                    .font(.caption2)
+                    .padding(6)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .padding(8)
             }
-        }
-    }
 
-    private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
-
-    /// 竖版海报卡：缩略图 + 底部名称。
-    private func posterCard<Thumb: View>(title: String, @ViewBuilder thumb: () -> Thumb) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            thumb()
-                .frame(width: 132, height: 168)
-                .clipped()
-            LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .center, endPoint: .bottom)
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.white)
-                .lineLimit(1).padding(8)
-        }
-        .frame(width: 132, height: 168)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-    }
-
-    private func smallCard(icon: String, title: String, subtitle: String) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon).font(.title2).foregroundStyle(.tint)
-                .frame(width: 44, height: 44)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline.weight(.medium))
-                Text(subtitle).font(.caption2).foregroundStyle(.secondary)
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
             }
-            Spacer()
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            .padding(.horizontal, 4)
         }
-        .padding(12)
-        .background(Color(.secondarySystemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
     }
 
-    private func sectionHeader(_ t: String) -> some View {
-        Text(t).font(.headline).padding(.horizontal)
+    private func actionCard(icon: String, title: String, subtitle: String, color: Color) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .background(color, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 16, weight: .bold))
+                Text(subtitle)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(14)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: .black.opacity(0.03), radius: 5, x: 0, y: 2)
     }
+
+    private func sectionHeader(_ t: String, action: (() -> Void)? = nil) -> some View {
+        HStack {
+            Text(t)
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+            Spacer()
+            if let action = action {
+                Button(action: action) {
+                    Text("全部")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+        }
+        .padding(.horizontal)
+    }
+
 
     /// 全屏工作室容器（自带关闭按钮）
     private func studioCover<V: View>(_ content: V) -> some View {
