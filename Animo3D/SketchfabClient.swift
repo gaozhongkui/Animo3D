@@ -126,11 +126,19 @@ final class SketchfabClient {
         return dest
     }
 
-    func fetchModels(query: String? = nil, nextUrl: String? = nil) async throws -> SketchfabResponse {
+    func fetchModels(query: String? = nil, category: String? = nil, nextUrl: String? = nil) async throws -> SketchfabResponse {
         var urlString = nextUrl ?? "https://api.sketchfab.com/v3/models?type=models&downloadable=true&sort_by=-likeCount"
 
-        if nextUrl == nil, let query = query, !query.isEmpty {
-            urlString += "&q=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+        if nextUrl == nil {
+            var combinedQuery = query ?? ""
+            if let cat = category, cat != "热门" {
+                combinedQuery += " \(cat)"
+            }
+            combinedQuery = combinedQuery.trimmingCharacters(in: .whitespaces)
+
+            if !combinedQuery.isEmpty {
+                urlString += "&q=\(combinedQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+            }
         }
 
         guard let url = URL(string: urlString) else {

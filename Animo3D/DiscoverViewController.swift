@@ -17,6 +17,7 @@ final class DiscoverViewController: UIViewController {
     private var nextUrl: String?
     private var isFetching = false
     private var currentQuery: String?
+    private var currentCategory: String?
 
     var onModelSelected: ((SketchfabModel) -> Void)?
 
@@ -92,9 +93,10 @@ final class DiscoverViewController: UIViewController {
         fetchPage(isRefreshing: true)
     }
 
-    func loadData(query: String? = nil, isRefreshing: Bool = false) {
-        if query != currentQuery {
+    func loadData(query: String? = nil, category: String? = nil, isRefreshing: Bool = false) {
+        if query != currentQuery || category != currentCategory {
             currentQuery = query
+            currentCategory = category
             nextUrl = nil
             models = []
             collectionView.reloadData()
@@ -110,12 +112,12 @@ final class DiscoverViewController: UIViewController {
         if models.isEmpty && !isRefreshing {
             activityIndicator.startAnimating()
         } else if requestingNext != nil {
-            bottomLoader.startAnimating()   // 加载下一页：底部转圈，让用户看到在加载
+            bottomLoader.startAnimating()
         }
 
         Task {
             do {
-                let resp = try await SketchfabClient.shared.fetchModels(query: currentQuery, nextUrl: requestingNext)
+                let resp = try await SketchfabClient.shared.fetchModels(query: currentQuery, category: currentCategory, nextUrl: requestingNext)
                 await MainActor.run {
                     if requestingNext == nil {
                         self.models = resp.results
@@ -274,6 +276,7 @@ final class ModelCell: UICollectionViewCell {
 // MARK: - SwiftUI Wrapper
 struct DiscoverViewControllerRepresentable: UIViewControllerRepresentable {
     @Binding var searchText: String
+    @Binding var selectedCategory: String
     var onModelSelected: (SketchfabModel) -> Void
 
     func makeUIViewController(context: Context) -> DiscoverViewController {
@@ -283,6 +286,6 @@ struct DiscoverViewControllerRepresentable: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: DiscoverViewController, context: Context) {
-        uiViewController.loadData(query: searchText, isRefreshing: false)
+        uiViewController.loadData(query: searchText, category: selectedCategory, isRefreshing: false)
     }
 }
