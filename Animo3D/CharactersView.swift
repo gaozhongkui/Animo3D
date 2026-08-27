@@ -74,7 +74,7 @@ struct MyCharactersView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("你的 3D 舞伴")
+                Text("3D 虚拟舞者")
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                     .padding(.horizontal)
 
