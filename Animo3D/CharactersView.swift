@@ -34,7 +34,7 @@ private struct PickedCharacter: Identifiable { let id: String; let name: String 
 
 /// 我的角色：可跳舞的角色库。点一个 → 进舞蹈工作室并带入该角色。
 struct MyCharactersView: View {
-    private let catalog = Catalog.load()
+    private let catalog = Catalog.shared
     @State private var picked: PickedCharacter?
     private let cols = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 

@@ -127,17 +127,34 @@ struct DanceStudioView: View {
     private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
 
     var body: some View {
-        VStack(spacing: 0) {
-            if step != .perform { stepHeader }
+        ZStack {
+            // 背景色，防止切换页面时由于加载延迟导致的白闪
+            Color(.systemBackground).ignoresSafeArea()
 
-            switch step {
-            case .character: characterStep
-            case .dance:     danceStep
-            case .music:     musicStep
-            case .perform:   performStep
+            VStack(spacing: 0) {
+                if step != .perform {
+                    stepHeader
+                        .padding(.top, 10)
+                }
+
+                Group {
+                    switch step {
+                    case .character: characterStep
+                    case .dance:     danceStep
+                    case .music:     musicStep
+                    case .perform:   performStep
+                    }
+                }
+                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
+                                      removal: .move(edge: .leading).combined(with: .opacity)))
+
+                if step != .perform {
+                    Divider().padding(.horizontal)
+                    bottomBar
+                        .padding(.top, 12)
+                }
             }
-
-            if step != .perform { bottomBar }
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: step)
         }
         .overlay { if loading { loadingHUD } }
         .navigationBarTitleDisplayMode(.inline)
@@ -181,24 +198,33 @@ struct DanceStudioView: View {
 
     // MARK: 步骤头部（进度）
     private var stepHeader: some View {
-        let titles = ["选角色", "选舞蹈", "选音乐", "表演"]
-        return VStack(spacing: 10) {
-            ZStack {
-                Text(titles[step.rawValue]).font(.headline)
-                HStack {
-                    circleButton(step == .character ? "xmark" : "chevron.left") { back() }
-                    Spacer()
+        let titles = ["选择角色", "选择舞蹈", "选择音乐", "开始表演"]
+        return VStack(spacing: 16) {
+            HStack(spacing: 20) {
+                circleButton(step == .character ? "xmark" : "chevron.left") { back() }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(titles[step.rawValue])
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                    Text("第 \(step.rawValue + 1) / 4 步")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                // 进度圆环或简约进度条
+                HStack(spacing: 4) {
+                    ForEach(0..<4) { i in
+                        Capsule()
+                            .fill(i <= step.rawValue ? Color.accentColor : Color.accentColor.opacity(0.2))
+                            .frame(width: i == step.rawValue ? 20 : 8, height: 4)
+                    }
                 }
             }
-            HStack(spacing: 6) {
-                ForEach(0..<3) { i in
-                    Capsule()
-                        .fill(i <= step.rawValue ? Color.accentColor : Color(.systemGray4))
-                        .frame(width: i == step.rawValue ? 22 : 8, height: 6)
-                }
-            }
+            .padding(.horizontal, 16)
         }
-        .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 12)
+        .padding(.bottom, 8)
     }
 
     private func circleButton(_ system: String, action: @escaping () -> Void) -> some View {
@@ -220,22 +246,49 @@ struct DanceStudioView: View {
     // MARK: 步骤1 选角色
     private var characterStep: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
                 ForEach(Array(catalog.characters.enumerated()), id: \.element.id) { i, c in
-                    ZStack(alignment: .bottomLeading) {
-                        CharacterThumbView(characterKey: c.key, tint: tints[i % tints.count])
-                            .aspectRatio(3.0/4.0, contentMode: .fill)
-                        LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .center, endPoint: .bottom)
-                        Text(c.name).font(.subheadline.weight(.semibold)).foregroundStyle(.white).padding(10)
+                    let isSelected = character == c.key
+                    VStack(alignment: .leading, spacing: 10) {
+                        ZStack(alignment: .bottomLeading) {
+                            CharacterThumbView(characterKey: c.key, tint: tints[i % tints.count])
+                                .aspectRatio(3.0/4.0, contentMode: .fill)
+                                .background(Color(.secondarySystemBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 3)
+                                )
+                                .shadow(color: isSelected ? Color.accentColor.opacity(0.3) : Color.black.opacity(0.05),
+                                        radius: isSelected ? 10 : 5, x: 0, y: 5)
+
+                            LinearGradient(colors: [.clear, .black.opacity(0.4)], startPoint: .center, endPoint: .bottom)
+                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                            if isSelected {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.white, Color.accentColor)
+                                    .font(.title2)
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                            }
+                        }
+
+                        Text(c.name)
+                            .font(.system(size: 15, weight: .bold))
+                            .padding(.horizontal, 4)
                     }
-                    .aspectRatio(3.0/4.0, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.accentColor, lineWidth: character == c.key ? 3 : 0))
-                    .overlay(alignment: .topTrailing) { ZoomButton { zoomChar = c }.padding(8) }
-                    .onTapGesture { character = c.key }
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.3)) { character = c.key }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        ZoomButton { zoomChar = c }
+                            .padding(12)
+                            .opacity(isSelected ? 1 : 0.6)
+                    }
                 }
             }
-            .padding(.horizontal).padding(.bottom, 12)
+            .padding(.horizontal).padding(.bottom, 20)
         }
     }
 
@@ -255,31 +308,50 @@ struct DanceStudioView: View {
     // MARK: 步骤2 选舞蹈（每张卡展示女孩摆出该动作）
     private var danceStep: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
                 ForEach(Array(catalog.dances.enumerated()), id: \.element.id) { i, d in
-                    ZStack(alignment: .bottomLeading) {
-                        if dance == d.key && DeviceTier.allowsLiveDanceCards {
-                            // 选中的卡片：实时跳动（低端机改用静态姿势图,省性能）
-                            CardBackdrop(style: i).overlay(LiveDanceView(model: previewModel, dance: d.key))
-                        } else {
-                            DanceThumbView(model: previewModel, dance: d.key, style: i)
-                                .aspectRatio(3.0/4.0, contentMode: .fill)
+                    let isSelected = dance == d.key
+                    VStack(alignment: .leading, spacing: 10) {
+                        ZStack(alignment: .bottomLeading) {
+                            Group {
+                                if isSelected && DeviceTier.allowsLiveDanceCards {
+                                    CardBackdrop(style: i)
+                                        .overlay(LiveDanceView(model: previewModel, dance: d.key))
+                                } else {
+                                    DanceThumbView(model: previewModel, dance: d.key, style: i)
+                                        .aspectRatio(3.0/4.0, contentMode: .fill)
+                                }
+                            }
+                            .background(Color(.secondarySystemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 3)
+                            )
+                            .shadow(color: isSelected ? Color.accentColor.opacity(0.3) : Color.black.opacity(0.05),
+                                    radius: isSelected ? 10 : 5, x: 0, y: 5)
+
+                            LinearGradient(colors: [.clear, .black.opacity(0.4)], startPoint: .center, endPoint: .bottom)
+                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(d.name).font(.system(size: 15, weight: .bold)).foregroundStyle(.white).lineLimit(1)
+                                Text(danceMeta(d.key)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.85))
+                            }
+                            .padding(12)
                         }
-                        LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .center, endPoint: .bottom)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(d.name).font(.subheadline.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
-                            Text(danceMeta(d.key)).font(.caption2).foregroundStyle(.white.opacity(0.85))
-                        }
-                        .padding(10)
                     }
-                    .aspectRatio(3.0/4.0, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.accentColor, lineWidth: dance == d.key ? 3 : 0))
-                    .overlay(alignment: .topTrailing) { ZoomButton { zoomDance = d }.padding(8) }
-                    .onTapGesture { dance = d.key }
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.3)) { dance = d.key }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        ZoomButton { zoomDance = d }
+                            .padding(12)
+                            .opacity(isSelected ? 1 : 0.6)
+                    }
                 }
             }
-            .padding(.horizontal).padding(.bottom, 12)
+            .padding(.horizontal).padding(.bottom, 20)
         }
     }
 
@@ -318,14 +390,35 @@ struct DanceStudioView: View {
             .buttonStyle(.plain)
     }
     private func musicRowLabel(title: String, system: String, selected: Bool, tint: Color) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: system).foregroundStyle(tint).frame(width: 24)
-            Text(title).font(.subheadline).foregroundStyle(.primary)
+        HStack(spacing: 16) {
+            Image(systemName: system)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(selected ? .white : tint)
+                .frame(width: 44, height: 44)
+                .background(selected ? tint : Color(.systemGray6))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            Text(title)
+                .font(.system(size: 16, weight: selected ? .bold : .medium))
+                .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.primary.opacity(0.8)))
+
             Spacer()
-            if selected { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+
+            if selected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(tint)
+            }
         }
-        .padding(.horizontal, 14).padding(.vertical, 14)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(selected ? tint.opacity(0.08) : Color.clear)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(selected ? tint : Color.clear, lineWidth: 1.5)
+        )
+        .shadow(color: .black.opacity(selected ? 0.05 : 0), radius: 5, y: 2)
     }
 
     // MARK: 步骤4 表演
@@ -468,13 +561,28 @@ struct DanceStudioView: View {
     // MARK: 底部主按钮
     private var bottomBar: some View {
         Button(action: next) {
-            Text(loading ? "准备中…" : (step == .music ? "开始跳舞" : "下一步"))
-                .font(.headline).foregroundStyle(.white)
-                .frame(maxWidth: .infinity).padding(.vertical, 15)
-                .background(nextEnabled ? Color.accentColor : Color(.systemGray3), in: RoundedRectangle(cornerRadius: 14))
+            HStack(spacing: 8) {
+                Text(loading ? "资源准备中…" : (step == .music ? "开始舞台表演" : "下一步"))
+                if !loading {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .bold))
+                }
+            }
+            .font(.system(size: 17, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(
+                nextEnabled ?
+                AnyShapeStyle(LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.8)], startPoint: .leading, endPoint: .trailing)) :
+                AnyShapeStyle(Color(.systemGray4))
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: nextEnabled ? Color.accentColor.opacity(0.3) : .clear, radius: 10, y: 5)
         }
         .disabled(!nextEnabled)
-        .padding(.horizontal).padding(.bottom, 8)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 10)
     }
 
     private var nextEnabled: Bool {

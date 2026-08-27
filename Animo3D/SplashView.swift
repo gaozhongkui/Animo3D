@@ -55,6 +55,11 @@ struct SplashView: View {
             }
         }
         .onAppear {
+            // 预热重型资源（如 Catalog），利用闪屏等待时间完成 IO
+            Task(priority: .userInitiated) {
+                _ = Catalog.shared
+            }
+
             withAnimation(.easeIn(duration: 1.2)) {
                 self.scale = 1.0
                 self.opacity = 1.0
@@ -62,7 +67,7 @@ struct SplashView: View {
 
             // 2.5秒后切换到主界面
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                withAnimation {
+                withAnimation(.easeInOut(duration: 0.5)) {
                     self.isActive = true
                 }
             }

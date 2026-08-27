@@ -21,7 +21,7 @@ struct StudioLaunch: Identifiable {
 }
 
 struct HomeView: View {
-    private let catalog = Catalog.load()
+    private let catalog = Catalog.shared
     @State private var launch: StudioLaunch?
     @State private var showVideo = false
 
