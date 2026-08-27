@@ -128,34 +128,39 @@ struct DanceStudioView: View {
 
     var body: some View {
         ZStack {
-            // 背景色，防止切换页面时由于加载延迟导致的白闪
+            // 最底层背景，永远静止，消除白闪
             Color(.systemBackground).ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                if step != .perform {
+            if step == .perform {
+                // 表演页：全屏沉浸，独立布局
+                performStep
+            } else {
+                // 向导页：标准的 页眉 + 内容 + 页脚 结构
+                VStack(spacing: 0) {
                     stepHeader
                         .padding(.top, 10)
-                }
 
-                Group {
-                    switch step {
-                    case .character: characterStep
-                    case .dance:     danceStep
-                    case .music:     musicStep
-                    case .perform:   performStep
+                    // 内容区：使用 if/else 保证视图 Identity 稳定，防止布局崩塌
+                    ZStack {
+                        if step == .character {
+                            characterStep
+                        } else if step == .dance {
+                            danceStep
+                        } else {
+                            musicStep
+                        }
                     }
-                }
-                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
-                                      removal: .move(edge: .leading).combined(with: .opacity)))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                if step != .perform {
                     Divider().padding(.horizontal)
+
                     bottomBar
                         .padding(.top, 12)
                 }
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: step)
         }
+        // 统一使用一个简单的标准动画，移除所有嵌套的 withAnimation
+        .animation(.default, value: step)
         .overlay { if loading { loadingHUD } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)   // 自带统一的返回/关闭按钮
@@ -279,7 +284,7 @@ struct DanceStudioView: View {
                             .padding(.horizontal, 4)
                     }
                     .onTapGesture {
-                        withAnimation(.spring(response: 0.3)) { character = c.key }
+                        character = c.key
                     }
                     .overlay(alignment: .topTrailing) {
                         ZoomButton { zoomChar = c }
@@ -342,7 +347,7 @@ struct DanceStudioView: View {
                         }
                     }
                     .onTapGesture {
-                        withAnimation(.spring(response: 0.3)) { dance = d.key }
+                        dance = d.key
                     }
                     .overlay(alignment: .topTrailing) {
                         ZoomButton { zoomDance = d }
