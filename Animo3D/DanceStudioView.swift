@@ -19,6 +19,10 @@ struct Catalog: Decodable {
     let characters: [CatalogItem]
     let dances: [CatalogItem]
 
+    /// manifest.json 是只读的静态清单,全局解析一次即可。
+    /// 以前写成 View 的存储属性,SwiftUI 每次重建 struct 都要重读重解一遍。
+    static let shared = load()
+
     static func load() -> Catalog {
         guard let url = Bundle.main.url(forResource: "manifest", withExtension: "json"),
               let data = try? Data(contentsOf: url),
@@ -40,48 +44,59 @@ final class DanceStage: ObservableObject {
     private var player: MocapPlayer?
     private var vroidPlayer: VRoidClipPlayer?
 
-    func load(character: String, dance: String) {
+    /// 加载角色 + 舞蹈。**重活全在后台线程**：
+    /// 模型解析(10~60MB)与舞蹈数据解析(vr_*.json 最大 2.5MB)都不占主线程,
+    /// 只有挂节点/建播放器这点轻活回主线程 —— 这是"进舞台页卡一下"的正解。
+    @MainActor
+    func load(character: String, dance: String) async {
         player?.stop(); vroidPlayer?.stop()
-        _ = controller.loadModel(named: characterModelFile(character))   // 复用场景，换模型(.scn/.usdz)
+        player = nil; vroidPlayer = nil
+
+        let file = characterModelFile(character)
+        let loaded = await Task.detached(priority: .userInitiated) {
+            CharacterSceneController.loadSceneFile(named: file, warmUp: true)
+        }.value
+        guard let loaded else { NSLog("[DanceStage] 模型加载失败 %@", file); return }
+        controller.install(loaded)   // 复用场景，换模型(.scn/.usdz)
         NSLog("[DanceStage] load char=%@ isVRM=%d dance=%@", character, controller.isVRM ? 1 : 0, dance)
+
         if controller.isVRM {
             // VRoid：完整骨骼动画(three-vrm 重定向导出的四元数 JSON)
             retargeter = nil
-            playVroid(dance)
+            let name = "vr_\(dance)"
+            let clip = await Task.detached(priority: .userInitiated) {
+                VRoidClip.load(named: name)
+            }.value
+            guard let clip else { return }
+            let p = VRoidClipPlayer(clip: clip, controller: controller)
+            vroidPlayer = p
+            p.start()
         } else {
-            retargeter = PoseRetargeter(controller: controller)
-            playDance(dance)
+            let rt = PoseRetargeter(controller: controller)
+            retargeter = rt
+            rt.resetCapture()
+            let clip = await Task.detached(priority: .userInitiated) {
+                Bundle.main.url(forResource: dance, withExtension: "json").flatMap { MocapClip.load($0) }
+            }.value
+            guard let clip else { return }
+            let p = MocapPlayer(frames: clip.frames, retargeter: rt)
+            player = p
+            p.start()
         }
     }
 
     /// 屏幕↔AR 切换后重新采样静止姿态。
     func resetRetarget() { retargeter?.resetCapture() }
 
-    func playVroid(_ dance: String) {
-        vroidPlayer?.stop()
-        let p = VRoidClipPlayer(clipName: "vr_\(dance)", controller: controller)
-        vroidPlayer = p
-        p?.start()
-    }
-
-    func playDance(_ dance: String) {
-        // VRoid 走完整动画分支
-        if controller.isVRM { playVroid(dance); return }
-        guard let rt = retargeter else { return }
-        player?.stop()
-        rt.resetCapture()
-        guard let url = Bundle.main.url(forResource: dance, withExtension: "json"),
-              let clip = MocapClip.load(url) else { return }
-        let p = MocapPlayer(frames: clip.frames, retargeter: rt)
-        player = p
-        p.start()
+    func stop() {
+        player?.stop(); vroidPlayer?.stop()
     }
 }
 
 struct DanceStudioView: View {
     var initialCharacter: String? = nil
     var initialDance: String? = nil
-    private let catalog = Catalog.load()
+    private let catalog = Catalog.shared
     @Environment(\.dismiss) private var dismiss
 
     @StateObject private var stage = DanceStage()
@@ -102,6 +117,7 @@ struct DanceStudioView: View {
     @State private var showShare = false
     @State private var showAudioDoc = false
     @State private var processing = false   // 合成音乐中
+    @State private var loading = false      // 加载角色/舞蹈中(模型+动画在后台解析)
     @State private var zoomChar: CatalogItem?   // 角色放大预览
     @State private var zoomDance: CatalogItem?  // 舞蹈放大预览
     @State private var vfx = DanceVFX()         // 舞台特效
@@ -123,6 +139,7 @@ struct DanceStudioView: View {
 
             if step != .perform { bottomBar }
         }
+        .overlay { if loading { loadingHUD } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)   // 自带统一的返回/关闭按钮
         .sheet(isPresented: $showShare) { if let url = shareURL { ShareSheet(items: [url]) } }
@@ -137,7 +154,7 @@ struct DanceStudioView: View {
         .onChange(of: step) { s in
             if s == .character || s == .dance { music.stop() }
         }
-        .onDisappear { music.stop(); vfx.remove() }
+        .onDisappear { music.stop(); vfx.remove(); stage.stop() }
         .fullScreenCover(item: $zoomChar) { c in
             let idx = catalog.characters.firstIndex { $0.key == c.key } ?? 0
             CharacterPreviewPage(key: c.key, name: c.name, style: idx)
@@ -146,6 +163,20 @@ struct DanceStudioView: View {
             let idx = catalog.dances.firstIndex { $0.key == d.key } ?? 0
             DancePreviewPage(dance: d.key, name: d.name, style: idx)
         }
+    }
+
+    /// 加载角色/舞蹈时的遮罩(模型几十 MB,后台解析要一会儿,不给反馈会被当成卡死)。
+    private var loadingHUD: some View {
+        ZStack {
+            Color.black.opacity(0.45).ignoresSafeArea()
+            VStack(spacing: 12) {
+                ProgressView().tint(.white).scaleEffect(1.3)
+                Text("正在准备舞台…").font(.footnote).foregroundStyle(.white.opacity(0.9))
+            }
+            .padding(24)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .transition(.opacity)
     }
 
     // MARK: 步骤头部（进度）
@@ -437,7 +468,7 @@ struct DanceStudioView: View {
     // MARK: 底部主按钮
     private var bottomBar: some View {
         Button(action: next) {
-            Text(step == .music ? "开始跳舞" : "下一步")
+            Text(loading ? "准备中…" : (step == .music ? "开始跳舞" : "下一步"))
                 .font(.headline).foregroundStyle(.white)
                 .frame(maxWidth: .infinity).padding(.vertical, 15)
                 .background(nextEnabled ? Color.accentColor : Color(.systemGray3), in: RoundedRectangle(cornerRadius: 14))
@@ -447,6 +478,7 @@ struct DanceStudioView: View {
     }
 
     private var nextEnabled: Bool {
+        if loading { return false }
         switch step {
         case .character: return !character.isEmpty
         case .dance:     return !dance.isEmpty
@@ -477,10 +509,16 @@ struct DanceStudioView: View {
     }
 
     private func startPerform() {
-        stage.load(character: character, dance: dance)
-        if let m = selectedMusic { music.play(m) } else { music.stop() }
-        step = .perform
-        installVFX()
+        guard !loading else { return }
+        loading = true
+        let ch = character, dc = dance
+        Task {
+            await stage.load(character: ch, dance: dc)
+            loading = false
+            if let m = selectedMusic { music.play(m) } else { music.stop() }
+            step = .perform
+            installVFX()
+        }
     }
 
     /// 安装/刷新舞台特效(挂到角色屏幕场景,读音乐能量脉动)。

@@ -11,15 +11,17 @@ import Foundation
 import SceneKit
 import QuartzCore
 
-final class VRoidClipPlayer {
-    private weak var controller: CharacterSceneController?
-    private var frames: [[String: [Float]]] = []
-    private var fps: Double = 30
-    private var link: CADisplayLink?
-    private var startTime: CFTimeInterval = 0
+/// 解析好的一支 VRoid 骨骼动画。
+/// 单独抽出来是为了能在**后台线程**解析:vr_*.json 最大 2.5MB,
+/// JSONSerialization + 逐帧建字典在主线程要卡 0.5~2s(进舞台页那一下)。
+struct VRoidClip {
+    let fps: Double
+    let frames: [[String: simd_quatf]]
 
-    /// clipName 不含扩展名,如 "vr_Arms_Hip_Hop_Dance"。
-    init?(clipName: String, controller: CharacterSceneController) {
+    var isEmpty: Bool { frames.isEmpty }
+
+    /// clipName 不含扩展名,如 "vr_Arms_Hip_Hop_Dance"。**耗时,别在主线程调用。**
+    static func load(named clipName: String) -> VRoidClip? {
         guard let url = Bundle.main.url(forResource: clipName, withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -27,19 +29,48 @@ final class VRoidClipPlayer {
             NSLog("[VRoidClip] FAIL 找不到/解析失败: %@", clipName)
             return nil
         }
-        self.controller = controller
-        self.fps = (obj["fps"] as? Double) ?? 30
-        self.frames = fr.map { d in d.mapValues { $0.map { Float($0) } } }
-        NSLog("[VRoidClip] OK %@ 帧数=%d 场景骨骼数=%d", clipName, frames.count, controller.boneNodes.count)
+        let fps = (obj["fps"] as? Double) ?? 30
+        // 解析阶段就转成四元数并剔掉非四元数项(如 __hipsPos),回放时每帧只做赋值。
+        let frames: [[String: simd_quatf]] = fr.map { d in
+            var out: [String: simd_quatf] = [:]
+            out.reserveCapacity(d.count)
+            for (name, v) in d where v.count == 4 {
+                out[name] = simd_quatf(ix: Float(v[0]), iy: Float(v[1]), iz: Float(v[2]), r: Float(v[3]))
+            }
+            return out
+        }
+        NSLog("[VRoidClip] OK %@ 帧数=%d fps=%.0f", clipName, frames.count, fps)
+        return VRoidClip(fps: fps, frames: frames)
     }
+}
+
+final class VRoidClipPlayer {
+    private weak var controller: CharacterSceneController?
+    private let clip: VRoidClip
+    private var link: CADisplayLink?
+    private var startTime: CFTimeInterval = 0
     private var ticked = false
 
-    var frameCount: Int { frames.count }
+    init(clip: VRoidClip, controller: CharacterSceneController) {
+        self.clip = clip
+        self.controller = controller
+        NSLog("[VRoidClip] 就绪 帧数=%d 场景骨骼数=%d", clip.frames.count, controller.boneNodes.count)
+    }
+
+    /// 兼容旧调用:同步解析。**会阻塞调用线程**,新代码请用 `VRoidClip.load` + `init(clip:controller:)`。
+    convenience init?(clipName: String, controller: CharacterSceneController) {
+        guard let clip = VRoidClip.load(named: clipName) else { return nil }
+        self.init(clip: clip, controller: controller)
+    }
+
+    var frameCount: Int { clip.frames.count }
 
     func start() {
         stop()
         startTime = CACurrentMediaTime()
         let l = CADisplayLink(target: self, selector: #selector(tick))
+        // 源动画本身就是 30fps,按 60Hz 跑只是把同一帧重算一遍蒙皮,白烧 GPU/CPU。
+        l.preferredFramesPerSecond = DeviceTier.playbackFPS
         l.add(to: .main, forMode: .common)
         link = l
     }
@@ -51,24 +82,27 @@ final class VRoidClipPlayer {
 
     /// 直接摆到某一帧(缩略图/静态预览用)。
     func pose(frame idx: Int) {
-        applyFrame(min(max(0, idx), frames.count - 1))
+        applyFrame(min(max(0, idx), clip.frames.count - 1))
     }
 
     @objc private func tick() {
-        guard !frames.isEmpty else { return }
+        guard !clip.frames.isEmpty else { return }
         let t = CACurrentMediaTime() - startTime
-        let idx = Int(t * fps) % frames.count   // 循环
+        let idx = Int(t * clip.fps) % clip.frames.count   // 循环
         applyFrame(idx)
     }
 
     private func applyFrame(_ idx: Int) {
-        guard let c = controller, frames.indices.contains(idx) else { return }
+        guard let c = controller, clip.frames.indices.contains(idx) else { return }
         var hit = 0
-        for (name, v) in frames[idx] where name != "__hipsPos" {
-            guard v.count == 4, let node = c.boneNodes[name] else { continue }
-            node.simdOrientation = simd_quatf(ix: v[0], iy: v[1], iz: v[2], r: v[3])
+        for (name, q) in clip.frames[idx] {
+            guard let node = c.boneNodes[name] else { continue }
+            node.simdOrientation = q
             hit += 1
         }
-        if !ticked { ticked = true; NSLog("[VRoidClip] tick首帧 命中骨骼=%d/%d 样例=%@", hit, frames[idx].count, frames[idx].keys.sorted().prefix(3).joined(separator: ",")) }
+        if !ticked {
+            ticked = true
+            NSLog("[VRoidClip] tick首帧 命中骨骼=%d/%d", hit, clip.frames[idx].count)
+        }
     }
 }

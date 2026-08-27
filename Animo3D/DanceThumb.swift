@@ -2,58 +2,11 @@
 //  DanceThumb.swift
 //  Animo3D
 //
-//  为每支舞渲染一张"角色摆出该舞蹈代表姿势"的缩略图（离屏渲染 + 缓存），
-//  让选动作列表显示真实动作，而不是纯文字卡片。
+//  为每支舞渲染一张"角色摆出该舞蹈代表姿势"的缩略图。
+//  实际渲染/缓存都在 ThumbRenderer 里(全局串行 + 复用模型 + 三级缓存)。
 //
 
 import SwiftUI
-import SceneKit
-
-enum DanceThumb {
-    private static let dir: URL = {
-        let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("dance_thumbs", isDirectory: true)
-        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
-        return d
-    }()
-
-    private static func key(_ model: String, _ dance: String) -> String {
-        "\(model)__\(dance)".replacingOccurrences(of: ".", with: "_")
-    }
-
-    static func cached(model: String, dance: String) -> UIImage? {
-        UIImage(contentsOfFile: dir.appendingPathComponent(key(model, dance) + ".png").path)
-    }
-
-    /// 离屏渲染角色摆出某支舞的代表帧。model 含扩展名（如 "vroid_preview.usdz"）。
-    static func render(model: String, dance: String,
-                       size: CGSize = CGSize(width: 360, height: 460)) -> UIImage? {
-        let controller = CharacterSceneController()
-        _ = controller.loadModel(named: model)
-        guard controller.isLoaded, let cam = controller.cameraNode,
-              let device = MTLCreateSystemDefaultDevice() else { return nil }
-
-        // 摆出舞蹈代表帧（重定向器带平滑，重复应用同一帧使其收敛）
-        if let url = Bundle.main.url(forResource: dance, withExtension: "json"),
-           let clip = MocapClip.load(url), !clip.frames.isEmpty {
-            let rt = PoseRetargeter(controller: controller)
-            let idx = min(clip.frames.count - 1, Int(Double(clip.frames.count) * 0.45))
-            for _ in 0..<12 { rt.apply(world: clip.frames[idx]) }
-        }
-
-        controller.scene.background.contents = UIColor.clear
-        let renderer = SCNRenderer(device: device, options: nil)
-        renderer.scene = controller.scene
-        renderer.pointOfView = cam
-        renderer.autoenablesDefaultLighting = true
-
-        let img = renderer.snapshot(atTime: 0, with: size, antialiasingMode: .multisampling4X)
-        if let data = img.pngData() {
-            try? data.write(to: dir.appendingPathComponent(key(model, dance) + ".png"))
-        }
-        return img
-    }
-}
 
 /// 舞蹈姿势缩略图视图。
 struct DanceThumbView: View {
@@ -72,13 +25,14 @@ struct DanceThumbView: View {
             }
         }
         .task(id: model + "|" + dance) {   // 角色(model)或舞蹈变化都重渲染
+            // 内存命中就同步显示,不闪 loading、不碰磁盘(列表滑动时这条路径最关键)
+            if let m = ThumbRenderer.shared.memoryCached(model: model, dance: dance) {
+                image = m; return
+            }
             image = nil
-            if let c = DanceThumb.cached(model: model, dance: dance) { image = c; return }
-            let m = model, d = dance
-            let rendered = await Task.detached(priority: .utility) {
-                DanceThumb.render(model: m, dance: d)
-            }.value
-            await MainActor.run { image = rendered }
+            let img = await ThumbRenderer.shared.danceImage(model: model, dance: dance)
+            guard !Task.isCancelled else { return }
+            image = img
         }
     }
 }

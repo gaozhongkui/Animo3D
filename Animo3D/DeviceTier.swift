@@ -27,4 +27,19 @@ enum DeviceTier {
 
     /// 低端不在选舞蹈卡片上跑"实时跳动"(LiveDanceView),用静态姿势图代替。
     static var allowsLiveDanceCards: Bool { !isLowEnd }
+
+    /// 舞台地板实时反射:低端关闭。反射等于把整个场景多渲一遍,和阴影一样是大头。
+    static var floorReflectivity: CGFloat { isLowEnd ? 0 : 0.16 }
+
+    /// 天空模式地板倒影强度(天空模式只靠倒影,低端也压低但不全关)。
+    static var skyFloorReflectivity: CGFloat { isLowEnd ? 0 : 0.5 }
+
+    /// 方向光实时软阴影:低端关闭,脚下接触阴影贴图已给足着地感。
+    static var dynamicShadows: Bool { !isLowEnd }
+
+    /// 软阴影采样数:原来固定 16 太重(forward 模式每帧一遍 shadow pass)。
+    static var shadowSampleCount: Int { isLowEnd ? 4 : 8 }
+
+    /// 骨骼回放帧率:动捕源本身就是 30fps,没必要按 60Hz 重算蒙皮。
+    static var playbackFPS: Int { 30 }
 }

@@ -36,7 +36,7 @@ struct SceneOrbitView: UIViewRepresentable {
         v.backgroundColor = .clear
         v.allowsCameraControl = true          // 手势旋转 + 两指缩放
         v.autoenablesDefaultLighting = true
-        v.antialiasingMode = .multisampling4X
+        v.antialiasingMode = DeviceTier.antialiasing   // 4x MSAA 太重,按机型分级
         v.rendersContinuously = animated
         v.isPlaying = animated
         if let cam = controller.cameraNode { v.pointOfView = cam }
@@ -50,20 +50,30 @@ struct SceneOrbitView: UIViewRepresentable {
 /// 持有一个用于预览的角色控制器,可选驱动一支舞;供 3D 与 AR 共用,避免切换时重载。
 final class PreviewStage: ObservableObject {
     let controller = CharacterSceneController()
+    @Published private(set) var ready = false
     private var retargeter: PoseRetargeter?
     private var player: MocapPlayer?
     private var loaded = false
     var animated: Bool { player != nil }
 
-    func ensure(model: String, dance: String?) {
+    /// 模型与舞蹈数据都在后台解析,主线程只挂节点 —— 否则打开放大预览页会明显卡一下。
+    @MainActor
+    func ensure(model: String, dance: String?) async {
         guard !loaded else { return }
         loaded = true
         if dance == nil { controller.portraitMode = true }   // 角色静态详情:摆 A-pose
-        _ = controller.loadModel(named: model)
+        let scene = await Task.detached(priority: .userInitiated) {
+            CharacterSceneController.loadSceneFile(named: model, warmUp: true)
+        }.value
+        guard let scene else { return }
+        controller.install(scene)
+        ready = true
         guard let dance else { return }
         let rt = PoseRetargeter(controller: controller); retargeter = rt
-        if let url = Bundle.main.url(forResource: dance, withExtension: "json"),
-           let clip = MocapClip.load(url) {
+        let clip = await Task.detached(priority: .userInitiated) {
+            Bundle.main.url(forResource: dance, withExtension: "json").flatMap { MocapClip.load($0) }
+        }.value
+        if let clip {
             let p = MocapPlayer(frames: clip.frames, retargeter: rt)
             player = p; p.start()
         }
@@ -113,7 +123,12 @@ private struct PreviewShell: View {
                     .padding(.bottom, 30)
             }.frame(maxWidth: .infinity)
         }
-        .onAppear { stage.ensure(model: model, dance: dance) }
+        .overlay {
+            if !stage.ready {
+                ProgressView().tint(.white).scaleEffect(1.3)
+            }
+        }
+        .task { await stage.ensure(model: model, dance: dance) }
         .onDisappear { stage.stop() }
     }
 }

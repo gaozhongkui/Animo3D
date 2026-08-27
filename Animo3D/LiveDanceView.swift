@@ -19,33 +19,46 @@ struct LiveDanceView: UIViewRepresentable {
         let controller = CharacterSceneController()
         var retargeter: PoseRetargeter?
         var player: MocapPlayer?
+        var cancelled = false
     }
 
     func makeUIView(context: Context) -> SCNView {
         let c = context.coordinator
-        _ = c.controller.loadModel(named: model)
-        let rt = PoseRetargeter(controller: c.controller)
-        c.retargeter = rt
-        if let url = Bundle.main.url(forResource: dance, withExtension: "json"),
-           let clip = MocapClip.load(url) {
-            let p = MocapPlayer(frames: clip.frames, retargeter: rt)
-            c.player = p
-            p.start()
-        }
         let v = SCNView()
-        v.scene = c.controller.scene
         v.backgroundColor = .clear
         v.rendersContinuously = true
         v.isPlaying = true
         v.autoenablesDefaultLighting = true
+        v.antialiasingMode = DeviceTier.antialiasing
         v.allowsCameraControl = interactive
-        if let cam = c.controller.cameraNode { v.pointOfView = cam }
+
+        // 模型(10~60MB)与舞蹈 JSON(最大 1.2MB)都放后台解析。
+        // 以前在这里同步加载,点一下舞蹈卡片就是一次明显的主线程卡顿。
+        let modelFile = model, danceKey = dance
+        Task.detached(priority: .userInitiated) {
+            let scene = CharacterSceneController.loadSceneFile(named: modelFile, warmUp: true)
+            let clip = Bundle.main.url(forResource: danceKey, withExtension: "json").flatMap { MocapClip.load($0) }
+            await MainActor.run {
+                guard !c.cancelled, let scene else { return }
+                c.controller.install(scene)
+                v.scene = c.controller.scene
+                if let cam = c.controller.cameraNode { v.pointOfView = cam }
+                let rt = PoseRetargeter(controller: c.controller)
+                c.retargeter = rt
+                if let clip {
+                    let p = MocapPlayer(frames: clip.frames, retargeter: rt)
+                    c.player = p
+                    p.start()
+                }
+            }
+        }
         return v
     }
 
     func updateUIView(_ uiView: SCNView, context: Context) {}
 
     static func dismantleUIView(_ uiView: SCNView, coordinator: Coordinator) {
+        coordinator.cancelled = true
         coordinator.player?.stop()
     }
 }

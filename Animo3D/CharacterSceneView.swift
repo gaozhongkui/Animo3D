@@ -33,6 +33,23 @@ final class CharacterSceneController: ObservableObject {
         didSet { updateBackgroundAndGround() }
     }
 
+    // 加载完成时的骨骼姿态（含 portraitMode 的 A-pose），用于复位。
+    private var bindPose: [(node: SCNNode, orientation: simd_quatf, position: simd_float3)] = []
+
+    private func captureBindPose() {
+        bindPose = boneNodes.values.map { ($0, $0.simdOrientation, $0.simdPosition) }
+    }
+
+    /// 复位到加载时的骨骼姿态。
+    /// 复用同一个控制器连续渲染多支舞的缩略图时必须先复位，否则 PoseRetargeter
+    /// 会把上一支舞的姿势当成"静止姿态"采样，姿势会一支比一支歪。
+    func resetToRestPose() {
+        for b in bindPose {
+            b.node.simdOrientation = b.orientation
+            b.node.simdPosition = b.position
+        }
+    }
+
     /// 把角色根节点挂回本控制器的屏幕场景（从 AR 切回时用）。
     func reattachToScreenScene() {
         guard let root = characterRoot else { return }
@@ -43,20 +60,46 @@ final class CharacterSceneController: ObservableObject {
     }
 
     /// 从 App 包加载模型（.usdz/.scn/.dae）。返回发现的 Mixamo 骨骼名。
+    /// 注意：这是同步版本，会在调用线程上解析 10~60MB 的模型文件。
+    /// 主线程调用会明显卡顿，优先用 `loadSceneFile` + `install` 的两段式。
     @discardableResult
     func loadModel(named filename: String) -> [String] {
+        guard let loaded = Self.loadSceneFile(named: filename) else { return [] }
+        return install(loaded)
+    }
+
+    /// 只做磁盘解析，不碰任何已上屏的场景 —— 可以在后台线程调用。
+    /// 模型动辄 10~60MB，解析 + 贴图解码 + 建 skinner 在 iPhone X 上是几百 ms 到秒级，
+    /// 放主线程就是"进舞台页卡一下"的主因。
+    static func loadSceneFile(named filename: String, warmUp: Bool = false) -> SCNScene? {
         let base = (filename as NSString).deletingPathExtension
         let ext = (filename as NSString).pathExtension
         guard let url = Bundle.main.url(forResource: base,
                                         withExtension: ext.isEmpty ? nil : ext) else {
             print("[Character] 找不到模型文件: \(filename)")
-            return []
+            return nil
         }
         guard let loaded = try? SCNScene(url: url, options: [.convertToYUp: false]) else {
             print("[Character] 模型加载失败: \(url.lastPathComponent)")
-            return []
+            return nil
         }
+        if warmUp { Self.warmUp(loaded) }
+        return loaded
+    }
 
+    /// 预热：把几何与贴图提前上传到 GPU。
+    /// 不做这一步的话，贴图是在**首帧渲染时**才解码上传的 —— 表现为刚进舞台页画面先顿一下。
+    /// prepare 是同步阻塞调用，只该在后台线程用。
+    static func warmUp(_ scene: SCNScene) {
+        guard let device = MTLCreateSystemDefaultDevice() else { return }
+        let r = SCNRenderer(device: device, options: nil)
+        r.scene = scene
+        _ = r.prepare(scene.rootNode, shouldAbortBlock: nil)   // 同步阻塞版
+    }
+
+    /// 把已解析好的场景挂进本控制器（轻量，主线程）。
+    @discardableResult
+    func install(_ loaded: SCNScene) -> [String] {
         // 复用同一场景：先移除旧角色，避免每次切换都累积角色/内存（真机切几次会卡死的根因）
         characterRoot?.removeFromParentNode()
         boneNodes.removeAll()
@@ -98,8 +141,8 @@ final class CharacterSceneController: ObservableObject {
         }
 
         if !lightsAdded { addLights(); lightsAdded = true }
-        setupGround(root)
-        updateBackgroundAndGround()
+        updateBackgroundAndGround()   // 内部已含 setupGround,不要再单独调一次(以前地面/阴影贴图每次加载都建两遍)
+        captureBindPose()
         isLoaded = true
         print("[Character] 加载成功，发现 \(found.count) 根 Mixamo 骨骼")
         return found.sorted()
@@ -169,12 +212,12 @@ final class CharacterSceneController: ObservableObject {
         let floor = SCNFloor()
         if backgroundType == .sky {
             // 天空模式：只保留倒影，材质彻底透明且不捕捉光照，避免出现白色层
-            floor.reflectivity = 0.5
+            floor.reflectivity = DeviceTier.skyFloorReflectivity
             floor.firstMaterial?.diffuse.contents = UIColor.clear
             floor.firstMaterial?.lightingModel = .constant
         } else {
-            // 恢复原始舞台模式：深色反射地板
-            floor.reflectivity = 0.16
+            // 恢复原始舞台模式：深色反射地板(低端机关反射——反射等于把整个场景多渲一遍)
+            floor.reflectivity = DeviceTier.floorReflectivity
             floor.firstMaterial?.diffuse.contents = UIColor(red: 0.13, green: 0.13, blue: 0.18, alpha: 1)
             floor.firstMaterial?.lightingModel = .physicallyBased
         }
@@ -188,7 +231,7 @@ final class CharacterSceneController: ObservableObject {
         contactShadow?.removeFromParentNode()
         let blob = SCNPlane(width: CGFloat(footSpan * 2.4), height: CGFloat(footSpan * 1.5))
         let bm = blob.firstMaterial!
-        bm.diffuse.contents = Self.contactShadowImage()
+        bm.diffuse.contents = Self.contactShadowTexture
         bm.lightingModel = .constant
         bm.isDoubleSided = true
         bm.writesToDepthBuffer = false
@@ -200,8 +243,10 @@ final class CharacterSceneController: ObservableObject {
         contactShadow = bnode
     }
 
-    /// 柔和圆形接触阴影贴图：中心黑、边缘透明。
-    private static func contactShadowImage() -> UIImage {
+    /// 柔和圆形接触阴影贴图：中心黑、边缘透明。内容固定 → 只生成一次。
+    private static let contactShadowTexture: UIImage = makeContactShadowImage()
+
+    private static func makeContactShadowImage() -> UIImage {
         let s = CGSize(width: 256, height: 256)
         return UIGraphicsImageRenderer(size: s).image { ctx in
             let colors = [UIColor(white: 0, alpha: 0.55).cgColor, UIColor(white: 0, alpha: 0).cgColor]
@@ -307,14 +352,16 @@ final class CharacterSceneController: ObservableObject {
         ambient.light?.intensity = 500
         scene.rootNode.addChildNode(ambient)
 
-        // 从上前方打下的方向光，投出随动作变化的真实软阴影
+        // 从上前方打下的方向光，投出随动作变化的真实软阴影。
+        // forward 软阴影很贵(每帧一遍 shadow pass + 多次采样),低端机直接关掉——
+        // 脚下那张接触阴影贴图已经给足"着地"线索。
         let sun = SCNNode()
         let l = SCNLight(); l.type = .directional
-        l.castsShadow = true
+        l.castsShadow = DeviceTier.dynamicShadows
         l.shadowMode = .forward            // 通用可靠(含模拟器),阴影落在地板上可见
         l.shadowColor = UIColor(white: 0, alpha: 0.5)
         l.shadowRadius = 6
-        l.shadowSampleCount = 16
+        l.shadowSampleCount = DeviceTier.shadowSampleCount
         sun.light = l
         sun.eulerAngles = SCNVector3(-Float.pi / 2.2, Float.pi / 12, 0)  // 更接近正上方 → 影子聚在脚下
         scene.rootNode.addChildNode(sun)
@@ -360,8 +407,15 @@ struct CharacterSceneView: UIViewRepresentable {
         if let cam = controller.cameraNode { uiView.pointOfView = cam }
     }
 
-    /// 生成一张竖向渐变 + 底部聚光的"舞台"背景图。
-    static func studioBackdrop() -> UIImage {
+    /// 竖向渐变 + 底部聚光的"舞台"背景图。内容固定 → 只生成一次并复用
+    /// (以前每次 updateBackgroundAndGround 都重画一张 300x650 的 CG 图)。
+    static let studioImage: UIImage = makeStudioBackdrop()
+    static let skyImage: UIImage = makeSkyBackdrop()
+
+    static func studioBackdrop() -> UIImage { studioImage }
+    static func skyBackdrop() -> UIImage { skyImage }
+
+    private static func makeStudioBackdrop() -> UIImage {
         let size = CGSize(width: 300, height: 650)
         return UIGraphicsImageRenderer(size: size).image { ctx in
             let c = ctx.cgContext
@@ -390,7 +444,7 @@ struct CharacterSceneView: UIViewRepresentable {
     }
 
     /// 兜底程序化天空背景
-    static func skyBackdrop() -> UIImage {
+    private static func makeSkyBackdrop() -> UIImage {
         let size = CGSize(width: 400, height: 800)
         return UIGraphicsImageRenderer(size: size).image { ctx in
             let c = ctx.cgContext
