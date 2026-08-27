@@ -18,6 +18,7 @@ final class DiscoverViewController: UIViewController {
     private var isFetching = false
     private var currentQuery: String?
     private var currentCategory: String?
+    private var fetchTask: Task<Void, Never>?
 
     var onModelSelected: ((SketchfabModel) -> Void)?
 
@@ -94,9 +95,16 @@ final class DiscoverViewController: UIViewController {
     }
 
     func loadData(query: String? = nil, category: String? = nil, isRefreshing: Bool = false) {
-        if query != currentQuery || category != currentCategory {
-            currentQuery = query
+        let cleanQuery = query?.trimmingCharacters(in: .whitespaces) ?? ""
+        let hasQueryChanged = cleanQuery != (currentQuery ?? "")
+        let hasCategoryChanged = category != currentCategory
+
+        if hasQueryChanged || hasCategoryChanged {
+            currentQuery = cleanQuery
             currentCategory = category
+
+            // 立即取消当前正在进行的加载任务，响应新分类请求
+            fetchTask?.cancel()
             nextUrl = nil
             models = []
             collectionView.reloadData()
@@ -105,7 +113,12 @@ final class DiscoverViewController: UIViewController {
     }
 
     private func fetchPage(isRefreshing: Bool = false) {
-        guard !isFetching else { return }
+        guard !isFetching || fetchTask != nil else { return }
+
+        if isFetching {
+            fetchTask?.cancel()
+        }
+
         isFetching = true
 
         let requestingNext = nextUrl
@@ -115,9 +128,13 @@ final class DiscoverViewController: UIViewController {
             bottomLoader.startAnimating()
         }
 
-        Task {
+        fetchTask = Task {
             do {
                 let resp = try await SketchfabClient.shared.fetchModels(query: currentQuery, category: currentCategory, nextUrl: requestingNext)
+
+                // 检查任务是否已被取消
+                if Task.isCancelled { return }
+
                 await MainActor.run {
                     if requestingNext == nil {
                         self.models = resp.results
@@ -130,14 +147,18 @@ final class DiscoverViewController: UIViewController {
                     self.bottomLoader.stopAnimating()
                     self.refreshControl.endRefreshing()
                     self.isFetching = false
+                    self.fetchTask = nil
                 }
             } catch {
-                print("Fetch error: \(error)")
-                await MainActor.run {
-                    self.activityIndicator.stopAnimating()
-                    self.bottomLoader.stopAnimating()
-                    self.refreshControl.endRefreshing()
-                    self.isFetching = false
+                if !Task.isCancelled {
+                    print("Fetch error: \(error)")
+                    await MainActor.run {
+                        self.activityIndicator.stopAnimating()
+                        self.bottomLoader.stopAnimating()
+                        self.refreshControl.endRefreshing()
+                        self.isFetching = false
+                        self.fetchTask = nil
+                    }
                 }
             }
         }

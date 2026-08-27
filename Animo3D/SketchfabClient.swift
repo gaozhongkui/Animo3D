@@ -131,9 +131,20 @@ final class SketchfabClient {
 
         if nextUrl == nil {
             var combinedQuery = query ?? ""
-            if let cat = category, cat != "热门" {
-                combinedQuery += " \(cat)"
+
+            // 将中文分类映射为英文关键词，提高 API 搜索精准度
+            let categoryMap: [String: String] = [
+                "人物": "person character",
+                "动物": "animal pet",
+                "建筑": "building architecture",
+                "车辆": "car vehicle",
+                "幻想": "fantasy dragon monster"
+            ]
+
+            if let cat = category, let keyword = categoryMap[cat] {
+                combinedQuery += " \(keyword)"
             }
+
             combinedQuery = combinedQuery.trimmingCharacters(in: .whitespaces)
 
             if !combinedQuery.isEmpty {

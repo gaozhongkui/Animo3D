@@ -237,9 +237,6 @@ struct ModelDetailView: View {
                             ActionRow(icon: "paperplane.fill", title: "分享给舞伴", subtitle: "激发你们的共同创作灵感", color: .blue) {
                                 showShare = true
                             }
-                            ActionRow(icon: "safari.fill", title: "查看技术详情", subtitle: "前往 Sketchfab 获取多边形与材质信息", color: .indigo) {
-                                if let url = URL(string: model.viewerUrl) { UIApplication.shared.open(url) }
-                            }
                         }
                     }
                     .padding(.horizontal, 24)
