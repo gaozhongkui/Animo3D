@@ -1,9 +1,8 @@
 //
 //  ProfileViewController.swift
-//  Animo3D
+//  Livo 3D
 //
-//  「我的」页：极致简约、全屏沉浸重构版本。
-//  抛弃厚重色块，采用极简主义排版与通透光影。
+//  Me page: Clean, modern gallery style with a premium feel.
 //
 
 import UIKit
@@ -28,7 +27,6 @@ final class ProfileViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        // 使用系统最纯净的背景色
         view.backgroundColor = .systemBackground
         setupCollectionView()
         setupDataSource()
@@ -71,7 +69,7 @@ final class ProfileViewController: UIViewController {
                     let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(200))
                     let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
                     s.contentInsets = .init(top: 0, leading: 20, bottom: 20, trailing: 20)
-                    s.boundarySupplementaryItems = [Self.createHeader("我的创作")]
+                    s.boundarySupplementaryItems = [Self.createHeader("My Creations")]
                     return s
                 }
                 let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(0.5), heightDimension: .fractionalHeight(1))
@@ -80,16 +78,15 @@ final class ProfileViewController: UIViewController {
                 let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(240))
                 let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.horizontal(layoutSize: groupSize, subitems: [item, item]))
                 s.contentInsets = .init(top: 4, leading: 12, bottom: 32, trailing: 12)
-                s.boundarySupplementaryItems = [Self.createHeader("我的创作")]
+                s.boundarySupplementaryItems = [Self.createHeader("My Creations")]
                 return s
 
             case .more:
                 let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(52))
                 let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
-                // 增加底部边距，防止被浮动 TabBar 遮挡
                 s.contentInsets = .init(top: 0, leading: 20, bottom: 120, trailing: 20)
                 s.interGroupSpacing = 0
-                s.boundarySupplementaryItems = [Self.createHeader("通用设置")]
+                s.boundarySupplementaryItems = [Self.createHeader("Settings")]
                 return s
             }
         }
@@ -117,7 +114,7 @@ final class ProfileViewController: UIViewController {
 
     private func setupDataSource() {
         let headerReg = UICollectionView.CellRegistration<CleanHeaderCell, Item> { cell, _, item in
-            if case let .header(n, b, a) = item { cell.configure(name: n, bio: b, avatar: a) }
+            if case let .header(n, b, _) = item { cell.configure(name: n, bio: b) }
         }
         let proReg = UICollectionView.CellRegistration<ModernProCell, Item> { cell, _, _ in
             cell.onTap = { [weak self] in self?.openPaywall() }
@@ -154,9 +151,9 @@ final class ProfileViewController: UIViewController {
     }
 
     static func roundedIcon(system: String, bg: UIColor) -> UIImage {
-        let size = CGSize(width: 30, height: 30)
+        let size = CGSize(width: 32, height: 32)
         return UIGraphicsImageRenderer(size: size).image { ctx in
-            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 8).addClip()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 9).addClip()
             bg.setFill(); ctx.fill(CGRect(origin: .zero, size: size))
             let cfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
             if let img = UIImage(systemName: system, withConfiguration: cfg)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
@@ -168,13 +165,14 @@ final class ProfileViewController: UIViewController {
     @objc private func reload() {
         var snap = NSDiffableDataSourceSnapshot<Section, Item>()
         snap.appendSections([.header, .pro, .works, .more])
-        snap.appendItems([.header(name: "Livo Creator", bio: "Explore the magic of 3D dance ✨", avatar: "person.crop.circle.fill")], toSection: .header)
+        snap.appendItems([.header(name: "Livo Creator", bio: "Exploring the infinity of 3D motion ✨", avatar: "")], toSection: .header)
         snap.appendItems([.pro], toSection: .pro)
         let works = WorksStore.shared.works
         snap.appendItems(works.isEmpty ? [.empty] : works.map { .work($0) }, toSection: .works)
         snap.appendItems([
             .setting(id: "pro", icon: "crown.fill", color: 0xFF9500, title: "Subscription", subtitle: "Manage Perks"),
-            .setting(id: "about", icon: "info.circle", color: 0x007AFF, title: "About Livo", subtitle: "v1.0.0"),
+            .setting(id: "cache", icon: "trash.fill", color: 0xFF3B30, title: "Clear Cache", subtitle: StorageManager.getCacheSize()),
+            .setting(id: "about", icon: "info.circle.fill", color: 0x007AFF, title: "About Livo", subtitle: "v1.0.0"),
         ], toSection: .more)
         dataSource.apply(snap, animatingDifferences: false)
     }
@@ -202,6 +200,13 @@ extension ProfileViewController: UICollectionViewDelegate {
         switch item {
         case .pro: openPaywall()
         case .work(let url): openWork(url)
+        case .setting(let id, _, _, _, _):
+            if id == "cache" {
+                HapticManager.medium()
+                StorageManager.clearCache()
+                HapticManager.success()
+                reload()
+            }
         default: break
         }
     }
@@ -211,7 +216,12 @@ extension ProfileViewController: UICollectionViewDelegate {
 
 private final class CleanHeaderCell: UICollectionViewCell {
     private let meshBg = UIView()
-    private let avatarView = UIImageView()
+    private let neonRing = UIView()
+    private let avatarContainer = UIView()
+    private let avatarGradient = CAGradientLayer()
+    private let avatarSymbol = UIImageView(image: UIImage(systemName: "figure.dance"))
+    private let glassOverlay = UIView()
+
     private let nameLabel = UILabel()
     private let bioLabel = UILabel()
     private let statsStack = UIStackView()
@@ -219,7 +229,6 @@ private final class CleanHeaderCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
 
-        // 顶部弥散渐变背景
         meshBg.backgroundColor = UIColor(rgb: 0x6366F1).withAlphaComponent(0.08)
         meshBg.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(meshBg)
@@ -229,11 +238,39 @@ private final class CleanHeaderCell: UICollectionViewCell {
         grad.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 360)
         meshBg.layer.addSublayer(grad)
 
-        avatarView.layer.cornerRadius = 50; avatarView.clipsToBounds = true
-        avatarView.backgroundColor = .white; avatarView.contentMode = .scaleAspectFill; avatarView.tintColor = .systemGray6
-        avatarView.layer.borderWidth = 3; avatarView.layer.borderColor = UIColor.white.cgColor
-        avatarView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(avatarView)
+        neonRing.layer.cornerRadius = 56
+        neonRing.layer.borderWidth = 1.5
+        neonRing.layer.borderColor = UIColor(rgb: 0x6366F1).withAlphaComponent(0.3).cgColor
+        neonRing.layer.shadowColor = UIColor(rgb: 0x6366F1).cgColor
+        neonRing.layer.shadowOffset = .zero
+        neonRing.layer.shadowRadius = 10
+        neonRing.layer.shadowOpacity = 0.3
+        neonRing.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(neonRing)
+
+        avatarContainer.layer.cornerRadius = 50; avatarContainer.clipsToBounds = true
+        avatarContainer.backgroundColor = .white; avatarContainer.layer.borderWidth = 2; avatarContainer.layer.borderColor = UIColor.white.cgColor
+        avatarContainer.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(avatarContainer)
+
+        avatarGradient.colors = [UIColor(rgb: 0x4F46E5).cgColor, UIColor(rgb: 0xA855F7).cgColor]
+        avatarGradient.startPoint = .zero; avatarGradient.endPoint = CGPoint(x: 1, y: 1)
+        avatarGradient.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+        avatarContainer.layer.addSublayer(avatarGradient)
+
+        avatarSymbol.tintColor = .white; avatarSymbol.contentMode = .scaleAspectFit
+        avatarSymbol.preferredSymbolConfiguration = .init(pointSize: 42, weight: .bold)
+        avatarSymbol.translatesAutoresizingMaskIntoConstraints = false
+        avatarContainer.addSubview(avatarSymbol)
+
+        glassOverlay.backgroundColor = .clear
+        let glassGrad = CAGradientLayer()
+        glassGrad.colors = [UIColor.white.withAlphaComponent(0.4).cgColor, UIColor.clear.cgColor]
+        glassGrad.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+        glassGrad.startPoint = .zero; glassGrad.endPoint = CGPoint(x: 0.5, y: 0.5)
+        glassOverlay.layer.addSublayer(glassGrad)
+        glassOverlay.translatesAutoresizingMaskIntoConstraints = false
+        avatarContainer.addSubview(glassOverlay)
 
         nameLabel.font = .roundedFont(ofSize: 28, weight: .black); nameLabel.textAlignment = .center
         nameLabel.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview(nameLabel)
@@ -249,12 +286,25 @@ private final class CleanHeaderCell: UICollectionViewCell {
             meshBg.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             meshBg.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            avatarView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            avatarView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 80),
-            avatarView.widthAnchor.constraint(equalToConstant: 100),
-            avatarView.heightAnchor.constraint(equalToConstant: 100),
+            neonRing.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            neonRing.centerYAnchor.constraint(equalTo: avatarContainer.centerYAnchor),
+            neonRing.widthAnchor.constraint(equalToConstant: 112),
+            neonRing.heightAnchor.constraint(equalToConstant: 112),
 
-            nameLabel.topAnchor.constraint(equalTo: avatarView.bottomAnchor, constant: 20),
+            avatarContainer.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            avatarContainer.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 80),
+            avatarContainer.widthAnchor.constraint(equalToConstant: 100),
+            avatarContainer.heightAnchor.constraint(equalToConstant: 100),
+
+            avatarSymbol.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
+            avatarSymbol.centerYAnchor.constraint(equalTo: avatarContainer.centerYAnchor),
+
+            glassOverlay.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
+            glassOverlay.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
+            glassOverlay.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
+            glassOverlay.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
+
+            nameLabel.topAnchor.constraint(equalTo: avatarContainer.bottomAnchor, constant: 24),
             nameLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
 
             bioLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6),
@@ -271,7 +321,7 @@ private final class CleanHeaderCell: UICollectionViewCell {
         contentView.addSubview(statsStack)
         statsStack.addArrangedSubview(statItem(v: "15", l: "Works"))
         statsStack.addArrangedSubview(statItem(v: "1.2k", l: "Likes"))
-        statsStack.addArrangedSubview(statItem(v: "9", l: "Active"))
+        statsStack.addArrangedSubview(statItem(v: "9", l: "Days"))
     }
 
     private func statItem(v: String, l: String) -> UIView {
@@ -285,8 +335,8 @@ private final class CleanHeaderCell: UICollectionViewCell {
         ])
         return view
     }
-    func configure(name: String, bio: String, avatar: String) {
-        nameLabel.text = name; bioLabel.text = bio; avatarView.image = UIImage(systemName: avatar)
+    func configure(name: String, bio: String) {
+        nameLabel.text = name; bioLabel.text = bio
     }
     required init?(coder: NSCoder) { fatalError() }
 }
@@ -301,8 +351,8 @@ private final class ModernProCell: UICollectionViewCell {
         let crown = UIImageView(image: UIImage(systemName: "crown.fill"))
         crown.tintColor = UIColor(rgb: 0xFFD60A); crown.contentMode = .scaleAspectFit
 
-        let title = UILabel(); title.text = "升级 Animo3D Pro"; title.textColor = .white; title.font = .systemFont(ofSize: 17, weight: .bold)
-        let sub = UILabel(); sub.text = "解锁 4K 导出与全部角色"; sub.textColor = .systemGray; sub.font = .systemFont(ofSize: 13)
+        let title = UILabel(); title.text = "Upgrade Livo 3D Pro"; title.textColor = .white; title.font = .systemFont(ofSize: 17, weight: .bold)
+        let sub = UILabel(); sub.text = "Unlock 4K exports and all characters"; sub.textColor = .systemGray; sub.font = .systemFont(ofSize: 13)
 
         let vStack = UIStackView(arrangedSubviews: [title, sub]); vStack.axis = .vertical; vStack.spacing = 2
         let hStack = UIStackView(arrangedSubviews: [crown, vStack]); hStack.axis = .horizontal; hStack.spacing = 16; hStack.alignment = .center
@@ -372,8 +422,8 @@ private final class EmptyWorksCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.layer.cornerRadius = 24; contentView.backgroundColor = .systemGray6
-        let l = UILabel(); l.text = "暂无创作内容"; l.font = .systemFont(ofSize: 15, weight: .medium); l.textColor = .secondaryLabel
-        let b = UIButton(type: .system); b.setTitle("去录一段", for: .normal); b.addAction(UIAction { [weak self] _ in self?.onTap?() }, for: .touchUpInside)
+        let l = UILabel(); l.text = "No Creations Yet"; l.font = .systemFont(ofSize: 15, weight: .medium); l.textColor = .secondaryLabel
+        let b = UIButton(type: .system); b.setTitle("Start Recording", for: .normal); b.addAction(UIAction { [weak self] _ in self?.onTap?() }, for: .touchUpInside)
         let s = UIStackView(arrangedSubviews: [l, b]); s.axis = .vertical; s.alignment = .center; s.spacing = 8; s.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview(s)
         NSLayoutConstraint.activate([s.centerXAnchor.constraint(equalTo: contentView.centerXAnchor), s.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)])
     }

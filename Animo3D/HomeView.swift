@@ -43,7 +43,10 @@ struct HomeView: View {
                     .padding(.top, 8)
 
                     // 主推：大横幅
-                    Button { launch = StudioLaunch() } label: { heroCard }
+                    Button {
+                        HapticManager.medium()
+                        launch = StudioLaunch()
+                    } label: { heroCard }
                         .buttonStyle(PlainButtonStyle())
                         .padding(.horizontal)
                         .shadow(color: Color.accentColor.opacity(0.3), radius: 12, x: 0, y: 8)

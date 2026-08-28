@@ -93,7 +93,7 @@ enum VideoAudioMixer {
 
         let fontSize = max(18, size.height * 0.028)
         let text = CATextLayer()
-        text.string = "Animo3D"
+        text.string = "Livo 3D"
         text.font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
         text.fontSize = fontSize
         text.foregroundColor = UIColor.white.withAlphaComponent(0.85).cgColor

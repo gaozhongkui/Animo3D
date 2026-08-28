@@ -57,7 +57,10 @@ struct CharactersView: View {
                 }
             }
             .contentShape(Capsule())
-            .onTapGesture { seg = tag }
+            .onTapGesture {
+                HapticManager.selection()
+                seg = tag
+            }
     }
 }
 
@@ -80,7 +83,10 @@ struct MyCharactersView: View {
 
                 LazyVGrid(columns: cols, spacing: 18) {
                     ForEach(Array(catalog.characters.enumerated()), id: \.element.id) { i, c in
-                        Button { picked = PickedCharacter(id: c.key, name: c.name) } label: {
+                        Button {
+                            HapticManager.light()
+                            picked = PickedCharacter(id: c.key, name: c.name)
+                        } label: {
                             characterCard(c.name, key: c.key, tint: tints[i % tints.count])
                         }
                         .buttonStyle(CardButtonStyle())

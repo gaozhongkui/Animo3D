@@ -40,3 +40,57 @@ extension Color {
         self.init(uiColor: UIColor(rgb: rgb))
     }
 }
+
+// MARK: - Haptic Feedback
+
+enum HapticManager {
+    static func light() {
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+    }
+
+    static func medium() {
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+    }
+
+    static func selection() {
+        let generator = UISelectionFeedbackGenerator()
+        generator.selectionChanged()
+    }
+
+    static func success() {
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+    }
+}
+
+// MARK: - Cache Management
+
+enum StorageManager {
+    static func getCacheSize() -> String {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dir = caches.appendingPathComponent("sketchfab_usdz")
+
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else {
+            return "0 KB"
+        }
+
+        var totalSize: Int64 = 0
+        for file in files {
+            let attrs = try? file.resourceValues(forKeys: [.fileSizeKey])
+            totalSize += Int64(attrs?.fileSize ?? 0)
+        }
+
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useAll]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: totalSize)
+    }
+
+    static func clearCache() {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dir = caches.appendingPathComponent("sketchfab_usdz")
+        try? FileManager.default.removeItem(at: dir)
+    }
+}

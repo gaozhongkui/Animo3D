@@ -284,6 +284,7 @@ struct DanceStudioView: View {
                             .padding(.horizontal, 4)
                     }
                     .onTapGesture {
+                        HapticManager.light()
                         character = c.key
                     }
                     .overlay(alignment: .topTrailing) {
@@ -347,6 +348,7 @@ struct DanceStudioView: View {
                         }
                     }
                     .onTapGesture {
+                        HapticManager.light()
                         dance = d.key
                     }
                     .overlay(alignment: .topTrailing) {
@@ -437,7 +439,13 @@ struct DanceStudioView: View {
                 }
             }
             .id(arMode)
-            .ignoresSafeArea()   // 沉浸式：铺满到顶部/底部
+            .ignoresSafeArea()
+
+            // AR 引导：如果开启了 AR 模式，但尚未成功检测平面或放置，显示引导
+            if arMode {
+                ARCoachView()
+                    .transition(.opacity)
+            }
 
             VStack(spacing: 0) {
                 HStack {
@@ -540,6 +548,7 @@ struct DanceStudioView: View {
     private var recordButton: some View {
         Button {
             if recorder.isRecording {
+                HapticManager.medium()
                 recorder.stop { url in
                     guard let url else { return }
                     let watermark = !ProStore.shared.isPro
@@ -550,15 +559,20 @@ struct DanceStudioView: View {
                             let final = await VideoAudioMixer.export(video: url, audio: selectedMusic?.url,
                                                                      watermark: watermark) ?? url
                             await MainActor.run {
+                                HapticManager.success()
                                 processing = false
                                 if let saved = WorksStore.shared.add(from: final) { shareURL = saved; showShare = true }
                             }
                         }
                     } else if let saved = WorksStore.shared.add(from: url) {
+                        HapticManager.success()
                         shareURL = saved; showShare = true
                     }
                 }
-            } else if let v = holder.scnView { recorder.start(view: v) }
+            } else if let v = holder.scnView {
+                HapticManager.medium()
+                recorder.start(view: v)
+            }
         } label: {
             ZStack {
                 Circle().stroke(.white, lineWidth: 4).frame(width: 74, height: 74)
@@ -629,6 +643,7 @@ struct DanceStudioView: View {
     }
 
     private func next() {
+        HapticManager.medium()
         switch step {
         case .character: step = .dance; ensureDefaultDance()
         case .dance:     step = .music
@@ -668,7 +683,53 @@ struct DanceStudioView: View {
     }
 
     private func select(music track: MusicTrack) {
+        HapticManager.selection()
         selectedMusic = track
         music.play(track)   // 试听
+    }
+}
+
+/// AR 引导组件：在用户未放置角色时显示。
+struct ARCoachView: View {
+    @State private var isAnimating = false
+
+    var body: some View {
+        VStack(spacing: 20) {
+            ZStack {
+                Circle()
+                    .stroke(Color.white.opacity(0.2), lineWidth: 2)
+                    .frame(width: 80, height: 80)
+
+                Image(systemName: "iphone.radiowaves.left.and.right")
+                    .font(.system(size: 30))
+                    .foregroundStyle(.white)
+                    .offset(x: isAnimating ? 15 : -15)
+                    .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: isAnimating)
+            }
+
+            VStack(spacing: 8) {
+                Text("Scan Your Space")
+                    .font(.headline)
+                Text("Slowly move your phone to find a flat floor")
+                    .font(.subheadline)
+                    .opacity(0.8)
+            }
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 40)
+
+            Text("Tap on floor to place character")
+                .font(.caption.bold())
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: Capsule())
+                .foregroundStyle(.white)
+                .padding(.top, 10)
+        }
+        .padding(.vertical, 40)
+        .background(
+            RadialGradient(colors: [.black.opacity(0.4), .clear], center: .center, startRadius: 0, endRadius: 300)
+        )
+        .onAppear { isAnimating = true }
     }
 }

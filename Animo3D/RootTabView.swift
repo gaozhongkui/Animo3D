@@ -14,17 +14,20 @@ struct RootTabView: View {
     var body: some View {
         TabView(selection: $selection) {
             HomeView()
-                .tabItem { Label("创作", systemImage: "sparkles") }
+                .tabItem { Label("Create", systemImage: "sparkles") }
                 .tag(0)
             CharactersView()
-                .tabItem { Label("角色", systemImage: "person.2.fill") }
+                .tabItem { Label("Characters", systemImage: "person.2.fill") }
                 .tag(1)
             ProfileView()
-                .tabItem { Label("我的", systemImage: "person.fill") }
+                .tabItem { Label("Me", systemImage: "person.fill") }
                 .tag(2)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SwitchToCharactersTab"))) { _ in
             selection = 1
+        }
+        .onChange(of: selection) { _ in
+            HapticManager.selection()
         }
         .accentColor(.accentColor)
     }
