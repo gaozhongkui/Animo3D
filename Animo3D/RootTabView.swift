@@ -343,3 +343,38 @@ struct ActionRowSmall: View {
         .buttonStyle(.plain)
     }
 }
+
+struct DownloadOverlay: View {
+    let progress: Double
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial)
+
+            VStack(spacing: 24) {
+                ZStack {
+                    Circle()
+                        .stroke(Color.white.opacity(0.15), lineWidth: 10)
+                    Circle()
+                        .trim(from: 0, to: max(0.01, progress))
+                        .stroke(
+                            LinearGradient(colors: [.blue, .purple], startPoint: .top, endPoint: .bottom),
+                            style: StrokeStyle(lineWidth: 10, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+
+                    Text("\(Int(progress * 100))%")
+                        .font(.system(size: 22, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 120, height: 120)
+
+                VStack(spacing: 6) {
+                    Text("空间资产同步中").font(.headline).foregroundStyle(.white)
+                    Text("正在准备高清 3D 模型资源").font(.caption).foregroundStyle(.white.opacity(0.6))
+                }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 36))
+    }
+}
