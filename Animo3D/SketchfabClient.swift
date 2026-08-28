@@ -127,44 +127,66 @@ final class SketchfabClient {
     }
 
     func fetchModels(query: String? = nil, category: String? = nil, nextUrl: String? = nil) async throws -> SketchfabResponse {
-        var urlString = nextUrl ?? "https://api.sketchfab.com/v3/models?type=models&downloadable=true&sort_by=-likeCount"
-
-        if nextUrl == nil {
-            var combinedQuery = query ?? ""
-
-            // 将中文分类映射为英文关键词，提高 API 搜索精准度
-            let categoryMap: [String: String] = [
-                "人物": "person character",
-                "动物": "animal pet",
-                "建筑": "building architecture",
-                "车辆": "car vehicle",
-                "幻想": "fantasy dragon monster"
-            ]
-
-            if let cat = category, let keyword = categoryMap[cat] {
-                combinedQuery += " \(keyword)"
-            }
-
-            combinedQuery = combinedQuery.trimmingCharacters(in: .whitespaces)
-
-            if !combinedQuery.isEmpty {
-                urlString += "&q=\(combinedQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
-            }
+        // 如果有 nextUrl，直接使用它
+        if let next = nextUrl, let url = URL(string: next) {
+            return try await performFetch(url: url)
         }
 
-        guard let url = URL(string: urlString) else {
+        // 构造初始 URL
+        var components = URLComponents(string: "https://api.sketchfab.com/v3/models")!
+        var queryItems = [
+            URLQueryItem(name: "type", value: "models"),
+            URLQueryItem(name: "downloadable", value: "true"),
+            URLQueryItem(name: "sort_by", value: "-likeCount")
+        ]
+
+        // 处理分类过滤（使用 API 官方支持的 categories 参数）
+        let categoryMap: [String: String] = [
+            "人物": "characters-creatures", // 对应 Characters & Creatures
+            "动物": "animals-pets",
+            "建筑": "architecture",
+            "车辆": "cars-vehicles",
+            "幻想": "fantasy"
+        ]
+
+        if let cat = category, let slug = categoryMap[cat] {
+            queryItems.append(URLQueryItem(name: "categories", value: slug))
+        }
+
+        // 处理关键词搜索
+        if let q = query, !q.isEmpty {
+            queryItems.append(URLQueryItem(name: "q", value: q))
+        }
+
+        components.queryItems = queryItems
+
+        guard let url = components.url else {
             throw NSError(domain: "SketchfabClient", code: -2, userInfo: [NSLocalizedDescriptionKey: "无效 URL"])
         }
 
-        let (data, response) = try await session.data(from: url)
+        return try await performFetch(url: url)
+    }
 
-        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            throw NSError(domain: "SketchfabClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "请求失败"])
+    private func performFetch(url: URL) async throws -> SketchfabResponse {
+        var req = URLRequest(url: url)
+        // 即使是公开模型搜索，带上 Token 通常能获得更稳定的响应
+        req.setValue("Token \(apiToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: req)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NSError(domain: "SketchfabClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "网络响应异常"])
         }
 
-        let decoder = JSONDecoder()
-        // Sketchfab API 使用 camelCase，不需要转换
-        return try decoder.decode(SketchfabResponse.self, from: data)
+        if httpResponse.statusCode == 429 {
+            throw SketchfabError.rateLimited
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw SketchfabError.httpError(httpResponse.statusCode)
+        }
+
+        return try JSONDecoder().decode(SketchfabResponse.self, from: data)
     }
 }
 
