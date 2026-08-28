@@ -33,9 +33,9 @@ struct RootTabView: View {
 struct DiscoverView: View {
     @State private var searchText = ""
     @State private var selectedModel: SketchfabModel?
-    @State private var selectedCategory = "热门"
+    @State private var selectedCategory = "Trending"
 
-    private let categories = ["热门", "人物", "动物", "建筑", "车辆", "幻想"]
+    private let categories = ["Trending", "Characters", "Animals", "Buildings", "Vehicles", "Fantasy"]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,7 +45,7 @@ struct DiscoverView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                             .font(.system(size: 14, weight: .bold))
-                        TextField("搜索 3D 灵感", text: $searchText)
+                        TextField("Search 3D Inspiration", text: $searchText)
                             .font(.system(size: 15))
                             .textInputAutocapitalization(.never)
                             .submitLabel(.search)
@@ -131,7 +131,7 @@ struct ModelCard: View {
                 Text(model.name)
                     .font(.system(size: 14, weight: .bold, design: .rounded))
                     .lineLimit(1)
-                Text("精品模型")
+                Text("Featured")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
@@ -279,8 +279,8 @@ struct ModelDetailView: View {
         .sheet(isPresented: $showShare) {
             ShareSheet(items: ["发现一个超赞的 3D 模型：\(model.name)", URL(string: model.viewerUrl)!])
         }
-        .alert("加载失败", isPresented: .constant(arError != nil)) {
-            Button("知道了") { arError = nil }
+        .alert("Load Failed", isPresented: .constant(arError != nil)) {
+            Button("Dismiss") { arError = nil }
         } message: {
             Text(arError ?? "")
         }
@@ -370,8 +370,8 @@ struct DownloadOverlay: View {
                 .frame(width: 120, height: 120)
 
                 VStack(spacing: 6) {
-                    Text("空间资产同步中").font(.headline).foregroundStyle(.white)
-                    Text("正在准备高清 3D 模型资源").font(.caption).foregroundStyle(.white.opacity(0.6))
+                    Text("Syncing Assets").font(.headline).foregroundStyle(.white)
+                    Text("Preparing high-quality 3D resources").font(.caption).foregroundStyle(.white.opacity(0.6))
                 }
             }
         }

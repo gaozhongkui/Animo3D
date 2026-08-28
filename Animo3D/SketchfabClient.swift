@@ -142,11 +142,12 @@ final class SketchfabClient {
 
         // 处理分类过滤（使用 API 官方支持的 categories 参数）
         let categoryMap: [String: String] = [
-            "人物": "characters-creatures", // 对应 Characters & Creatures
-            "动物": "animals-pets",
-            "建筑": "architecture",
-            "车辆": "cars-vehicles",
-            "幻想": "fantasy"
+            "Trending": "characters-creatures", // 默认
+            "Characters": "characters-creatures",
+            "Animals": "animals-pets",
+            "Buildings": "architecture",
+            "Vehicles": "cars-vehicles",
+            "Fantasy": "fantasy"
         ]
 
         if let cat = category, let slug = categoryMap[cat] {

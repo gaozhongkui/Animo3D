@@ -1,0 +1,44 @@
+/*
+  Localizable.strings
+  Animo3D
+*/
+
+"Hello, Creator" = "Hello, Creator";
+"Bring your 3D characters to life in the real world" = "Bring your 3D characters to life in the real world";
+"Recommended Characters" = "Recommended Characters";
+"Trending Dances" = "Trending Dances";
+"Discover More" = "Discover More";
+"Video Drive Motion" = "Video Drive Motion";
+"Upload video to mimic motions in real-time" = "Upload video to mimic motions in real-time";
+"Create" = "Create";
+"My Characters" = "My Characters";
+"Community" = "Community";
+"3D Virtual Dancers" = "3D Virtual Dancers";
+"Dance" = "Dance";
+"My Creations" = "My Creations";
+"Settings" = "Settings";
+"Subscription" = "Subscription";
+"Manage Perks" = "Manage Perks";
+"About Livo" = "About Livo";
+"Unlock Livo 3D Pro" = "Unlock Livo 3D Pro";
+"One-time payment · Unlock everything forever" = "One-time payment · Unlock everything forever";
+"Unlock Now" = "Unlock Now";
+"Lifetime access · No subscription" = "Lifetime access · No subscription";
+"Restore" = "Restore";
+"Terms" = "Terms";
+"Privacy" = "Privacy";
+"Select Character" = "Select Character";
+"Select Dance" = "Select Dance";
+"Select Music" = "Select Music";
+"Start Performance" = "Start Performance";
+"Preparing Stage..." = "Preparing Stage...";
+"Step %lld of 4" = "Step %lld of 4";
+"No Music" = "No Music";
+"Presets" = "Presets";
+"Local Music" = "Local Music";
+"Import from File" = "Import from File";
+"Screen" = "Screen";
+"AR" = "AR";
+"Studio" = "Studio";
+"Sky" = "Sky";
+"Off" = "Off";

@@ -17,8 +17,8 @@ struct CharactersView: View {
         VStack(spacing: 0) {
             // 自定义精致的分段选择器
             HStack(spacing: 0) {
-                pickerItem(title: "我的角色", tag: 0)
-                pickerItem(title: "社区发现", tag: 1)
+                pickerItem(title: "My Characters", tag: 0)
+                pickerItem(title: "Community", tag: 1)
             }
             .padding(4)
             .background(Color(.secondarySystemFill), in: Capsule())
@@ -74,7 +74,7 @@ struct MyCharactersView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("3D 虚拟舞者")
+                Text("3D Virtual Dancers")
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                     .padding(.horizontal)
 
@@ -125,7 +125,7 @@ struct MyCharactersView: View {
                         .background(.white, in: Circle())
                         .foregroundStyle(tint)
 
-                    Text("舞动")
+                    Text("Dance")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.white)
                 }

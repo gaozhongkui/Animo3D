@@ -27,7 +27,7 @@ struct TripoGenerateView: View {
     @State private var pickedData: Data?
     @State private var pickedExt = "jpg"
 
-    @State private var status = "选择一张图片，生成 3D 模型"
+    @State private var status = "Select an image to generate 3D model"
     @State private var isRunning = false
     @State private var progress = 0
     @State private var modelScene: SCNScene?
@@ -35,7 +35,7 @@ struct TripoGenerateView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            // 预览区：优先显示生成的 3D 模型，否则显示选中的图片
+            // 预览区
             ZStack {
                 Color(.secondarySystemBackground)
                 if let scene = modelScene {
@@ -61,14 +61,14 @@ struct TripoGenerateView: View {
 
             HStack(spacing: 12) {
                 PhotosPicker(selection: $pickerItem, matching: .images) {
-                    Label("选图", systemImage: "photo").frame(maxWidth: .infinity)
+                    Label("Select", systemImage: "photo").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
 
                 Button {
                     Task { await generate() }
                 } label: {
-                    Label("生成 3D", systemImage: "wand.and.stars").frame(maxWidth: .infinity)
+                    Label("Generate 3D", systemImage: "wand.and.stars").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(pickedData == nil || apiKey.isEmpty || isRunning)
@@ -79,21 +79,21 @@ struct TripoGenerateView: View {
                 if let url = Bundle.main.url(forResource: "tripo_sample", withExtension: "usdz"),
                    let scene = try? SCNScene(url: url) {
                     modelScene = scene
-                    status = "示例：Tripo 生成的模型（已转 USDZ，可拖动旋转）"
+                    status = "Example: Tripo generated model (drag to rotate)"
                 }
             } label: {
-                Label("查看示例生成模型", systemImage: "cube").font(.footnote)
+                Label("View Sample Model", systemImage: "cube").font(.footnote)
             }
             .padding(.bottom)
         }
-        .navigationTitle("Tripo3D 生成角色")
+        .navigationTitle("AI Model Generator")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             if debugAutoShowSample,
                let url = Bundle.main.url(forResource: "tripo_sample", withExtension: "usdz"),
                let scene = try? SCNScene(url: url) {
                 modelScene = scene
-                status = "示例：Tripo 生成的模型（已转 USDZ，可拖动旋转）"
+                status = "Example: Tripo generated model (drag to rotate)"
             }
         }
         .onChange(of: pickerItem) { item in
@@ -111,7 +111,7 @@ struct TripoGenerateView: View {
         modelScene = nil
         // 简单判断扩展名
         pickedExt = (data.starts(with: [0x89, 0x50, 0x4E, 0x47])) ? "png" : "jpg"
-        status = "已选择图片，点“生成 3D”"
+        status = "Image selected, click 'Generate 3D'"
     }
 
     private func generate() async {
@@ -120,27 +120,27 @@ struct TripoGenerateView: View {
         defer { isRunning = false }
         let client = TripoClient(apiKey: apiKey)
         do {
-            status = "上传图片…"
+            status = "Uploading image..."
             let token = try await client.uploadImage(data: data, fileExt: pickedExt)
-            status = "创建生成任务…"
+            status = "Creating task..."
             let taskId = try await client.createImageToModelTask(fileToken: token, fileExt: pickedExt)
-            status = "生成中（约几分钟）…"
+            status = "Generating (takes a few mins)..."
             let modelURL = try await client.waitForCompletion(taskId: taskId) { res in
                 progress = res.progress
-                status = "生成中… \(res.progress)%"
+                status = "Generating... \(res.progress)%"
             }
-            status = "下载模型…"
+            status = "Downloading model..."
             let local = try await client.downloadModel(from: modelURL)
             downloadedPath = local.path
-            // 尝试用 SceneKit 加载（usdz/obj/dae 可；glb 不支持会失败）
+            // 尝试用 SceneKit 加载
             if let scene = try? SCNScene(url: local, options: nil) {
                 modelScene = scene
-                status = "完成 ✅ 已生成并显示模型"
+                status = "Complete ✅ Model generated"
             } else {
-                status = "已下载模型（\(local.lastPathComponent)），但该格式 SceneKit 无法直接显示（可能是 GLB，需转换）"
+                status = "Model downloaded (\(local.lastPathComponent)), but SceneKit cannot display it directly (likely GLB)"
             }
         } catch {
-            status = "出错：\(error.localizedDescription)"
+            status = "Error: \(error.localizedDescription)"
         }
     }
 }

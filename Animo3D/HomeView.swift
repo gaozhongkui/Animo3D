@@ -33,9 +33,9 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 32) {
                     // Header
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("你好，创作者")
+                        Text("Hello, Creator")
                             .font(.system(size: 28, weight: .bold, design: .rounded))
-                        Text("让你的 3D 角色在现实世界中起舞")
+                        Text("Bring your 3D characters to life in the real world")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -50,7 +50,8 @@ struct HomeView: View {
 
                     // 推荐角色
                     VStack(alignment: .leading, spacing: 16) {
-                        sectionHeader("推荐角色") {
+                        sectionHeader("Recommended Characters") {
+                            // 发送通知切换到角色 Tab
                             NotificationCenter.default.post(name: NSNotification.Name("SwitchToCharactersTab"), object: nil)
                         }
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -69,7 +70,7 @@ struct HomeView: View {
 
                     // 热门舞蹈
                     VStack(alignment: .leading, spacing: 16) {
-                        sectionHeader("热门舞蹈") {
+                        sectionHeader("Trending Dances") {
                             launch = StudioLaunch()
                         }
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -93,10 +94,10 @@ struct HomeView: View {
 
                     // 更多玩法
                     VStack(alignment: .leading, spacing: 16) {
-                        sectionHeader("更多发现")
+                        sectionHeader("Discover More")
                         VStack(spacing: 12) {
                             Button { showVideo = true } label: {
-                                actionCard(icon: "video.fill", title: "视频驱动动作", subtitle: "上传视频，让模型实时模仿", color: .blue)
+                                actionCard(icon: "video.fill", title: "Video Drive Motion", subtitle: "Upload video to mimic motions in real-time", color: .blue)
                             }.buttonStyle(.plain)
                         }
                         .padding(.horizontal)
@@ -105,7 +106,7 @@ struct HomeView: View {
                 .padding(.vertical)
             }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
-            .navigationTitle("创作")
+            .navigationTitle("Create")
             .navigationBarTitleDisplayMode(.large)
             .fullScreenCover(item: $launch) { l in
                 studioCover(DanceStudioView(initialCharacter: l.character, initialDance: l.dance))
@@ -133,16 +134,16 @@ struct HomeView: View {
             HStack(spacing: 20) {
                 VStack(alignment: .leading, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("进入舞蹈工作室")
+                        Text("Enter Dance Studio")
                             .font(.title2.bold())
                             .foregroundStyle(.white)
-                        Text("开启沉浸式 AR 创作之旅")
+                        Text("Start your immersive AR journey")
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(0.9))
                     }
 
                     HStack(spacing: 8) {
-                        Text("立即开始")
+                        Text("Start Now")
                             .font(.system(size: 14, weight: .bold))
                         Image(systemName: "arrow.right")
                             .font(.system(size: 12, weight: .bold))
@@ -165,7 +166,6 @@ struct HomeView: View {
             .padding(24)
         }
         .frame(height: 160)
-        .shadow(color: Color.accentColor.opacity(0.3), radius: 15, x: 0, y: 10)
     }
 
     private func posterCard<Thumb: View>(title: String, subtitle: String, @ViewBuilder thumb: () -> Thumb) -> some View {

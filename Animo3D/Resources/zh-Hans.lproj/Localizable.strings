@@ -1,0 +1,44 @@
+/*
+  Localizable.strings
+  Animo3D
+*/
+
+"Hello, Creator" = "你好，创作者";
+"Bring your 3D characters to life in the real world" = "让你的 3D 角色在现实世界中起舞";
+"Recommended Characters" = "推荐角色";
+"Trending Dances" = "热门舞蹈";
+"Discover More" = "更多发现";
+"Video Drive Motion" = "视频驱动动作";
+"Upload video to mimic motions in real-time" = "上传视频，让模型实时模仿";
+"Create" = "创作";
+"My Characters" = "我的角色";
+"Community" = "社区发现";
+"3D Virtual Dancers" = "3D 虚拟舞者";
+"Dance" = "舞动";
+"My Creations" = "我的创作";
+"Settings" = "系统设置";
+"Subscription" = "订阅管理";
+"Manage Perks" = "管理权益";
+"About Livo" = "关于 Livo";
+"Unlock Livo 3D Pro" = "解锁 Livo 3D Pro";
+"One-time payment · Unlock everything forever" = "一次付费 · 永久解锁全部功能";
+"Unlock Now" = "立即解锁";
+"Lifetime access · No subscription" = "终身会员 · 无需订阅";
+"Restore" = "恢复购买";
+"Terms" = "服务条款";
+"Privacy" = "隐私政策";
+"Select Character" = "选择角色";
+"Select Dance" = "选择舞蹈";
+"Select Music" = "选择音乐";
+"Start Performance" = "开始表演";
+"Preparing Stage..." = "正在准备舞台...";
+"Step %lld of 4" = "第 %lld / 4 步";
+"No Music" = "不用音乐";
+"Presets" = "内置音乐";
+"Local Music" = "本地音乐";
+"Import from File" = "从文件导入";
+"Screen" = "屏幕";
+"AR" = "AR";
+"Studio" = "舞台";
+"Sky" = "天空";
+"Off" = "关闭";

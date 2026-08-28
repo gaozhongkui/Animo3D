@@ -41,11 +41,11 @@ struct SplashView: View {
 
                 // App 名称
                 VStack(spacing: 8) {
-                    Text("Animo3D")
+                    Text("Livo 3D")
                         .font(.system(size: 42, weight: .black, design: .rounded))
                         .tracking(2)
 
-                    Text("让空间充满舞蹈")
+                    Text("Fill your space with dance")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(.secondary)
                         .kerning(4)

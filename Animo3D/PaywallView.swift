@@ -13,11 +13,11 @@ struct PaywallView: View {
     @State private var animateItems = false
 
     private let benefits: [(String, String, String)] = [
-        ("person.2.fill", "解锁全部角色", "所有内置及未来新增角色"),
-        ("figure.dance", "解锁全部舞蹈", "海量动作库无限畅享"),
-        ("video.fill", "去除导出水印", "让创作更纯净、更专业"),
-        ("music.note.list", "解锁全部音乐", "内置高清音乐库随心用"),
-        ("sparkles", "无广告 · 抢先体验", "极致纯净,新功能优先体验"),
+        ("person.2.fill", "Unlock All Characters", "All current and future characters"),
+        ("figure.dance", "Unlock All Dances", "Unlimited access to dance library"),
+        ("video.fill", "Remove Watermark", "Professional, clean video exports"),
+        ("music.note.list", "Unlock All Music", "Full access to high-quality tracks"),
+        ("sparkles", "No Ads · Early Access", "Pure experience, priority features"),
     ]
 
     var body: some View {
@@ -71,10 +71,10 @@ struct PaywallView: View {
                             }
 
                             VStack(spacing: 8) {
-                                Text("解锁 Animo3D Pro")
+                                Text("Unlock Livo 3D Pro")
                                     .font(.system(size: 32, weight: .black, design: .rounded))
 
-                                Text("一次付费 · 永久解锁全部功能")
+                                Text("One-time payment · Unlock everything forever")
                                     .font(.system(size: 16, weight: .medium))
                                     .foregroundStyle(.secondary)
                             }
@@ -105,7 +105,7 @@ struct PaywallView: View {
                     if store.isPro {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.seal.fill")
-                            Text("已成功解锁专业版")
+                            Text("Professional version unlocked")
                         }
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundStyle(Color(rgb: 0x6366F1))
@@ -117,9 +117,9 @@ struct PaywallView: View {
                             withAnimation { store.unlock() }
                         } label: {
                             VStack(spacing: 2) {
-                                Text("\(store.price) 立即解锁")
+                                Text("\(store.price) Unlock Now")
                                     .font(.system(size: 18, weight: .bold))
-                                Text("终身会员 · 无需订阅")
+                                Text("Lifetime access · No subscription")
                                     .font(.system(size: 11, weight: .medium))
                                     .opacity(0.8)
                             }
@@ -134,11 +134,11 @@ struct PaywallView: View {
                         }
 
                         HStack(spacing: 20) {
-                            Button("恢复购买") { }
+                            Button("Restore") { }
                             Text("•")
-                            Link("服务条款", destination: URL(string: "https://example.com")!)
+                            Link("Terms", destination: URL(string: "https://example.com")!)
                             Text("•")
-                            Link("隐私政策", destination: URL(string: "https://example.com")!)
+                            Link("Privacy", destination: URL(string: "https://example.com")!)
                         }
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)

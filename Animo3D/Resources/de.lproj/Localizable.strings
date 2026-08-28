@@ -1,0 +1,44 @@
+/*
+  Localizable.strings
+  Animo3D
+*/
+
+"Hello, Creator" = "Hallo, Schöpfer";
+"Bring your 3D characters to life in the real world" = "Erwecken Sie Ihre 3D-Charaktere in der realen Welt zum Leben";
+"Recommended Characters" = "Empfohlene Charaktere";
+"Trending Dances" = "Beliebte Tänze";
+"Discover More" = "Mehr entdecken";
+"Video Drive Motion" = "Video-gesteuerte Bewegung";
+"Upload video to mimic motions in real-time" = "Video hochladen, um Bewegungen in Echtzeit nachzuahmen";
+"Create" = "Erstellen";
+"My Characters" = "Meine Charaktere";
+"Community" = "Community";
+"3D Virtual Dancers" = "3D Virtuelle Tänzer";
+"Dance" = "Tanzen";
+"My Creations" = "Meine Kreationen";
+"Settings" = "Einstellungen";
+"Subscription" = "Abonnement";
+"Manage Perks" = "Vorteile verwalten";
+"About Livo" = "Über Livo";
+"Unlock Livo 3D Pro" = "Livo 3D Pro freischalten";
+"One-time payment · Unlock everything forever" = "Einmalzahlung · Alles für immer freischalten";
+"Unlock Now" = "Jetzt freischalten";
+"Lifetime access · No subscription" = "Lebenslanger Zugriff · Kein Abo";
+"Restore" = "Wiederherstellen";
+"Terms" = "AGB";
+"Privacy" = "Datenschutz";
+"Select Character" = "Charakter wählen";
+"Select Dance" = "Tanz wählen";
+"Select Music" = "Musik wählen";
+"Start Performance" = "Auftritt starten";
+"Preparing Stage..." = "Bühne wird vorbereitet...";
+"Step %lld of 4" = "Schritt %lld von 4";
+"No Music" = "Keine Musik";
+"Presets" = "Voreinstellungen";
+"Local Music" = "Lokale Musik";
+"Import from File" = "Aus Datei importieren";
+"Screen" = "Bildschirm";
+"AR" = "AR";
+"Studio" = "Studio";
+"Sky" = "Himmel";
+"Off" = "Aus";

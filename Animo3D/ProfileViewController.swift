@@ -146,7 +146,7 @@ final class ProfileViewController: UIViewController {
 
         let titleReg = UICollectionView.SupplementaryRegistration<TitleHeader>(elementKind: UICollectionView.elementKindSectionHeader) { h, _, ip in
             let sec = Section(rawValue: ip.section)
-            h.label.text = (sec == .works) ? "我的作品" : ((sec == .more) ? "系统设置" : "")
+            h.label.text = (sec == .works) ? "My Creations" : ((sec == .more) ? "Settings" : "")
         }
         dataSource.supplementaryViewProvider = { cv, kind, ip in
             cv.dequeueConfiguredReusableSupplementary(using: titleReg, for: ip)
@@ -168,13 +168,13 @@ final class ProfileViewController: UIViewController {
     @objc private func reload() {
         var snap = NSDiffableDataSourceSnapshot<Section, Item>()
         snap.appendSections([.header, .pro, .works, .more])
-        snap.appendItems([.header(name: "Animo 创作者", bio: "探索 3D 舞蹈的无限可能 ✨", avatar: "person.crop.circle.fill")], toSection: .header)
+        snap.appendItems([.header(name: "Livo Creator", bio: "Explore the magic of 3D dance ✨", avatar: "person.crop.circle.fill")], toSection: .header)
         snap.appendItems([.pro], toSection: .pro)
         let works = WorksStore.shared.works
         snap.appendItems(works.isEmpty ? [.empty] : works.map { .work($0) }, toSection: .works)
         snap.appendItems([
-            .setting(id: "pro", icon: "crown.fill", color: 0xFF9500, title: "订阅管理", subtitle: "管理权益"),
-            .setting(id: "about", icon: "info.circle", color: 0x007AFF, title: "关于 Animo", subtitle: "v1.0.0"),
+            .setting(id: "pro", icon: "crown.fill", color: 0xFF9500, title: "Subscription", subtitle: "Manage Perks"),
+            .setting(id: "about", icon: "info.circle", color: 0x007AFF, title: "About Livo", subtitle: "v1.0.0"),
         ], toSection: .more)
         dataSource.apply(snap, animatingDifferences: false)
     }
@@ -269,9 +269,9 @@ private final class CleanHeaderCell: UICollectionViewCell {
     private func setupStats() {
         statsStack.axis = .horizontal; statsStack.distribution = .fillEqually; statsStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(statsStack)
-        statsStack.addArrangedSubview(statItem(v: "15", l: "作品"))
-        statsStack.addArrangedSubview(statItem(v: "1.2k", l: "获赞"))
-        statsStack.addArrangedSubview(statItem(v: "9", l: "创作天数"))
+        statsStack.addArrangedSubview(statItem(v: "15", l: "Works"))
+        statsStack.addArrangedSubview(statItem(v: "1.2k", l: "Likes"))
+        statsStack.addArrangedSubview(statItem(v: "9", l: "Active"))
     }
 
     private func statItem(v: String, l: String) -> UIView {

@@ -31,7 +31,7 @@ struct VideoDriveView: View {
                 } else {
                     VStack(spacing: 10) {
                         Image(systemName: "video.badge.plus").font(.largeTitle).foregroundStyle(.secondary)
-                        Text("选择一个视频作为动作来源").font(.footnote).foregroundStyle(.secondary)
+                        Text("Select a video as motion source").font(.footnote).foregroundStyle(.secondary)
                     }
                 }
                 if isLoading { ProgressView() }
@@ -41,7 +41,7 @@ struct VideoDriveView: View {
 
             HStack(spacing: 12) {
                 PhotosPicker(selection: $pickerItem, matching: .videos, photoLibrary: .shared()) {
-                    Label(videoURL == nil ? "选择视频" : "重选", systemImage: "photo.on.rectangle")
+                    Label(videoURL == nil ? "Select Video" : "Reselect", systemImage: "photo.on.rectangle")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -49,7 +49,7 @@ struct VideoDriveView: View {
                 NavigationLink {
                     if let url = videoURL { CharacterMotionView(videoURL: url) }
                 } label: {
-                    Label("下一步", systemImage: "arrow.right")
+                    Label("Next", systemImage: "arrow.right")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -129,7 +129,7 @@ struct CharacterMotionView: View {
                 .id(arMode)   // 只在屏幕/AR 切换时重建；换角色是原地换模型，不重建
 
                 Picker("", selection: $arMode) {
-                    Text("屏幕").tag(false)
+                    Text("Screen").tag(false)
                     Text("AR").tag(true)
                 }
                 .pickerStyle(.segmented).frame(width: 130).padding(8)
@@ -139,11 +139,11 @@ struct CharacterMotionView: View {
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .padding(.horizontal, 10)
 
-            picker(title: "角色", items: catalog.characters, selection: $character) { new in
+            picker(title: "Character", items: catalog.characters, selection: $character) { new in
                 stage.load(character: new)
             }
 
-            Text("关节点 \(vm.landmarks.count)/33 · 动作循环中")
+            Text("Joints \(vm.landmarks.count)/33 · Loop Playing")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(vm.landmarks.isEmpty ? Color.secondary : Color.green)
                 .padding(.bottom, 6)

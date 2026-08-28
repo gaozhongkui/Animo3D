@@ -193,7 +193,7 @@ struct DanceStudioView: View {
             Color.black.opacity(0.45).ignoresSafeArea()
             VStack(spacing: 12) {
                 ProgressView().tint(.white).scaleEffect(1.3)
-                Text("正在准备舞台…").font(.footnote).foregroundStyle(.white.opacity(0.9))
+                Text("Preparing Stage...").font(.footnote).foregroundStyle(.white.opacity(0.9))
             }
             .padding(24)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -203,7 +203,7 @@ struct DanceStudioView: View {
 
     // MARK: 步骤头部（进度）
     private var stepHeader: some View {
-        let titles = ["选择角色", "选择舞蹈", "选择音乐", "开始表演"]
+        let titles = ["Select Character", "Select Dance", "Select Music", "Start Performance"]
         return VStack(spacing: 16) {
             HStack(spacing: 20) {
                 circleButton(step == .character ? "xmark" : "chevron.left") { back() }
@@ -211,7 +211,7 @@ struct DanceStudioView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(titles[step.rawValue])
                         .font(.system(size: 20, weight: .bold, design: .rounded))
-                    Text("第 \(step.rawValue + 1) / 4 步")
+                    Text("Step \(step.rawValue + 1) of 4")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -364,16 +364,16 @@ struct DanceStudioView: View {
     private var musicStep: some View {
         ScrollView {
             VStack(spacing: 10) {
-                musicRow(title: "不用音乐", system: "speaker.slash", selected: selectedMusic == nil) {
+                musicRow(title: "No Music", system: "speaker.slash", selected: selectedMusic == nil) {
                     selectedMusic = nil; music.stop()
                 }
                 if !MusicTrack.presets.isEmpty {
-                    sectionLabel("内置音乐")
+                    sectionLabel("Presets")
                     ForEach(MusicTrack.presets) { t in trackRow(t) }
                 }
-                sectionLabel("本地音乐")
+                sectionLabel("Local Music")
                 Button { showAudioDoc = true } label: {
-                    musicRowLabel(title: "从文件导入", system: "plus.circle.fill", selected: false, tint: .accentColor)
+                    musicRowLabel(title: "Import from File", system: "plus.circle.fill", selected: false, tint: .accentColor)
                 }.buttonStyle(.plain)
                 ForEach(localMusic.tracks) { t in trackRow(t) }
             }
@@ -443,7 +443,7 @@ struct DanceStudioView: View {
                 HStack {
                     circleButton("chevron.left") { back() }
                     Spacer()
-                    Picker("", selection: $arMode) { Text("屏幕").tag(false); Text("AR").tag(true) }
+                    Picker("", selection: $arMode) { Text("Screen").tag(false); Text("AR").tag(true) }
                         .pickerStyle(.segmented).frame(width: 120)
                 }
                 .padding(.horizontal, 12).padding(.top, 6)
@@ -470,8 +470,8 @@ struct DanceStudioView: View {
     // 场景选择条：舞台 vs 天空
     private var sceneSelectionBar: some View {
         HStack(spacing: 12) {
-            sceneChip(type: .studio, title: "舞台", icon: "house.fill")
-            sceneChip(type: .sky, title: "天空", icon: "cloud.sun.fill")
+            sceneChip(type: .studio, title: "Studio", icon: "house.fill")
+            sceneChip(type: .sky, title: "Sky", icon: "cloud.sun.fill")
         }
         .padding(.bottom, 10)
     }
@@ -505,7 +505,7 @@ struct DanceStudioView: View {
     private var vfxBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                vfxChip(title: "关闭", icon: "nosign", on: !vfxOn) { vfxOn = false; installVFX() }
+                vfxChip(title: "Off", icon: "nosign", on: !vfxOn) { vfxOn = false; installVFX() }
                 ForEach(Array(VFXPreset.all.enumerated()), id: \.offset) { i, p in
                     vfxChip(title: p.name, icon: "sparkles", on: vfxOn && vfxPreset == i) {
                         vfxOn = true; vfxPreset = i; installVFX()
