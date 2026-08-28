@@ -26,8 +26,10 @@ struct ARCharacterView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> ARSCNView {
         let arView = ARSCNView(frame: .zero)
+        // Light estimation still drives the scene's lighting environment, but the default light
+        // is off: it stacked on top of the environment texture and blew the character out.
         arView.automaticallyUpdatesLighting = true
-        arView.autoenablesDefaultLighting = true
+        arView.autoenablesDefaultLighting = false
         arView.delegate = context.coordinator
         context.coordinator.setup(arView)
 
@@ -84,6 +86,7 @@ struct ARCharacterView: UIViewRepresentable {
 
         func setup(_ arView: ARSCNView) {
             self.arView = arView
+            addLights(to: arView)
             onAttach?()
 
             guard let root = controller.characterRoot else {
@@ -113,6 +116,35 @@ struct ARCharacterView: UIViewRepresentable {
                 arView.scene.rootNode.addChildNode(c)
             }
             print("[AR] model ready height=\(h) scale=\(s) groundOffset=\(minY) detectGround=\(detectGround)")
+        }
+
+        /// A modest, predictable rig. Environment texturing needs an A12 and a settled probe, so
+        /// without these the character can come out black on older devices or right after launch.
+        private func addLights(to arView: ARSCNView) {
+            guard arView.scene.rootNode.childNode(withName: "ar_lights", recursively: false) == nil else { return }
+            let holder = SCNNode()
+            holder.name = "ar_lights"
+
+            let ambient = SCNNode()
+            ambient.light = SCNLight()
+            ambient.light?.type = .ambient
+            ambient.light?.intensity = 260
+            holder.addChildNode(ambient)
+
+            let sun = SCNNode()
+            let l = SCNLight()
+            l.type = .directional
+            l.intensity = 420
+            l.castsShadow = DeviceTier.dynamicShadows
+            l.shadowMode = .deferred
+            l.shadowColor = UIColor(white: 0, alpha: 0.4)
+            l.shadowRadius = 6
+            l.shadowSampleCount = DeviceTier.shadowSampleCount
+            sun.light = l
+            sun.eulerAngles = SCNVector3(-Float.pi / 2.4, Float.pi / 10, 0)
+            holder.addChildNode(sun)
+
+            arView.scene.rootNode.addChildNode(holder)
         }
 
         // MARK: Reticle

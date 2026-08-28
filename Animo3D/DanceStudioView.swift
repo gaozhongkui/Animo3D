@@ -672,8 +672,10 @@ struct DanceStudioView: View {
         guard vfxOn else { cam?.bloomIntensity = 0; return }
         // Bloom post-processing: Only let ultra-bright glowing particles produce a soft halo (high threshold to avoid overexposing character's white clothes)
         // Disable bloom on low-end devices (DeviceTier) to eliminate lag from fullscreen Gaussian blur.
-        cam?.bloomIntensity = DeviceTier.bloomIntensity
-        cam?.bloomThreshold = 0.92
+        // The camera tone-maps now (wantsHDR), so a 0.92 threshold caught the character's own
+        // white clothing and wrapped them in a glow. Only the VFX particles should bloom.
+        cam?.bloomIntensity = DeviceTier.bloomIntensity * 0.55
+        cam?.bloomThreshold = 1.15
         cam?.bloomBlurRadius = 14
         vfx.preset = vfxPreset
         vfx.install(in: stage.controller.scene,
