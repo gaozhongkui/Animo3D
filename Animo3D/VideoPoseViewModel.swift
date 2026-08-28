@@ -2,7 +2,7 @@
 //  VideoPoseViewModel.swift
 //  Animo3D
 //
-//  播放选中的视频，用 DisplayLink 实时拉帧喂给 BlazePose，发布检测结果。
+//  Plays the selected video, pulls frames live with a DisplayLink to feed BlazePose, and publishes the detection results.
 //
 
 import Foundation
@@ -15,14 +15,14 @@ import MediaPipeTasksVision
 @MainActor
 final class VideoPoseViewModel: ObservableObject {
 
-    /// 最新一帧的归一化关节点（第一个人）。
+    /// Normalized landmarks of the latest frame (first person).
     @Published var landmarks: [NormalizedLandmarkLite] = []
-    /// 状态提示。
-    @Published var status: String = "请选择一个视频"
-    /// 是否正在处理。
+    /// Status message.
+    @Published var status: String = L("Select a video")
+    /// Whether processing is in progress.
     @Published var isRunning = false
 
-    /// 每帧的 33 个 3D 世界坐标（米），用于驱动 3D 模型。主线程回调。
+    /// The 33 3D world coordinates (meters) of each frame, used to drive the 3D model. Called back on the main thread.
     var onWorld: (([simd_float3]) -> Void)?
 
     let player = AVPlayer()
@@ -31,16 +31,16 @@ final class VideoPoseViewModel: ObservableObject {
     private var videoOutput: AVPlayerItemVideoOutput?
     private var displayLink: CADisplayLink?
     private var orientation: UIImage.Orientation = .up
-    // MediaPipe 视频模式要求时间戳严格递增。视频循环会把播放时间拨回 0，
-    // 不能直接用播放时间当时间戳，否则循环一次后时间戳永远不再增大、检测彻底停摆。
-    // 改用独立的单调计数器，每处理一帧 +33ms（~30fps），永远递增。
+    // MediaPipe's video mode requires strictly increasing timestamps. Looping the video rewinds the playback time to 0,
+    // so playback time cannot be used as the timestamp directly - after one loop it would never grow again and detection would stall completely.
+    // Instead a separate monotonic counter is used, incremented by 33ms (~30fps) per processed frame, so it always increases.
     private var monotonicMs: Int = 0
 
     init() {
         do {
             service = try PoseLandmarkerService()
         } catch {
-            status = "模型加载失败: \(error.localizedDescription)"
+            status = String(format: L("Failed to load model: %@"), error.localizedDescription)
         }
     }
 
@@ -62,7 +62,7 @@ final class VideoPoseViewModel: ObservableObject {
 
         player.replaceCurrentItem(with: item)
 
-        // 循环播放，方便反复观察
+        // Loop playback, which makes repeated observation easier
         NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
         ) { [weak self] _ in
@@ -73,7 +73,7 @@ final class VideoPoseViewModel: ObservableObject {
         startDisplayLink()
         player.play()
         isRunning = true
-        status = "检测中… (BlazePose Heavy)"
+        status = L("Detecting… (BlazePose Heavy)")
     }
 
     private func startDisplayLink() {
@@ -91,8 +91,8 @@ final class VideoPoseViewModel: ObservableObject {
         guard let pixelBuffer = output.copyPixelBuffer(forItemTime: time,
                                                        itemTimeForDisplay: nil) else { return }
 
-        // 单调递增时间戳：hasNewPixelBuffer 已保证是新帧，这里只需喂一个永远变大的时间戳，
-        // 使其跨视频循环仍然递增（避免循环回 0 后被 MediaPipe 拒绝、驱动停摆）。
+        // Monotonically increasing timestamp: hasNewPixelBuffer already guarantees a new frame, so all that is needed here is a timestamp that keeps growing,
+        // which keeps increasing across video loops (otherwise MediaPipe rejects it after the rewind to 0 and the drive stalls).
         monotonicMs += 33
 
         guard let result = service.detect(pixelBuffer: pixelBuffer,
@@ -109,7 +109,7 @@ final class VideoPoseViewModel: ObservableObject {
             landmarks = []
         }
 
-        // 3D 世界坐标 → 驱动模型
+        // 3D world coordinates -> drive the model
         if let firstWorld = result.world.first {
             let pts = firstWorld.map { simd_float3(Float($0.x), Float($0.y), Float($0.z)) }
             onWorld?(pts)
@@ -123,7 +123,7 @@ final class VideoPoseViewModel: ObservableObject {
         isRunning = false
     }
 
-    /// 根据视频轨道 preferredTransform 推断喂给 MediaPipe 的图像方向。
+    /// Infers the image orientation fed to MediaPipe from the video track's preferredTransform.
     private static func orientation(for asset: AVAsset) async -> UIImage.Orientation {
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
               let transform = try? await track.load(.preferredTransform) else {
@@ -132,13 +132,13 @@ final class VideoPoseViewModel: ObservableObject {
         let a = transform.a, b = transform.b, c = transform.c, d = transform.d
         if a == 1 && d == 1 { return .up }
         if a == -1 && d == -1 { return .down }
-        if b == 1 && c == -1 { return .right }   // 顺时针 90°（竖屏常见）
-        if b == -1 && c == 1 { return .left }     // 逆时针 90°
+        if b == 1 && c == -1 { return .right }   // Clockwise 90 degrees (common for portrait)
+        if b == -1 && c == 1 { return .left }     // Counter-clockwise 90 degrees
         return .up
     }
 }
 
-/// 轻量结构，避免把 MediaPipe 类型泄漏到 SwiftUI 视图层。
+/// Lightweight struct that keeps MediaPipe types from leaking into the SwiftUI view layer.
 struct NormalizedLandmarkLite {
     let x: CGFloat
     let y: CGFloat

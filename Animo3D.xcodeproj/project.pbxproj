@@ -124,6 +124,12 @@
 			knownRegions = (
 				en,
 				Base,
+				de,
+				ja,
+				es,
+				ko,
+				fr,
+				pt,
 			);
 			mainGroup = 05E2C0BD3025ACE200A42B38;
 			minimizedProjectReferenceProxies = 1;
@@ -314,7 +320,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Livo 3D";
-				INFOPLIST_KEY_NSCameraUsageDescription = "需要使用摄像头进行实时人体动作追踪";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is used for real-time body motion tracking.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -350,7 +356,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Livo 3D";
-				INFOPLIST_KEY_NSCameraUsageDescription = "需要使用摄像头进行实时人体动作追踪";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is used for real-time body motion tracking.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

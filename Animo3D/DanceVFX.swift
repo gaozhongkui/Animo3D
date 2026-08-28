@@ -2,55 +2,55 @@
 //  DanceVFX.swift
 //  Animo3D
 //
-//  舞台特效：多种可切换的粒子预设(光罩 / 星尘 / 爱心 / 火花 / 星轨),
-//  每种都跟着音乐实时能量(MusicController.currentLevel)脉动。
-//  纯代码生成(粒子系统 + 贴图),挂在角色场景根节点,屏幕/AR 共用。
+//  Stage VFX: several switchable particle presets (halo / stardust / hearts / sparks / star trail),
+//  each pulsing with the music's live energy (MusicController.currentLevel).
+//  Generated purely in code (particle systems + textures), attached to the character scene's root node, shared by screen and AR.
 //
 
 import SceneKit
 import UIKit
 import QuartzCore
 
-/// 一个特效预设的配置。
+/// Configuration for one VFX preset.
 struct VFXPreset {
     let name: String
-    let colors: [UIColor]        // [粒子主色, 环/涟漪色]
-    let shape: Shape             // 粒子形状贴图
-    let emit: Emit               // 发射方式
-    let rise: CGFloat            // 上升速度系数(×身高)
-    let arc: CGFloat             // 回落重力系数(0=直上,>0 拱形)
+    let colors: [UIColor]        // [particle main color, ring/ripple color]
+    let shape: Shape             // Particle shape texture
+    let emit: Emit               // Emission mode
+    let rise: CGFloat            // Rise speed factor (x body height)
+    let arc: CGFloat             // Fall-back gravity factor (0 = straight up, >0 = arc)
     let size: CGFloat
-    let birthBase: CGFloat       // 基础发射率
-    let life: CGFloat            // 粒子寿命(秒),越短拖尾/范围越小
-    let spin: CGFloat            // 粒子自转
-    let stretch: CGFloat         // 沿运动方向拖尾(0=不拖尾)
+    let birthBase: CGFloat       // Base birth rate
+    let life: CGFloat            // Particle lifetime (seconds); shorter means a smaller trail and range
+    let spin: CGFloat            // Particle spin
+    let stretch: CGFloat         // Stretch along the direction of motion (0 = no trail)
     let additive: Bool
     let groundRing: Bool
     let ripples: Bool
     let notes: Bool
 
     enum Shape { case dot, star, heart, spark, note }
-    enum Emit { case footRing, bodySphere, chest, spiral }   // 脚底圈 / 全身球 / 胸口 / 螺旋上升
+    enum Emit { case footRing, bodySphere, chest, spiral }   // Foot ring / whole-body sphere / chest / rising spiral
 
     static let all: [VFXPreset] = [
-        // 0 光罩：脚底一圈向上喷出的柔和光粒,聚成半球光罩
-        VFXPreset(name: "光罩", colors: [c(0.45,0.8,1), c(0.6,0.5,1)], shape: .dot, emit: .footRing,
+        // 0 Halo: soft light particles shooting up from a ring at the feet, gathering into a hemispherical halo
+        VFXPreset(name: "Halo", colors: [c(0.45,0.8,1), c(0.6,0.5,1)], shape: .dot, emit: .footRing,
                   rise: 0.9, arc: 0.4, size: 0.06, birthBase: 70, life: 1.6, spin: 0, stretch: 0, additive: true,
                   groundRing: true, ripples: true, notes: false),
-        // 1 星尘：全身缓缓上升四散的星点
-        VFXPreset(name: "星尘", colors: [c(1,0.92,0.6), c(1,0.82,0.45)], shape: .star, emit: .bodySphere,
+        // 1 Stardust: star points slowly rising and scattering off the whole body
+        VFXPreset(name: "Stardust", colors: [c(1,0.92,0.6), c(1,0.82,0.45)], shape: .star, emit: .bodySphere,
                   rise: 0.28, arc: 0, size: 0.06, birthBase: 34, life: 2.4, spin: 18, stretch: 0, additive: true,
                   groundRing: false, ripples: true, notes: false),
-        // 2 爱心：胸口飘散的爱心
-        VFXPreset(name: "爱心", colors: [c(1,0.5,0.68), c(1,0.4,0.6)], shape: .heart, emit: .chest,
+        // 2 Hearts: hearts drifting away from the chest
+        VFXPreset(name: "Hearts", colors: [c(1,0.5,0.68), c(1,0.4,0.6)], shape: .heart, emit: .chest,
                   rise: 0.4, arc: 0.05, size: 0.1, birthBase: 10, life: 2.8, spin: 10, stretch: 0, additive: false,
                   groundRing: false, ripples: false, notes: false),
-        // 3 火花：脚底上冲、重力回落的辉光火星(纯光点,靠 bloom 发光)
-        VFXPreset(name: "火花", colors: [c(1,0.8,0.42), c(1,0.45,0.18)], shape: .dot, emit: .footRing,
+        // 3 Sparks: glowing embers shooting up from the feet and falling back under gravity (pure light points, the glow comes from bloom)
+        VFXPreset(name: "Sparks", colors: [c(1,0.8,0.42), c(1,0.45,0.18)], shape: .dot, emit: .footRing,
                   rise: 1.15, arc: 0.9, size: 0.05, birthBase: 95, life: 0.95, spin: 0, stretch: 0, additive: true,
                   groundRing: true, ripples: true, notes: false),
-        // 4 星轨：双螺旋上升 + 地面涟漪 + 音符
-        VFXPreset(name: "星轨", colors: [c(0.5,0.95,1), c(0.45,0.65,1)], shape: .star, emit: .spiral,
+        // 4 Star trail: rising double spiral + ground ripple + music notes
+        VFXPreset(name: "Star Trail", colors: [c(0.5,0.95,1), c(0.45,0.65,1)], shape: .star, emit: .spiral,
                   rise: 0.85, arc: 0.05, size: 0.05, birthBase: 70, life: 1.8, spin: 0, stretch: 0, additive: true,
                   groundRing: true, ripples: true, notes: true),
     ]
@@ -64,7 +64,7 @@ final class DanceVFX {
     private weak var scene: SCNScene?
     private let root = SCNNode()
     private var ring: SCNNode?
-    private var systems: [SCNParticleSystem] = []   // 主粒子(螺旋有多个),统一按节拍驱动
+    private var systems: [SCNParticleSystem] = []   // Main particles (the spiral has several), all driven by the beat
     private var ripplePool: [SCNNode] = []
     private var rippleIdx = 0
 
@@ -78,7 +78,7 @@ final class DanceVFX {
 
     var preset = 0
 
-    // MARK: 安装 / 卸载
+    // MARK: Install / uninstall
     func install(in scene: SCNScene, feetY: Float, height h: Float, level: @escaping () -> Float) {
         remove()
         self.scene = scene
@@ -107,7 +107,7 @@ final class DanceVFX {
         ring = nil; systems = []; ripplePool = []; rippleIdx = 0
     }
 
-    /// 切换到下一个预设(循环)。
+    /// Switch to the next preset (wrapping around).
     func next() -> String {
         preset = (preset + 1) % VFXPreset.all.count
         if let sc = scene, let lv = levelProvider {
@@ -119,7 +119,7 @@ final class DanceVFX {
 
     var currentName: String { VFXPreset.all[preset % VFXPreset.all.count].name }
 
-    // MARK: 地面光环
+    // MARK: Ground halo
     private func buildGroundRing() {
         let plane = SCNPlane(width: radius * 2.6, height: radius * 2.6)
         let m = plane.firstMaterial!
@@ -136,7 +136,7 @@ final class DanceVFX {
         n.runAction(.repeatForever(.rotate(by: .pi * 2, around: SCNVector3(0, 0, 1), duration: 14)))
     }
 
-    // MARK: 主粒子
+    // MARK: Main particles
     private func buildMain() {
         let ps = SCNParticleSystem()
         ps.particleImage = Self.shapeImage(cur.shape, color: cur.colors[0])
@@ -156,15 +156,15 @@ final class DanceVFX {
         ps.sortingMode = .none
         ps.particleColor = cur.colors[0]
         ps.particleColorVariation = SCNVector4(0.06, 0.06, 0.08, 0)
-        ps.stretchFactor = cur.stretch                     // 拖尾
-        // 生命周期：淡入淡出 + 先长后缩,让粒子柔和不生硬
+        ps.stretchFactor = cur.stretch                     // Trail
+        // Lifecycle: fade in and out, grow then shrink, so particles look soft rather than abrupt
         ps.propertyControllers = [
             .opacity: Self.fadeCtrl(),
             .size: Self.sizeCtrl(base: cur.size)
         ]
 
         if cur.emit == .spiral {
-            // 双螺旋：两个偏移的小发射器绕 Y 自转,粒子边转边升 → 螺旋轨迹
+            // Double spiral: two offset emitters spinning around Y, particles rise while rotating -> spiral trails
             ps.emitterShape = SCNSphere(radius: radius * 0.08)
             ps.birthLocation = .surface
             ps.spreadingAngle = 6
@@ -199,18 +199,18 @@ final class DanceVFX {
             ps.spreadingAngle = 35
             holder.simdPosition = simd_float3(0, Float(height) * 0.6, 0)
         case .spiral:
-            break   // 已在上面处理
+            break   // Already handled above
         }
         holder.addParticleSystem(ps)
         root.addChildNode(holder)
         systems = [ps]
     }
 
-    // MARK: 音符
+    // MARK: Music notes
     private func buildNotes() {
         let ps = SCNParticleSystem()
         ps.particleImage = Self.shapeImage(.note, color: UIColor(white: 1, alpha: 0.9))
-        ps.birthRate = 2.2                         // 少而精,别喧宾夺主
+        ps.birthRate = 2.2                         // Few but well placed, they should not steal the show
         ps.particleLifeSpan = 2.6
         ps.particleLifeSpanVariation = 0.8
         ps.emitterShape = SCNSphere(radius: radius * 0.7)
@@ -226,14 +226,14 @@ final class DanceVFX {
         ps.blendMode = .alpha
         ps.isLightingEnabled = false
         ps.particleColor = .white
-        ps.propertyControllers = [.opacity: Self.fadeCtrl()]   // 淡入淡出,不生硬
+        ps.propertyControllers = [.opacity: Self.fadeCtrl()]   // Fade in and out, not abrupt
         let holder = SCNNode()
         holder.simdPosition = simd_float3(0, Float(height) * 0.55, 0)
         holder.addParticleSystem(ps)
         root.addChildNode(holder)
     }
 
-    // MARK: 涟漪
+    // MARK: Ripple
     private func buildRipplePool() {
         for _ in 0..<4 {
             let plane = SCNPlane(width: radius * 2, height: radius * 2)
@@ -263,7 +263,7 @@ final class DanceVFX {
         n.runAction(.group([grow, fade]))
     }
 
-    // MARK: 每帧驱动
+    // MARK: Per-frame drive
     @objc private func tick() {
         let level = levelProvider?() ?? 0
         env = env * 0.82 + level * 0.18
@@ -272,8 +272,8 @@ final class DanceVFX {
             ring.simdScale = simd_float3(Float(s), Float(s), 1)
             ring.opacity = CGFloat(0.35 + level * 0.55)
         }
-        let rate = cur.birthBase * CGFloat(0.6 + level * 1.1)   // 安静时也有基础量
-        for s in systems { s.birthRate = rate * DeviceTier.particleScale }   // 低端降密度
+        let rate = cur.birthBase * CGFloat(0.6 + level * 1.1)   // Keep a base amount even when it is quiet
+        for s in systems { s.birthRate = rate * DeviceTier.particleScale }   // Lower the density on low-end devices
         if beatCooldown > 0 { beatCooldown -= 1 }
         if cur.ripples, level > env * 1.28, level > 0.18, beatCooldown == 0 {
             fireRipple(intensity: level)
@@ -281,7 +281,7 @@ final class DanceVFX {
         }
     }
 
-    // MARK: 贴图
+    // MARK: Textures
     private static func shapeImage(_ shape: VFXPreset.Shape, color: UIColor) -> UIImage {
         switch shape {
         case .dot:   return dotImage(color)
@@ -292,7 +292,7 @@ final class DanceVFX {
         }
     }
 
-    /// 柔和发光点：亮白核心 → 彩色晕 → 极柔透明边(加法混合下像真实光点)。
+    /// Soft glowing dot: bright white core -> colored halo -> very soft transparent edge (looks like a real light point under additive blending).
     private static func dotImage(_ color: UIColor) -> UIImage {
         let s = CGSize(width: 96, height: 96)
         return UIGraphicsImageRenderer(size: s).image { ctx in
@@ -307,7 +307,7 @@ final class DanceVFX {
         }
     }
 
-    /// 淡入淡出(opacity 随粒子寿命 0→1→0)。
+    /// Fade in and out (opacity follows the particle lifetime 0 -> 1 -> 0).
     private static func fadeCtrl() -> SCNParticlePropertyController {
         let a = CAKeyframeAnimation()
         a.values = [0.0, 1.0, 0.9, 0.0]
@@ -315,7 +315,7 @@ final class DanceVFX {
         return SCNParticlePropertyController(animation: a)
     }
 
-    /// 大小曲线(出生小 → 展开 → 消散前缩小)。
+    /// Size curve (born small -> expands -> shrinks before dying).
     private static func sizeCtrl(base: CGFloat) -> SCNParticlePropertyController {
         let a = CAKeyframeAnimation()
         a.values = [base * 0.4, base, base * 0.15]
@@ -343,7 +343,7 @@ final class DanceVFX {
         }
     }
 
-    /// 彩色发光圆环：内透明 → 彩色 → 外透明。thickness 越小环越细。
+    /// Colored glowing ring: transparent inside -> color -> transparent outside. A smaller thickness makes a thinner ring.
     private static func ringImage(_ color: UIColor, thickness: CGFloat) -> UIImage {
         let s = CGSize(width: 256, height: 256)
         return UIGraphicsImageRenderer(size: s).image { ctx in

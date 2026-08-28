@@ -2,10 +2,10 @@
 //  ModelPreviewView.swift
 //  Animo3D
 //
-//  App 内自绘的 SceneKit 3D 预览：加载下载来的 USDZ，运行时把材质强制不透明
-//  （解决 Sketchfab spec-gloss 模型在 Quick Look 里半透明的问题），可手指旋转查看。
-//  相比"重导出 USDZ + Quick Look"，内存占用小很多：只加载一份场景、不重新编码、
-//  不额外拉起 Quick Look 服务——对 iPhone X 这类 3GB 老设备更安全（避免内存顶爆重启）。
+//  In-app SceneKit 3D preview: loads a downloaded USDZ and forces its materials opaque at runtime
+//  (which fixes Sketchfab spec-gloss models looking translucent in Quick Look), and can be rotated by finger.
+//  Compared with "re-export the USDZ + Quick Look", it uses far less memory: one scene is loaded, nothing is re-encoded,
+//  and no extra Quick Look service is launched - safer on 3GB-class devices like the iPhone X (it avoids the out-of-memory reboot).
 //
 
 import SwiftUI
@@ -28,12 +28,12 @@ struct ModelPreviewView: View {
                 SceneView(scene: scene, options: [.autoenablesDefaultLighting, .allowsCameraControl])
                     .ignoresSafeArea()
             } else if failed {
-                Text("无法加载该模型").foregroundStyle(.white)
+                Text("Couldn't load this model").foregroundStyle(.white)
             } else {
                 ProgressView().tint(.white)
             }
 
-            // 顶部栏：关闭 + 标题 +（可选）AR
+            // Top bar: close + title + (optional) AR
             HStack {
                 CircleButton(system: "xmark") { dismiss() }
                 Spacer()
@@ -55,7 +55,7 @@ struct ModelPreviewView: View {
         guard scene == nil else { return }
         guard let s = try? SCNScene(url: url) else { failed = true; return }
 
-        // 运行时强制不透明（廉价，无重导出、无内存尖峰）
+        // Force opacity at runtime (cheap, no re-export, no memory spike)
         s.rootNode.enumerateHierarchy { node, _ in
             node.geometry?.materials.forEach { m in
                 m.transparency = 1
@@ -65,7 +65,7 @@ struct ModelPreviewView: View {
             }
         }
 
-        // 摆一个框住整体的相机
+        // Place a camera that frames the whole model
         let (minB, maxB) = s.rootNode.boundingBox
         let c = SCNVector3((minB.x + maxB.x) / 2, (minB.y + maxB.y) / 2, (minB.z + maxB.z) / 2)
         let sz = max(maxB.x - minB.x, maxB.y - minB.y, maxB.z - minB.z)

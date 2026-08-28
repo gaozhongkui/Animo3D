@@ -2,7 +2,7 @@
 //  RootTabView.swift
 //  Animo3D
 //
-//  产品主结构：首页 / 角色 / 我的 三个底部标签。
+//  Main product structure: Home / Characters / Me three bottom tabs.
 //
 
 import SwiftUI
@@ -42,7 +42,7 @@ struct DiscoverView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 精致搜索框
+            // Elegant search box
             VStack(spacing: 16) {
                 HStack(spacing: 12) {
                     HStack(spacing: 8) {
@@ -63,11 +63,11 @@ struct DiscoverView: View {
                 }
                 .padding(.horizontal, 20)
 
-                // 分类标签
+                // Category tags
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(categories, id: \.self) { cat in
-                            Text(cat)
+                            Text(LocalizedStringKey(cat))
                                 .font(.system(size: 13, weight: selectedCategory == cat ? .bold : .medium))
                                 .padding(.horizontal, 16).padding(.vertical, 8)
                                 .background(selectedCategory == cat ? Color.accentColor : Color(.secondarySystemBackground), in: Capsule())
@@ -118,7 +118,7 @@ struct ModelCard: View {
                 .frame(maxWidth: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
 
-                // 精致角标
+                // Elegant badge
                 HStack(spacing: 4) {
                     Image(systemName: "heart.fill").font(.system(size: 8))
                     Text(model.likeCount.formattedAbbreviated)
@@ -164,7 +164,7 @@ struct ModelDetailView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    // 顶部主展示区：默认静态图，点击开启交互 3D
+                    // Top main display area: Default static image, tap to open interactive 3D
                     ZStack(alignment: .bottom) {
                         if show3DPreview, let url = URL(string: model.embedUrl) {
                             WebView(url: url)
@@ -200,7 +200,7 @@ struct ModelDetailView: View {
 
                             HStack(spacing: 8) {
                                 Image(systemName: "move.3d").font(.title3.bold())
-                                Text("点击开启 3D 互动").font(.subheadline.bold())
+                                Text("Tap to Explore in 3D").font(.subheadline.bold())
                             }
                             .foregroundStyle(.white)
                             .padding(.horizontal, 20).padding(.vertical, 12)
@@ -214,7 +214,7 @@ struct ModelDetailView: View {
                     .padding(.top, 12)
                     .shadow(color: .black.opacity(0.1), radius: 20, y: 10)
 
-                    // 内容详情
+                    // Details
                     VStack(alignment: .leading, spacing: 20) {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack(alignment: .top) {
@@ -244,16 +244,16 @@ struct ModelDetailView: View {
 
                         Divider()
 
-                        // 核心操作区
+                        // Core actions
                         VStack(spacing: 16) {
                             Button(action: startAR) {
                                 HStack {
                                     if arLoading {
                                         ProgressView().tint(.white).padding(.trailing, 8)
-                                        Text("正在同步空间资产 \(Int(arProgress * 100))%...")
+                                        Text(String(format: L("Syncing assets %d%%..."), Int(arProgress * 100)))
                                     } else {
                                         Image(systemName: "arkit").font(.title3.bold())
-                                        Text("在现实空间中查看 (AR)").font(.headline)
+                                        Text("View in AR").font(.headline)
                                     }
                                 }
                                 .foregroundStyle(.white)
@@ -265,10 +265,10 @@ struct ModelDetailView: View {
                             .disabled(arLoading)
 
                             HStack(spacing: 12) {
-                                ActionRowSmall(icon: "paperplane.fill", title: "分享模型", color: .blue) {
+                                ActionRowSmall(icon: "paperplane.fill", title: "Share Model", color: .blue) {
                                     showShare = true
                                 }
-                                ActionRowSmall(icon: "safari.fill", title: "源地址", color: .indigo) {
+                                ActionRowSmall(icon: "safari.fill", title: "Source Page", color: .indigo) {
                                     if let url = URL(string: model.viewerUrl) { UIApplication.shared.open(url) }
                                 }
                             }
@@ -280,7 +280,7 @@ struct ModelDetailView: View {
             }
         }
         .sheet(isPresented: $showShare) {
-            ShareSheet(items: ["发现一个超赞的 3D 模型：\(model.name)", URL(string: model.viewerUrl)!])
+            ShareSheet(items: ["Check out this 3D model: \(model.name)", URL(string: model.viewerUrl)!])
         }
         .alert("Load Failed", isPresented: .constant(arError != nil)) {
             Button("Dismiss") { arError = nil }
@@ -288,6 +288,7 @@ struct ModelDetailView: View {
             Text(arError ?? "")
         }
     }
+
 
     private func statLabel(icon: String, value: String, color: Color) -> some View {
         HStack(spacing: 5) {
@@ -321,7 +322,7 @@ struct ModelDetailView: View {
 
 struct ActionRowSmall: View {
     let icon: String
-    let title: String
+    let title: LocalizedStringKey
     let color: Color
     let action: () -> Void
 
@@ -366,7 +367,7 @@ struct DownloadOverlay: View {
                         )
                         .rotationEffect(.degrees(-90))
 
-                    Text("\(Int(progress * 100))%")
+                    Text(String(format: L("%d%%"), Int(progress * 100)))
                         .font(.system(size: 22, weight: .black, design: .rounded))
                         .foregroundStyle(.white)
                 }

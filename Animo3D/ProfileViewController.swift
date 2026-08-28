@@ -69,7 +69,7 @@ final class ProfileViewController: UIViewController {
                     let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(200))
                     let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
                     s.contentInsets = .init(top: 0, leading: 20, bottom: 20, trailing: 20)
-                    s.boundarySupplementaryItems = [Self.createHeader("My Creations")]
+                    s.boundarySupplementaryItems = [Self.createHeader(L("My Creations"))]
                     return s
                 }
                 let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(0.5), heightDimension: .fractionalHeight(1))
@@ -78,7 +78,7 @@ final class ProfileViewController: UIViewController {
                 let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(240))
                 let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.horizontal(layoutSize: groupSize, subitems: [item, item]))
                 s.contentInsets = .init(top: 4, leading: 12, bottom: 32, trailing: 12)
-                s.boundarySupplementaryItems = [Self.createHeader("My Creations")]
+                s.boundarySupplementaryItems = [Self.createHeader(L("My Creations"))]
                 return s
 
             case .more:
@@ -86,7 +86,7 @@ final class ProfileViewController: UIViewController {
                 let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
                 s.contentInsets = .init(top: 0, leading: 20, bottom: 120, trailing: 20)
                 s.interGroupSpacing = 0
-                s.boundarySupplementaryItems = [Self.createHeader("Settings")]
+                s.boundarySupplementaryItems = [Self.createHeader(L("Settings"))]
                 return s
             }
         }
@@ -165,14 +165,14 @@ final class ProfileViewController: UIViewController {
     @objc private func reload() {
         var snap = NSDiffableDataSourceSnapshot<Section, Item>()
         snap.appendSections([.header, .pro, .works, .more])
-        snap.appendItems([.header(name: "Livo Creator", bio: "Exploring the infinity of 3D motion ✨", avatar: "")], toSection: .header)
+        snap.appendItems([.header(name: L("Livo Creator"), bio: L("Exploring the infinity of 3D motion ✨"), avatar: "")], toSection: .header)
         snap.appendItems([.pro], toSection: .pro)
         let works = WorksStore.shared.works
         snap.appendItems(works.isEmpty ? [.empty] : works.map { .work($0) }, toSection: .works)
         snap.appendItems([
-            .setting(id: "pro", icon: "crown.fill", color: 0xFF9500, title: "Subscription", subtitle: "Manage Perks"),
-            .setting(id: "cache", icon: "trash.fill", color: 0xFF3B30, title: "Clear Cache", subtitle: StorageManager.getCacheSize()),
-            .setting(id: "about", icon: "info.circle.fill", color: 0x007AFF, title: "About Livo", subtitle: "v1.0.0"),
+            .setting(id: "pro", icon: "crown.fill", color: 0xFF9500, title: L("Subscription"), subtitle: L("Manage Perks")),
+            .setting(id: "cache", icon: "trash.fill", color: 0xFF3B30, title: L("Clear Cache"), subtitle: StorageManager.getCacheSize()),
+            .setting(id: "about", icon: "info.circle.fill", color: 0x007AFF, title: L("About Livo"), subtitle: "v1.0.0"),
         ], toSection: .more)
         dataSource.apply(snap, animatingDifferences: false)
     }
@@ -319,9 +319,9 @@ private final class CleanHeaderCell: UICollectionViewCell {
     private func setupStats() {
         statsStack.axis = .horizontal; statsStack.distribution = .fillEqually; statsStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(statsStack)
-        statsStack.addArrangedSubview(statItem(v: "15", l: "Works"))
-        statsStack.addArrangedSubview(statItem(v: "1.2k", l: "Likes"))
-        statsStack.addArrangedSubview(statItem(v: "9", l: "Days"))
+        statsStack.addArrangedSubview(statItem(v: "15", l: L("Works")))
+        statsStack.addArrangedSubview(statItem(v: "1.2k", l: L("Likes")))
+        statsStack.addArrangedSubview(statItem(v: "9", l: L("Days")))
     }
 
     private func statItem(v: String, l: String) -> UIView {
@@ -351,8 +351,8 @@ private final class ModernProCell: UICollectionViewCell {
         let crown = UIImageView(image: UIImage(systemName: "crown.fill"))
         crown.tintColor = UIColor(rgb: 0xFFD60A); crown.contentMode = .scaleAspectFit
 
-        let title = UILabel(); title.text = "Upgrade Livo 3D Pro"; title.textColor = .white; title.font = .systemFont(ofSize: 17, weight: .bold)
-        let sub = UILabel(); sub.text = "Unlock 4K exports and all characters"; sub.textColor = .systemGray; sub.font = .systemFont(ofSize: 13)
+        let title = UILabel(); title.text = L("Upgrade Livo 3D Pro"); title.textColor = .white; title.font = .systemFont(ofSize: 17, weight: .bold)
+        let sub = UILabel(); sub.text = L("Unlock 4K exports and all characters"); sub.textColor = .systemGray; sub.font = .systemFont(ofSize: 13)
 
         let vStack = UIStackView(arrangedSubviews: [title, sub]); vStack.axis = .vertical; vStack.spacing = 2
         let hStack = UIStackView(arrangedSubviews: [crown, vStack]); hStack.axis = .horizontal; hStack.spacing = 16; hStack.alignment = .center
@@ -422,8 +422,8 @@ private final class EmptyWorksCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.layer.cornerRadius = 24; contentView.backgroundColor = .systemGray6
-        let l = UILabel(); l.text = "No Creations Yet"; l.font = .systemFont(ofSize: 15, weight: .medium); l.textColor = .secondaryLabel
-        let b = UIButton(type: .system); b.setTitle("Start Recording", for: .normal); b.addAction(UIAction { [weak self] _ in self?.onTap?() }, for: .touchUpInside)
+        let l = UILabel(); l.text = L("No Creations Yet"); l.font = .systemFont(ofSize: 15, weight: .medium); l.textColor = .secondaryLabel
+        let b = UIButton(type: .system); b.setTitle(L("Start Recording"), for: .normal); b.addAction(UIAction { [weak self] _ in self?.onTap?() }, for: .touchUpInside)
         let s = UIStackView(arrangedSubviews: [l, b]); s.axis = .vertical; s.alignment = .center; s.spacing = 8; s.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview(s)
         NSLayoutConstraint.activate([s.centerXAnchor.constraint(equalTo: contentView.centerXAnchor), s.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)])
     }
@@ -440,7 +440,7 @@ private final class TitleHeader: UICollectionReusableView {
     required init?(coder: NSCoder) { fatalError() }
 }
 
-// MARK: - SwiftUI 挂载
+// MARK: - SwiftUI mounting
 
 struct ProfileView: View {
     var body: some View {

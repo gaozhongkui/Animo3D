@@ -2,9 +2,9 @@
 //  ContentView.swift
 //  Animo3D
 //
-//  视频驱动（两步流程）：
-//  第一步 选视频 → 预览可重复播放 → 下一步
-//  第二步 角色做出视频里的动作（循环）+ 录屏
+//  Video drive (a two-step flow):
+//  Step 1: pick a video -> preview it on repeat -> Next
+//  Step 2: the character performs the motion from the video (looping) + screen recording
 //
 
 import SwiftUI
@@ -57,7 +57,7 @@ struct VideoDriveView: View {
             }
             .padding([.horizontal, .bottom])
         }
-        .navigationTitle("视频驱动")
+        .navigationTitle("Video Drive")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: pickerItem) { item in
             guard let item else { return }
@@ -87,20 +87,20 @@ struct VideoDriveView: View {
     }
 }
 
-/// 管理视频驱动下的角色（可换角色）。vm 固定把动作转发给 stage，stage 永远驱动当前角色。
+/// Manages the character under video drive (the character can be swapped). vm always forwards motion to stage, and stage always drives the current character.
 final class VideoCharStage: ObservableObject {
-    let controller = CharacterSceneController()   // 单一实例，原地换模型
+    let controller = CharacterSceneController()   // A single instance, models are swapped in place
     private var retargeter: PoseRetargeter?
 
     func load(character: String) {
-        _ = controller.loadModel(named: "\(character).scn")   // 复用场景，换模型
+        _ = controller.loadModel(named: "\(character).scn")   // Reuse the scene, swap the model
         retargeter = PoseRetargeter(controller: controller)
     }
     func drive(_ world: [simd_float3]) { retargeter?.apply(world: world) }
     func resetRetarget() { retargeter?.resetCapture() }
 }
 
-/// 第二步：角色做出视频里的动作（视频在后台循环驱动）+ 选角色 + 屏幕/AR + 录屏。
+/// Step 2: the character performs the motion from the video (the video loops in the background) + character picker + screen/AR + recording.
 struct CharacterMotionView: View {
     let videoURL: URL
 
@@ -126,7 +126,7 @@ struct CharacterMotionView: View {
                                            onAttach: { stage.resetRetarget() }, holder: holder)
                     }
                 }
-                .id(arMode)   // 只在屏幕/AR 切换时重建；换角色是原地换模型，不重建
+                .id(arMode)   // Rebuilt only when switching between screen and AR; swapping characters replaces the model in place without a rebuild
 
                 Picker("", selection: $arMode) {
                     Text("Screen").tag(false)
@@ -148,7 +148,7 @@ struct CharacterMotionView: View {
                 .foregroundStyle(vm.landmarks.isEmpty ? Color.secondary : Color.green)
                 .padding(.bottom, 6)
         }
-        .navigationTitle("角色动作")
+        .navigationTitle("Character Motion")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showShare) {
             if let url = shareURL { ShareSheet(items: [url]) }
@@ -161,11 +161,11 @@ struct CharacterMotionView: View {
         guard character.isEmpty else { return }
         character = catalog.characters.first?.key ?? "Y_Bot"
         stage.load(character: character)
-        vm.onWorld = { [weak stage] world in stage?.drive(world) }   // 固定转发
-        vm.load(url: videoURL)      // 后台循环播放视频 → 驱动当前角色
+        vm.onWorld = { [weak stage] world in stage?.drive(world) }   // Fixed forwarding
+        vm.load(url: videoURL)      // Loops the video in the background -> drives the current character
     }
 
-    private func picker(title: String, items: [CatalogItem],
+    private func picker(title: LocalizedStringKey, items: [CatalogItem],
                         selection: Binding<String>, onSelect: @escaping (String) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption).foregroundStyle(.secondary).padding(.leading, 14)

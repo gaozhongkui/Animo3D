@@ -2,15 +2,15 @@
 //  PreviewPages.swift
 //  Animo3D
 //
-//  放大预览页：角色可旋转/缩放查看,舞蹈全屏实时跳动,并可一键投射到 AR。
-//  卡片右上角"放大"按钮进入。
+//  Enlarged preview pages: characters can be rotated and zoomed, dances play full screen in real time, and either can be projected into AR with one tap.
+//  Entered from the card's top-right "expand" button.
 //
 
 import SwiftUI
 import SceneKit
 import Combine
 
-/// 卡片右上角的"放大"按钮。
+/// The "expand" button in the card's top-right corner.
 struct ZoomButton: View {
     var action: () -> Void
     var body: some View {
@@ -25,7 +25,7 @@ struct ZoomButton: View {
     }
 }
 
-/// 可旋转/缩放查看的场景（3D 模式）。两指捏合缩放,单指旋转。
+/// A scene that can be rotated and zoomed (3D mode). Pinch to zoom, one finger to rotate.
 struct SceneOrbitView: UIViewRepresentable {
     let controller: CharacterSceneController
     var animated: Bool = false
@@ -34,9 +34,9 @@ struct SceneOrbitView: UIViewRepresentable {
         let v = SCNView()
         v.scene = controller.scene
         v.backgroundColor = .clear
-        v.allowsCameraControl = true          // 手势旋转 + 两指缩放
+        v.allowsCameraControl = true          // Gesture rotation + two-finger zoom
         v.autoenablesDefaultLighting = true
-        v.antialiasingMode = DeviceTier.antialiasing   // 4x MSAA 太重,按机型分级
+        v.antialiasingMode = DeviceTier.antialiasing   // 4x MSAA is too heavy, so it is tiered by device
         v.rendersContinuously = animated
         v.isPlaying = animated
         if let cam = controller.cameraNode { v.pointOfView = cam }
@@ -47,7 +47,7 @@ struct SceneOrbitView: UIViewRepresentable {
     }
 }
 
-/// 持有一个用于预览的角色控制器,可选驱动一支舞;供 3D 与 AR 共用,避免切换时重载。
+/// Holds one character controller for previewing, optionally driven by a dance; shared by 3D and AR so switching does not reload.
 final class PreviewStage: ObservableObject {
     let controller = CharacterSceneController()
     @Published private(set) var ready = false
@@ -56,12 +56,12 @@ final class PreviewStage: ObservableObject {
     private var loaded = false
     var animated: Bool { player != nil }
 
-    /// 模型与舞蹈数据都在后台解析,主线程只挂节点 —— 否则打开放大预览页会明显卡一下。
+    /// Both the model and the dance data are parsed in the background and the main thread only mounts nodes - otherwise opening the enlarged preview visibly stutters.
     @MainActor
     func ensure(model: String, dance: String?) async {
         guard !loaded else { return }
         loaded = true
-        if dance == nil { controller.portraitMode = true }   // 角色静态详情:摆 A-pose
+        if dance == nil { controller.portraitMode = true }   // Static character detail: strike an A-pose
         let scene = await Task.detached(priority: .userInitiated) {
             CharacterSceneController.loadSceneFile(named: model, warmUp: true)
         }.value
@@ -82,7 +82,7 @@ final class PreviewStage: ObservableObject {
     func stop() { player?.stop() }
 }
 
-/// 预览页公用外壳：3D/AR 切换 + 关闭 + 标题。
+/// Shared shell for the preview pages: 3D/AR switch + close + title.
 private struct PreviewShell: View {
     let name: String
     let style: Int
@@ -94,7 +94,7 @@ private struct PreviewShell: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            CardBackdrop(style: style).ignoresSafeArea()   // 沿用卡片装饰背景
+            CardBackdrop(style: style).ignoresSafeArea()   // Reuse the card's decorative background
 
             Group {
                 if arMode {
@@ -106,7 +106,7 @@ private struct PreviewShell: View {
             .id(arMode)
             .ignoresSafeArea()
 
-            // 顶部：关闭 + 3D/AR 切换
+            // Top: close + 3D/AR switch
             HStack {
                 CircleButton(system: "xmark") { stage.stop(); dismiss() }
                 Spacer()
@@ -118,7 +118,7 @@ private struct PreviewShell: View {
             VStack {
                 Spacer()
                 Text(name).font(.title3.weight(.semibold)).foregroundStyle(.white)
-                Text(arMode ? "移动手机寻找地面放置" : "拖动旋转 · 两指缩放")
+                Text(arMode ? "Move your phone to find a surface" : "Drag to rotate · pinch to zoom")
                     .font(.caption).foregroundStyle(.white.opacity(0.7))
                     .padding(.bottom, 30)
             }.frame(maxWidth: .infinity)
@@ -133,7 +133,7 @@ private struct PreviewShell: View {
     }
 }
 
-/// 角色放大页（可旋转/缩放 + AR 放置）。
+/// Enlarged character page (rotate and zoom + AR placement).
 struct CharacterPreviewPage: View {
     let key: String
     let name: String
@@ -143,7 +143,7 @@ struct CharacterPreviewPage: View {
     }
 }
 
-/// 舞蹈放大页（全屏实时跳动,可旋转/缩放 + AR 投射）。
+/// Enlarged dance page (full-screen live dancing, rotate and zoom + AR projection).
 struct DancePreviewPage: View {
     let dance: String
     let name: String

@@ -24,7 +24,7 @@ final class DiscoverViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        // 使用标准的系统背景色，确保与 Navigation Bar 融合
+        // Use the standard system background color so it blends with the navigation bar
         view.backgroundColor = .systemBackground
         setupCollectionView()
         setupActivityIndicator()
@@ -61,7 +61,7 @@ final class DiscoverViewController: UIViewController {
         collectionView.backgroundColor = .clear
         collectionView.delegate = self
         collectionView.dataSource = self
-        // 确保 CollectionView 能够正确处理 NavigationBar 和 SearchBar 的 safe area
+        // Make sure the collection view handles the navigation bar and search bar safe area correctly
         collectionView.contentInsetAdjustmentBehavior = .always
         collectionView.register(ModelCell.self, forCellWithReuseIdentifier: "ModelCell")
 
@@ -103,7 +103,7 @@ final class DiscoverViewController: UIViewController {
             currentQuery = cleanQuery
             currentCategory = category
 
-            // 立即取消当前正在进行的加载任务，响应新分类请求
+            // Cancel the in-flight load immediately, so the new category request wins
             fetchTask?.cancel()
             nextUrl = nil
             models = []
@@ -132,7 +132,7 @@ final class DiscoverViewController: UIViewController {
             do {
                 let resp = try await SketchfabClient.shared.fetchModels(query: currentQuery, category: currentCategory, nextUrl: requestingNext)
 
-                // 检查任务是否已被取消
+                // Check whether the task has already been cancelled
                 if Task.isCancelled { return }
 
                 await MainActor.run {
@@ -185,7 +185,7 @@ extension DiscoverViewController: UICollectionViewDataSource, UICollectionViewDe
         let contentHeight = scrollView.contentSize.height
         let frameHeight = scrollView.frame.size.height
 
-        // 提前 2.5 屏预加载，让翻页更顺滑（原来只在最底部才触发，像"加载不出"）
+        // Prefetch 2.5 screens ahead for smoother paging (it used to trigger only at the very bottom, which felt like "nothing is loading")
         if offsetY > contentHeight - frameHeight * 2.5, nextUrl != nil, !isFetching {
             fetchPage()
         }
@@ -210,7 +210,7 @@ final class ModelCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError() }
 
     private func setupUI() {
-        // 卡片阴影
+        // Card shadow
         contentView.backgroundColor = .clear
         containerView.backgroundColor = .secondarySystemGroupedBackground
         containerView.layer.cornerRadius = 18

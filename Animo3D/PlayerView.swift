@@ -2,8 +2,8 @@
 //  PlayerView.swift
 //  Animo3D
 //
-//  包一层 AVPlayerLayer，并把视频真正显示的矩形区域(videoRect)回传，
-//  好让骨架叠加层跟视频严格对齐(考虑 aspect-fit 的黑边)。
+//  Wraps an AVPlayerLayer and reports back the rectangle the video actually occupies (videoRect),
+//  so the skeleton overlay can align exactly with the video (accounting for aspect-fit letterboxing).
 //
 
 import SwiftUI

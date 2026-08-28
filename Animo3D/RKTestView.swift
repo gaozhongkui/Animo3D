@@ -2,7 +2,7 @@
 //  RKTestView.swift
 //  Animo3D
 //
-//  RealityKit 播放 USDZ 骨骼动画的最小验证（非 AR，屏幕预览）。
+//  Minimal check of RealityKit playing USDZ skeletal animation (not AR, an on-screen preview).
 //
 
 import SwiftUI
@@ -15,10 +15,10 @@ struct RKTestView: UIViewRepresentable {
 
         guard let url = Bundle.main.url(forResource: "ybot_hiphop", withExtension: "usdz"),
               let entity = try? Entity.load(contentsOf: url) else {
-            print("[RK] 加载失败"); return view
+            print("[RK] load failed"); return view
         }
 
-        // 让角色站在原点，缩放到合适大小（Mixamo 常是 cm，缩到约 1.8）
+        // Put the character at the origin and scale it to a sensible size (Mixamo often exports in cm, so scale to about 1.8)
         let bounds = entity.visualBounds(relativeTo: nil)
         let h = bounds.extents.y
         if h > 0 { entity.scale = SIMD3<Float>(repeating: 1.8 / h) }
@@ -26,14 +26,14 @@ struct RKTestView: UIViewRepresentable {
         anchor.addChild(entity)
         view.scene.addAnchor(anchor)
 
-        // 相机
+        // Camera
         let cam = PerspectiveCamera()
         let camAnchor = AnchorEntity(world: [0, 0.9, 3.0])
         camAnchor.addChild(cam)
         cam.look(at: [0, 0.9, 0], from: [0, 0.9, 3.0], relativeTo: nil)
         view.scene.addAnchor(camAnchor)
 
-        // 播放所有可用动画（循环）
+        // Play every available animation (looping)
         let anims = entity.availableAnimations
         print("[RK] availableAnimations: \(anims.count)")
         for a in anims {

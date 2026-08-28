@@ -2,8 +2,8 @@
 //  SceneViewRecorder.swift
 //  Animo3D
 //
-//  只录制角色所在的 SCNView（不含 UI 选择器），屏幕/AR 都可用，模拟器也能验证。
-//  逐帧 snapshot() → AVAssetWriter 写成 mp4。
+//  Records only the SCNView holding the character (without the UI pickers). It works for both screen and AR, and can be verified in the Simulator.
+//  Per-frame snapshot() -> written to mp4 by AVAssetWriter.
 //
 
 import SwiftUI
@@ -12,7 +12,7 @@ import AVFoundation
 import Combine
 import UIKit
 
-/// 持有当前用于录制的 SCNView（由 CharacterSceneView / ARCharacterView 在创建时写入）。
+/// Holds the SCNView currently used for recording (written by CharacterSceneView / ARCharacterView on creation).
 final class SceneHolder: ObservableObject {
     weak var scnView: SCNView?
 }

@@ -2,44 +2,44 @@
 //  DeviceTier.swift
 //  Animo3D
 //
-//  设备性能分级:低端机(RAM<4GB,约 iPhone X/XR/SE 及更老)自动降级重特效,
-//  关闭 bloom 后处理、降粒子密度、降抗锯齿,避免卡顿。
+//  Device performance tiers: low-end devices (RAM < 4GB, roughly iPhone X/XR/SE and older) automatically scale heavy effects down,
+//  turning off the bloom post-process, lowering particle density and antialiasing, to avoid stutter.
 //
 
 import Foundation
 import SceneKit
 
 enum DeviceTier {
-    /// 物理内存 < 4GB 视为低端(A11 及更早,或低配)。
+    /// Physical memory < 4GB counts as low-end (A11 and earlier, or low-spec).
     static let isLowEnd: Bool = ProcessInfo.processInfo.physicalMemory < UInt64(4) * 1024 * 1024 * 1024
 
-    /// bloom 辉光强度:低端关闭(0),高端 1.1。
+    /// Bloom glow intensity: off (0) on low-end, 1.1 on high-end.
     static var bloomIntensity: CGFloat { isLowEnd ? 0 : 1.1 }
 
-    /// 粒子发射率系数:低端 0.45,高端 1.0。
+    /// Particle birth-rate factor: 0.45 on low-end, 1.0 on high-end.
     static var particleScale: CGFloat { isLowEnd ? 0.45 : 1.0 }
 
-    /// 实时/表演视图抗锯齿:低端关闭,高端 2x(4x 太重,不用)。
+    /// Antialiasing for the live/performance views: off on low-end, 2x on high-end (4x is too heavy, so it is unused).
     static var antialiasing: SCNAntialiasingMode { isLowEnd ? .none : .multisampling2X }
 
-    /// 缩略图离屏渲染抗锯齿。
+    /// Antialiasing for offscreen thumbnail rendering.
     static var thumbAntialiasing: SCNAntialiasingMode { isLowEnd ? .none : .multisampling2X }
 
-    /// 低端不在选舞蹈卡片上跑"实时跳动"(LiveDanceView),用静态姿势图代替。
+    /// Low-end devices do not run "live dancing" (LiveDanceView) on the dance selection cards; a static pose image is used instead.
     static var allowsLiveDanceCards: Bool { !isLowEnd }
 
-    /// 舞台地板实时反射:低端关闭。反射等于把整个场景多渲一遍,和阴影一样是大头。
+    /// Live stage floor reflection: off on low-end. A reflection renders the whole scene one extra time, so like shadows it is a major cost.
     static var floorReflectivity: CGFloat { isLowEnd ? 0 : 0.16 }
 
-    /// 天空模式地板倒影强度(天空模式只靠倒影,低端也压低但不全关)。
+    /// Floor reflection strength in sky mode (sky mode relies on the reflection alone, so low-end lowers it rather than turning it off).
     static var skyFloorReflectivity: CGFloat { isLowEnd ? 0 : 0.5 }
 
-    /// 方向光实时软阴影:低端关闭,脚下接触阴影贴图已给足着地感。
+    /// Real-time soft shadows from the directional light: off on low-end, since the contact shadow texture under the feet already sells the grounding.
     static var dynamicShadows: Bool { !isLowEnd }
 
-    /// 软阴影采样数:原来固定 16 太重(forward 模式每帧一遍 shadow pass)。
+    /// Soft shadow sample count: the previous fixed 16 was too heavy (forward mode runs a shadow pass every frame).
     static var shadowSampleCount: Int { isLowEnd ? 4 : 8 }
 
-    /// 骨骼回放帧率:动捕源本身就是 30fps,没必要按 60Hz 重算蒙皮。
+    /// Skeletal playback frame rate: the mocap source is 30fps anyway, so there is no need to re-skin at 60Hz.
     static var playbackFPS: Int { 30 }
 }

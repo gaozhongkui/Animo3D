@@ -2,8 +2,8 @@
 //  HomeView.swift
 //  Animo3D
 //
-//  「创作」Tab：内容启动台。
-//  主推舞蹈工作室 + 推荐角色 / 热门舞蹈（横滑，一键带入工作室）+ 更多玩法。
+//  "Create" Tab: Content launchpad.
+//  Feature Dance Studio + Recommended Characters / Trending Dances (horizontal scroll, one-tap to enter studio) + more features.
 //
 
 import SwiftUI
@@ -13,7 +13,7 @@ enum HomeDest: Int, Identifiable {
     var id: Int { rawValue }
 }
 
-/// 一次工作室启动配置（可预设角色/舞蹈）。
+/// A single studio launch configuration (pre-selectable character/dance).
 struct StudioLaunch: Identifiable {
     let id = UUID()
     var character: String? = nil
@@ -42,7 +42,7 @@ struct HomeView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
 
-                    // 主推：大横幅
+                    // Headline: large banner
                     Button {
                         HapticManager.medium()
                         launch = StudioLaunch()
@@ -51,10 +51,10 @@ struct HomeView: View {
                         .padding(.horizontal)
                         .shadow(color: Color.accentColor.opacity(0.3), radius: 12, x: 0, y: 8)
 
-                    // 推荐角色
+                    // Recommended characters
                     VStack(alignment: .leading, spacing: 16) {
                         sectionHeader("Recommended Characters") {
-                            // 发送通知切换到角色 Tab
+                            // Send notification to switch to Characters Tab
                             NotificationCenter.default.post(name: NSNotification.Name("SwitchToCharactersTab"), object: nil)
                         }
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -71,7 +71,7 @@ struct HomeView: View {
                         }
                     }
 
-                    // 热门舞蹈
+                    // Trending dances
                     VStack(alignment: .leading, spacing: 16) {
                         sectionHeader("Trending Dances") {
                             launch = StudioLaunch()
@@ -95,7 +95,7 @@ struct HomeView: View {
                         }
                     }
 
-                    // 更多玩法
+                    // More ways to play
                     VStack(alignment: .leading, spacing: 16) {
                         sectionHeader("Discover More")
                         VStack(spacing: 12) {
@@ -120,15 +120,15 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - 精致组件
+    // MARK: - Elegant Components
 
     private var heroCard: some View {
         ZStack(alignment: .leading) {
-            // 背景装饰
+            // Background decoration
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing))
 
-            // 玻璃感图形
+            // Glassy graphics
             Circle()
                 .fill(Color.white.opacity(0.15))
                 .frame(width: 150, height: 150)
@@ -140,9 +140,14 @@ struct HomeView: View {
                         Text("Enter Dance Studio")
                             .font(.title2.bold())
                             .foregroundStyle(.white)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.85)
+                            .fixedSize(horizontal: false, vertical: true)
                         Text("Start your immersive AR journey")
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(0.9))
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     HStack(spacing: 8) {
@@ -168,10 +173,10 @@ struct HomeView: View {
             }
             .padding(24)
         }
-        .frame(height: 160)
+        .frame(minHeight: 160)
     }
 
-    private func posterCard<Thumb: View>(title: String, subtitle: String, @ViewBuilder thumb: () -> Thumb) -> some View {
+    private func posterCard<Thumb: View>(title: String, subtitle: LocalizedStringKey, @ViewBuilder thumb: () -> Thumb) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topTrailing) {
                 thumb()
@@ -179,7 +184,7 @@ struct HomeView: View {
                     .background(Color(.secondarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
-                // 装饰小标
+                // Decoration badge
                 Image(systemName: "sparkles")
                     .font(.caption2)
                     .padding(6)
@@ -199,7 +204,7 @@ struct HomeView: View {
         }
     }
 
-    private func actionCard(icon: String, title: String, subtitle: String, color: Color) -> some View {
+    private func actionCard(icon: String, title: LocalizedStringKey, subtitle: LocalizedStringKey, color: Color) -> some View {
         HStack(spacing: 16) {
             Image(systemName: icon)
                 .font(.title2)
@@ -226,14 +231,14 @@ struct HomeView: View {
         .shadow(color: .black.opacity(0.03), radius: 5, x: 0, y: 2)
     }
 
-    private func sectionHeader(_ t: String, action: (() -> Void)? = nil) -> some View {
+    private func sectionHeader(_ t: LocalizedStringKey, action: (() -> Void)? = nil) -> some View {
         HStack {
             Text(t)
                 .font(.system(size: 20, weight: .bold, design: .rounded))
             Spacer()
             if let action = action {
                 Button(action: action) {
-                    Text("全部")
+                    Text("All")
                         .font(.subheadline)
                         .foregroundStyle(Color.accentColor)
                 }
@@ -243,7 +248,7 @@ struct HomeView: View {
     }
 
 
-    /// 全屏工作室容器（自带关闭按钮）
+    /// Fullscreen studio container (includes close button)
     private func studioCover<V: View>(_ content: V) -> some View {
         NavigationStack {
             content.toolbar {

@@ -2,10 +2,10 @@
 //  TripoClient.swift
 //  Animo3D
 //
-//  Tripo3D OpenAPI 客户端：上传图片 → 创建 image_to_model 任务 → 轮询 → 拿到模型下载地址。
-//  文档：https://docs.tripo3d.ai  （基址 https://api.tripo3d.ai/v2/openapi，Bearer 鉴权）
+//  Tripo3D OpenAPI Client: Upload image -> Create image_to_model task -> Polling -> Get model download URL.
+//  Documentation: https://docs.tripo3d.ai (Base URL: https://api.tripo3d.ai/v2/openapi, Bearer Authentication)
 //
-//  注意：字段名依据官方文档整理，拿到你的 API Key 后需实际联调校正。
+//  Note: Field names are organized based on official documentation; actual debugging is needed after obtaining your API Key.
 //
 
 import Foundation
@@ -17,8 +17,8 @@ enum TripoError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .http(let c, let m): return "HTTP \(c): \(m)"
-        case .decode(let m): return "解析失败: \(m)"
-        case .taskFailed(let m): return "任务失败: \(m)"
+        case .decode(let m): return "Parse failed: \(m)"
+        case .taskFailed(let m): return "Task failed: \(m)"
         }
     }
 }
@@ -26,7 +26,7 @@ enum TripoError: LocalizedError {
 struct TripoResult {
     let status: String        // queued / running / success / failed ...
     let progress: Int
-    let modelURL: URL?        // 生成的模型下载地址（成功时）
+    let modelURL: URL?        // Download URL of the generated model (on success)
 }
 
 final class TripoClient {
@@ -43,7 +43,7 @@ final class TripoClient {
         return r
     }
 
-    /// 上传图片，返回 file_token（后续任务用它引用图片）。
+    /// Upload image, returns file_token (used for referencing the image in subsequent tasks).
     func uploadImage(data: Data, fileExt: String) async throws -> String {
         var r = request("upload", method: "POST")
         let boundary = "Boundary-\(UUID().uuidString)"
@@ -60,12 +60,12 @@ final class TripoClient {
         let json = try await send(r)
         guard let d = json["data"] as? [String: Any],
               let token = (d["image_token"] as? String) ?? (d["file_token"] as? String) else {
-            throw TripoError.decode("上传响应缺少 image_token")
+            throw TripoError.decode("Upload response is missing image_token")
         }
         return token
     }
 
-    /// 创建 image_to_model 任务，返回 task_id。
+    /// Create image_to_model task, returns task_id.
     func createImageToModelTask(fileToken: String, fileExt: String) async throws -> String {
         var r = request("task", method: "POST")
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -77,13 +77,13 @@ final class TripoClient {
         let json = try await send(r)
         guard let d = json["data"] as? [String: Any],
               let taskId = d["task_id"] as? String else {
-            throw TripoError.decode("创建任务响应缺少 task_id")
+            throw TripoError.decode("Create-task response is missing task_id")
         }
         return taskId
     }
 
-    /// 对已生成的模型做自动绑骨（Auto-Rig）。spec=mixamo 让骨骼名与 Mixamo 兼容，
-    /// 这样可直接复用现有的 Mixamo 重定向映射。返回新的 task_id。
+    /// Auto-Rig for the generated model. spec=mixamo makes bone names compatible with Mixamo,
+    /// allowing direct reuse of existing Mixamo retargeting mappings. Returns new task_id.
     func createRigTask(modelTaskId: String,
                        spec: String = "mixamo",
                        outFormat: String = "glb") async throws -> String {
@@ -100,17 +100,17 @@ final class TripoClient {
         let json = try await send(r)
         guard let d = json["data"] as? [String: Any],
               let taskId = d["task_id"] as? String else {
-            throw TripoError.decode("绑骨任务响应缺少 task_id")
+            throw TripoError.decode("Rig-task response is missing task_id")
         }
         return taskId
     }
 
-    /// 查询任务状态。
+    /// Query task status.
     func getTask(_ taskId: String) async throws -> TripoResult {
         let r = request("task/\(taskId)", method: "GET")
         let json = try await send(r)
         guard let d = json["data"] as? [String: Any] else {
-            throw TripoError.decode("任务响应缺少 data")
+            throw TripoError.decode("Task response is missing data")
         }
         let status = (d["status"] as? String) ?? "unknown"
         let progress = (d["progress"] as? Int) ?? 0
@@ -124,7 +124,7 @@ final class TripoClient {
         return TripoResult(status: status, progress: progress, modelURL: modelURL)
     }
 
-    /// 轮询直到成功/失败。progress 回调用于更新 UI。
+    /// Poll until success/failure. progress callback used for updating UI.
     func waitForCompletion(taskId: String,
                            onProgress: @escaping (TripoResult) -> Void) async throws -> URL {
         while true {
@@ -133,7 +133,7 @@ final class TripoClient {
             switch res.status {
             case "success":
                 if let url = res.modelURL { return url }
-                throw TripoError.taskFailed("成功但无模型地址")
+                throw TripoError.taskFailed("Task succeeded but returned no model URL")
             case "failed", "banned", "expired", "cancelled":
                 throw TripoError.taskFailed(res.status)
             default:
@@ -142,11 +142,11 @@ final class TripoClient {
         }
     }
 
-    /// 下载模型到临时文件，返回本地路径。
+    /// Download model to temporary file, returns local path.
     func downloadModel(from url: URL) async throws -> URL {
         let (tmp, resp) = try await session.download(from: url)
         if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw TripoError.http(http.statusCode, "下载失败")
+            throw TripoError.http(http.statusCode, "Download failed")
         }
         let ext = url.pathExtension.isEmpty ? "glb" : url.pathExtension
         let dest = FileManager.default.temporaryDirectory
@@ -156,20 +156,20 @@ final class TripoClient {
         return dest
     }
 
-    // MARK: - 底层
+    // MARK: - Low-level
 
     private func send(_ request: URLRequest) async throws -> [String: Any] {
         let (data, resp) = try await session.data(for: request)
         guard let http = resp as? HTTPURLResponse else {
-            throw TripoError.decode("无 HTTP 响应")
+            throw TripoError.decode("No HTTP response")
         }
         guard (200..<300).contains(http.statusCode) else {
             throw TripoError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw TripoError.decode("响应非 JSON")
+            throw TripoError.decode("Response is not JSON")
         }
-        // Tripo 约定：code == 0 为成功
+        // Tripo convention: code == 0 means success
         if let code = json["code"] as? Int, code != 0 {
             let msg = (json["message"] as? String) ?? "code \(code)"
             throw TripoError.taskFailed(msg)

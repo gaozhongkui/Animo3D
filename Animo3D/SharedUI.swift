@@ -2,7 +2,7 @@
 //  SharedUI.swift
 //  Animo3D
 //
-//  全 App 统一的圆形返回/关闭按钮，保证各页风格一致。
+//  The app-wide circular back/close button, which keeps every page consistent.
 //
 
 import SwiftUI

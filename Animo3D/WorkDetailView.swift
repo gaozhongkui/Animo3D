@@ -2,7 +2,7 @@
 //  WorkDetailView.swift
 //  Animo3D
 //
-//  作品详情页：全屏播放录制的视频,可分享/删除。
+//  Creation detail page: plays the recorded video full screen, with share and delete.
 //
 
 import SwiftUI
@@ -25,7 +25,7 @@ struct WorkDetailView: View {
                 .onAppear {
                     player.replaceCurrentItem(with: AVPlayerItem(url: url))
                     player.play()
-                    // 循环播放
+                    // Loop playback
                     NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime,
                                                            object: player.currentItem, queue: .main) { _ in
                         player.seek(to: .zero); player.play()
@@ -33,35 +33,35 @@ struct WorkDetailView: View {
                 }
                 .onDisappear { player.pause() }
 
-            // 顶部：关闭
+            // Top: close
             HStack {
                 CircleButton(system: "xmark") { player.pause(); onClose() }
                 Spacer()
             }
             .padding(.horizontal, 16).padding(.top, 8)
 
-            // 底部：分享 / 删除
+            // Bottom: share / delete
             VStack {
                 Spacer()
                 HStack(spacing: 40) {
-                    actionButton("square.and.arrow.up", "分享") { showShare = true }
-                    actionButton("trash", "删除", tint: .red) { showDeleteConfirm = true }
+                    actionButton("square.and.arrow.up", "Share") { showShare = true }
+                    actionButton("trash", "Delete", tint: .red) { showDeleteConfirm = true }
                 }
                 .padding(.bottom, 36)
             }
         }
         .sheet(isPresented: $showShare) { ShareSheet(items: [url]) }
-        .confirmationDialog("删除这个作品?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
-            Button("删除", role: .destructive) {
+        .confirmationDialog("Delete this creation?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
                 player.pause()
                 WorksStore.shared.delete(url)
                 onClose()
             }
-            Button("取消", role: .cancel) {}
+            Button("Cancel", role: .cancel) {}
         }
     }
 
-    private func actionButton(_ icon: String, _ title: String, tint: Color = .white, action: @escaping () -> Void) -> some View {
+    private func actionButton(_ icon: String, _ title: LocalizedStringKey, tint: Color = .white, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 6) {
                 Image(systemName: icon).font(.title2)

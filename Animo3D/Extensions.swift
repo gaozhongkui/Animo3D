@@ -5,6 +5,10 @@
 
 import Foundation
 import UIKit
+
+/// Localized-string lookup for call sites that need a plain `String`
+/// (UIKit labels, status messages) instead of SwiftUI's `LocalizedStringKey`.
+func L(_ key: String) -> String { NSLocalizedString(key, comment: "") }
 import SwiftUI
 
 extension Int {

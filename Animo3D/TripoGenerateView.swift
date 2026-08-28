@@ -2,8 +2,8 @@
 //  TripoGenerateView.swift
 //  Animo3D
 //
-//  相册选图 → 上传 Tripo3D → 生成 3D 模型 → 下载 → 显示。
-//  （“自动跳舞”需在拿到带骨骼的输出后，第二步再接重定向。）
+//  Select image from album -> Upload to Tripo3D -> Generate 3D model -> Download -> Display.
+//  ("Auto-dancing" requires retargeting in a second step after getting the rigged output.)
 //
 
 import SwiftUI
@@ -11,7 +11,7 @@ import PhotosUI
 import SceneKit
 import UIKit
 
-/// ⚠️ 内置默认 key（base64 编码，非加密，仅轻度混淆）。可被逆向提取，切勿发布到公开仓库/App Store。
+/// ⚠️ Built-in default key (base64 encoded, not encrypted, only lightly obfuscated). Can be reverse-engineered, do not publish to public repositories/App Store.
 private let embeddedTripoKeyB64 = "dHNrX2hMeDY1dVQ5RFZWeVRsSC1Rb2hfajd0VlE4dExhaE1tS0d5M3REdURYMjA="
 private func embeddedTripoKey() -> String {
     guard let d = Data(base64Encoded: embeddedTripoKeyB64),
@@ -20,7 +20,7 @@ private func embeddedTripoKey() -> String {
 }
 
 struct TripoGenerateView: View {
-    // 直接用内置 key（已由 base64 内置，界面不再要求输入）
+    // Directly use the built-in key (already embedded as base64, UI no longer prompts for input)
     private var apiKey: String { embeddedTripoKey() }
     @State private var pickerItem: PhotosPickerItem?
     @State private var pickedImage: UIImage?
@@ -35,7 +35,7 @@ struct TripoGenerateView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            // 预览区
+            // Preview area
             ZStack {
                 Color(.secondarySystemBackground)
                 if let scene = modelScene {
@@ -49,7 +49,7 @@ struct TripoGenerateView: View {
                 if isRunning {
                     VStack {
                         ProgressView()
-                        Text("\(progress)%").font(.caption).foregroundStyle(.secondary)
+                        Text(String(format: L("%d%%"), progress)).font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -109,9 +109,9 @@ struct TripoGenerateView: View {
         pickedData = data
         pickedImage = UIImage(data: data)
         modelScene = nil
-        // 简单判断扩展名
+        // Simple extension check
         pickedExt = (data.starts(with: [0x89, 0x50, 0x4E, 0x47])) ? "png" : "jpg"
-        status = "Image selected, click 'Generate 3D'"
+        status = L("Image selected, click 'Generate 3D'")
     }
 
     private func generate() async {
@@ -120,27 +120,27 @@ struct TripoGenerateView: View {
         defer { isRunning = false }
         let client = TripoClient(apiKey: apiKey)
         do {
-            status = "Uploading image..."
+            status = L("Uploading image...")
             let token = try await client.uploadImage(data: data, fileExt: pickedExt)
-            status = "Creating task..."
+            status = L("Creating task...")
             let taskId = try await client.createImageToModelTask(fileToken: token, fileExt: pickedExt)
-            status = "Generating (takes a few mins)..."
+            status = L("Generating (takes a few mins)...")
             let modelURL = try await client.waitForCompletion(taskId: taskId) { res in
                 progress = res.progress
-                status = "Generating... \(res.progress)%"
+                status = String(format: L("Generating... %d%%"), res.progress)
             }
-            status = "Downloading model..."
+            status = L("Downloading model...")
             let local = try await client.downloadModel(from: modelURL)
             downloadedPath = local.path
-            // 尝试用 SceneKit 加载
+            // Attempt to load with SceneKit
             if let scene = try? SCNScene(url: local, options: nil) {
                 modelScene = scene
-                status = "Complete ✅ Model generated"
+                status = L("Complete ✅ Model generated")
             } else {
-                status = "Model downloaded (\(local.lastPathComponent)), but SceneKit cannot display it directly (likely GLB)"
+                status = String(format: L("Model downloaded (%@), but SceneKit cannot display it directly (likely GLB)"), local.lastPathComponent)
             }
         } catch {
-            status = "Error: \(error.localizedDescription)"
+            status = String(format: L("Error: %@"), error.localizedDescription)
         }
     }
 }

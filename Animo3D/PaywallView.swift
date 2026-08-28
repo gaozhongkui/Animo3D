@@ -2,7 +2,7 @@
 //  PaywallView.swift
 //  Animo3D
 //
-//  Pro 买断墙：$2.99 永久,解锁全部角色/舞蹈 + 去水印 + 无广告。
+//  Pro Paywall: $2.99 lifetime, unlock all characters/dances + remove watermark + no ads.
 //
 
 import SwiftUI
@@ -12,7 +12,7 @@ struct PaywallView: View {
     @ObservedObject private var store = ProStore.shared
     @State private var animateItems = false
 
-    private let benefits: [(String, String, String)] = [
+    private let benefits: [(String, LocalizedStringKey, LocalizedStringKey)] = [
         ("person.2.fill", "Unlock All Characters", "All current and future characters"),
         ("figure.dance", "Unlock All Dances", "Unlimited access to dance library"),
         ("video.fill", "Remove Watermark", "Professional, clean video exports"),
@@ -22,10 +22,10 @@ struct PaywallView: View {
 
     var body: some View {
         ZStack {
-            // 沉浸式背景
+            // Immersive background
             Color(.systemBackground).ignoresSafeArea()
 
-            // 顶部弥散渐变
+            // Top diffuse gradient
             ZStack {
                 Circle()
                     .fill(Color(rgb: 0x6366F1).opacity(0.15))
@@ -42,7 +42,7 @@ struct PaywallView: View {
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // 关闭按钮
+                // Close button
                 HStack {
                     Spacer()
                     Button(action: onClose) {
@@ -97,7 +97,7 @@ struct PaywallView: View {
                 }
             }
 
-            // 底部操作区
+            // Bottom action area
             VStack {
                 Spacer()
 
@@ -160,7 +160,7 @@ struct PaywallView: View {
         }
     }
 
-    private func benefitRow(icon: String, title: String, subtitle: String) -> some View {
+    private func benefitRow(icon: String, title: LocalizedStringKey, subtitle: LocalizedStringKey) -> some View {
         HStack(spacing: 16) {
             Image(systemName: icon)
                 .font(.system(size: 18, weight: .bold))

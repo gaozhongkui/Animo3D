@@ -2,14 +2,14 @@
 //  PoseOverlayView.swift
 //  Animo3D
 //
-//  在视频上叠加 BlazePose 的 33 个关节点和骨架连线。
+//  Overlays BlazePose's 33 landmarks and skeleton lines on top of the video.
 //
 
 import SwiftUI
 
 struct PoseOverlayView: View {
     let landmarks: [NormalizedLandmarkLite]
-    /// 视频在屏幕上真正显示的矩形(含黑边偏移)。
+    /// The rectangle the video actually occupies on screen (including the letterbox offset).
     let videoRect: CGRect
 
     var body: some View {
@@ -22,7 +22,7 @@ struct PoseOverlayView: View {
                                y: videoRect.origin.y + lm.y * videoRect.height)
             }
 
-            // 连线
+            // Lines
             var path = Path()
             for (a, b) in PoseSkeleton.connections where a < landmarks.count && b < landmarks.count {
                 path.move(to: point(a))
@@ -30,7 +30,7 @@ struct PoseOverlayView: View {
             }
             context.stroke(path, with: .color(.green), lineWidth: 3)
 
-            // 关节点
+            // Landmarks
             for i in landmarks.indices {
                 let p = point(i)
                 let r: CGFloat = 4

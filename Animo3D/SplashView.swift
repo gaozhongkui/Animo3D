@@ -2,7 +2,7 @@
 //  SplashView.swift
 //  Animo3D
 //
-//  启动闪屏页：展示品牌 Logo 动画。
+//  Splash screen: Shows brand Logo animation.
 //
 
 import SwiftUI
@@ -18,7 +18,7 @@ struct SplashView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 20) {
-                // Logo 图标
+                // Logo icon
                 ZStack {
                     Circle()
                         .fill(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -39,7 +39,7 @@ struct SplashView: View {
                 .scaleEffect(scale)
                 .opacity(opacity)
 
-                // App 名称
+                // App name
                 VStack(spacing: 8) {
                     Text("Livo 3D")
                         .font(.system(size: 42, weight: .black, design: .rounded))
@@ -55,7 +55,7 @@ struct SplashView: View {
             }
         }
         .onAppear {
-            // 预热重型资源（如 Catalog），利用闪屏等待时间完成 IO
+            // Warm up heavy assets (like Catalog), using splash time for IO
             Task(priority: .userInitiated) {
                 _ = Catalog.shared
             }
@@ -65,7 +65,7 @@ struct SplashView: View {
                 self.opacity = 1.0
             }
 
-            // 2.5秒后切换到主界面
+            // Switch to main interface after 2.5 seconds
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                 withAnimation(.easeInOut(duration: 0.5)) {
                     self.isActive = true

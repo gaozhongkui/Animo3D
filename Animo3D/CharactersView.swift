@@ -2,9 +2,9 @@
 //  CharactersView.swift
 //  Animo3D
 //
-//  「角色」Tab：主线的"弹药库"。
-//  - 我的角色：可跳舞的角色(内置)。点角色→用它跳舞。
-//  - 社区：Sketchfab 浏览 / AR 查看。
+//  The "Characters" tab: the main flow's armory.
+//  - My characters: the bundled characters that can dance. Tap one to dance with it.
+//  - Community: browse Sketchfab / view in AR.
 //
 
 import SwiftUI
@@ -15,7 +15,7 @@ struct CharactersView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 自定义精致的分段选择器
+            // Custom refined segmented control
             HStack(spacing: 0) {
                 pickerItem(title: "My Characters", tag: 0)
                 pickerItem(title: "Community", tag: 1)
@@ -42,7 +42,7 @@ struct CharactersView: View {
         .background(Color(.systemBackground).ignoresSafeArea())
     }
 
-    private func pickerItem(title: String, tag: Int) -> some View {
+    private func pickerItem(title: LocalizedStringKey, tag: Int) -> some View {
         Text(title)
             .font(.system(size: 14, weight: seg == tag ? .bold : .medium))
             .foregroundStyle(seg == tag ? .primary : .secondary)
@@ -66,7 +66,7 @@ struct CharactersView: View {
 
 private struct PickedCharacter: Identifiable { let id: String; let name: String }
 
-/// 我的角色：可跳舞的角色库。点一个 → 进舞蹈工作室并带入该角色。
+/// My characters: the library of characters that can dance. Tap one to enter the dance studio with it.
 struct MyCharactersView: View {
     private let catalog = Catalog.shared
     @State private var picked: PickedCharacter?

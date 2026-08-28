@@ -2,8 +2,8 @@
 //  Recorder.swift
 //  Animo3D
 //
-//  录屏(ReplayKit) + 作品存储 + 分享。
-//  注意：ReplayKit 无法在模拟器运行，录制需真机验证。
+//  Screen recording (ReplayKit) + creation storage + sharing.
+//  Note: ReplayKit cannot run in the Simulator, so recording has to be verified on a physical device.
 //
 
 import SwiftUI
@@ -12,14 +12,14 @@ import AVFoundation
 import UIKit
 import Combine
 
-/// 屏幕录制。录制的是当前屏幕画面（角色跳舞）。
+/// Screen recording. It captures the current screen (the dancing character).
 final class Recorder: ObservableObject {
     @Published var isRecording = false
     @Published var lastError: String?
     private let rec = RPScreenRecorder.shared()
 
     func start() {
-        guard rec.isAvailable else { lastError = "此设备/环境不支持录屏（模拟器不支持）"; return }
+        guard rec.isAvailable else { lastError = L("Screen recording isn't supported here (not available in the Simulator)"); return }
         rec.isMicrophoneEnabled = false
         rec.startRecording { [weak self] err in
             DispatchQueue.main.async {
@@ -29,7 +29,7 @@ final class Recorder: ObservableObject {
         }
     }
 
-    /// 停止并把视频交给 completion（临时文件 URL）。
+    /// Stops and hands the video to completion (a temporary file URL).
     func stop(completion: @escaping (URL?) -> Void) {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("rec_\(UUID().uuidString).mp4")
@@ -43,14 +43,14 @@ final class Recorder: ObservableObject {
     }
 }
 
-/// 作品库：保存在 Documents/works 下的 mp4。
+/// Creation library: mp4 files stored under Documents/works.
 final class WorksStore: ObservableObject {
     static let shared = WorksStore()
     @Published var works: [URL] = []
 
     private var dir: URL {
         guard let d = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            // 极低概率：文档目录不可访问。回退到临时目录避免崩溃。
+            // Extremely unlikely: the documents directory is unreachable. Fall back to the temporary directory instead of crashing.
             return FileManager.default.temporaryDirectory.appendingPathComponent("works")
         }
         let worksDir = d.appendingPathComponent("works", isDirectory: true)
@@ -61,7 +61,7 @@ final class WorksStore: ObservableObject {
     init() { reload() }
 
     func reload() {
-        // 确保 UI 属性在主线程更新
+        // Make sure UI properties are updated on the main thread
         if !Thread.isMainThread {
             DispatchQueue.main.async { self.reload() }
             return
@@ -70,7 +70,7 @@ final class WorksStore: ObservableObject {
         let items = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: [.creationDateKey])) ?? []
 
-        // 先排序再赋值，避免排序过程中 works 被外部修改
+        // Sort first and assign afterwards, so works cannot be modified externally mid-sort
         let sortedWorks = items.filter { $0.pathExtension == "mp4" }.sorted {
             let a = (try? $0.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
             let b = (try? $1.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
@@ -101,7 +101,7 @@ final class WorksStore: ObservableObject {
     }
 }
 
-/// 系统分享面板。
+/// System share sheet.
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
     func makeUIViewController(context: Context) -> UIActivityViewController {

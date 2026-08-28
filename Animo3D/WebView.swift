@@ -2,7 +2,7 @@
 //  WebView.swift
 //  Animo3D
 //
-//  用于嵌入网页（如 Sketchfab 预览页）。
+//  Used to embed web pages (such as the Sketchfab preview page).
 //
 
 import SwiftUI
@@ -15,7 +15,7 @@ struct WebView: UIViewRepresentable {
         let webView = WKWebView()
         webView.backgroundColor = .clear
         webView.isOpaque = false
-        // 允许内联播放视频，这在某些 3D 预览中很有用
+        // Allow inline video playback, which helps in some 3D previews
         webView.configuration.allowsInlineMediaPlayback = true
         return webView
     }

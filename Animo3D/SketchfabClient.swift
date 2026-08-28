@@ -2,8 +2,8 @@
 //  SketchfabClient.swift
 //  Animo3D
 //
-//  Sketchfab Data API 客户端：获取热门可下载模型。
-//  文档：https://developers.sketchfab.com/data-api/v3/
+//  Sketchfab Data API Client: Get popular downloadable models.
+//  Documentation: https://developers.sketchfab.com/data-api/v3/
 //
 
 import Foundation
@@ -30,7 +30,7 @@ struct SketchfabModel: Codable, Identifiable {
     var id: String { uid }
 
     var bestThumbnail: String? {
-        // 寻找宽度接近 720 或最大的预览图
+        // Look for a preview image with width near 720 or the largest available
         let sorted = thumbnails.images.sorted { $0.width > $1.width }
         return sorted.first(where: { $0.width <= 1024 })?.url ?? sorted.last?.url
     }
@@ -41,7 +41,7 @@ struct SketchfabResponse: Codable {
     let next: String?
 }
 
-/// 下载接口返回的各格式条目。
+/// Format entries returned by the download API.
 private struct SketchfabDownload: Codable {
     struct Entry: Codable { let url: String; let size: Int }
     let usdz: Entry?
@@ -56,10 +56,10 @@ enum SketchfabError: LocalizedError {
     case httpError(Int)
     var errorDescription: String? {
         switch self {
-        case .notDownloadable: return "该模型不可下载（作者未开放或授权不允许）"
-        case .noUSDZ:          return "该模型没有可用的 AR(USDZ)格式"
-        case .rateLimited:     return "请求过于频繁，请稍等几秒再试"
-        case .httpError(let c): return "请求失败（\(c)）"
+        case .notDownloadable: return L("This model can't be downloaded (the author hasn't enabled it, or the license doesn't allow it)")
+        case .noUSDZ:          return L("This model has no AR (USDZ) format available")
+        case .rateLimited:     return L("Too many requests — please try again in a few seconds")
+        case .httpError(let c): return String(format: L("Request failed (%d)"), c)
         }
     }
 }
@@ -68,7 +68,7 @@ final class SketchfabClient {
     static let shared = SketchfabClient()
     private let session = URLSession.shared
 
-    // 专用于大文件下载：绕过系统代理（sing-box 等）直连，带超时，避免连接卡住。
+    // Dedicated for large file downloads: bypasses system proxies (like sing-box), uses timeout, avoids connection hang.
     private lazy var dlSession: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.connectionProxyDictionary = [:]
@@ -78,13 +78,13 @@ final class SketchfabClient {
         return URLSession(configuration: cfg)
     }()
 
-    // 内置 API Token（base64，仅做简单遮挡，非加密）。
+    // Built-in API Token (base64, only for simple obfuscation, not encrypted).
     private var apiToken: String {
         let b64 = "MzZmOGNlNDIwNmQ5NDk5OWEyNmI3MzIxZWM2NDBkMDU="
         return String(data: Data(base64Encoded: b64) ?? Data(), encoding: .utf8) ?? ""
     }
 
-    /// 取模型的 USDZ 临时下载地址（下载接口需鉴权；链接约 5 分钟后过期，需即取即用）。
+    /// Get temporary USDZ download URL for the model (download interface requires auth; link expires in ~5 mins, use immediately).
     func fetchUSDZURL(uid: String) async throws -> URL {
         guard let ep = URL(string: "https://api.sketchfab.com/v3/models/\(uid)/download") else {
             throw SketchfabError.httpError(-2)
@@ -101,8 +101,8 @@ final class SketchfabClient {
         return url
     }
 
-    /// 下载 USDZ 到缓存目录（按 uid 命名，已存在则直接复用）。返回本地文件 URL。
-    /// onProgress 回调 0…1 的下载进度（主线程），用于展示进度条。
+    /// Download USDZ to cache directory (named by uid, reuses if already exists). Returns local file URL.
+    /// onProgress returns 0…1 download progress (on main thread), used to show progress bar.
     func downloadUSDZ(uid: String, onProgress: ((Double) -> Void)? = nil) async throws -> URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let dir = caches.appendingPathComponent("sketchfab_usdz", isDirectory: true)
@@ -114,7 +114,7 @@ final class SketchfabClient {
         }
 
         let remote = try await fetchUSDZURL(uid: uid)
-        // 用带进度的下载任务（专用 dlSession 绕过系统代理，避免连接卡住）。
+        // Use download task with progress (dedicated dlSession bypasses system proxy to avoid connection hang).
         let req = URLRequest(url: remote)
         let delegate = onProgress.map { DownloadProgressDelegate(onProgress: $0) }
         let (tmp, response) = try await dlSession.download(for: req, delegate: delegate)
@@ -127,12 +127,12 @@ final class SketchfabClient {
     }
 
     func fetchModels(query: String? = nil, category: String? = nil, nextUrl: String? = nil) async throws -> SketchfabResponse {
-        // 如果有 nextUrl，直接使用它
+        // Use nextUrl directly if available
         if let next = nextUrl, let url = URL(string: next) {
             return try await performFetch(url: url)
         }
 
-        // 构造初始 URL
+        // Construct initial URL
         var components = URLComponents(string: "https://api.sketchfab.com/v3/models")!
         var queryItems = [
             URLQueryItem(name: "type", value: "models"),
@@ -140,9 +140,9 @@ final class SketchfabClient {
             URLQueryItem(name: "sort_by", value: "-likeCount")
         ]
 
-        // 处理分类过滤（使用 API 官方支持的 categories 参数）
+        // Handle category filtering (using categories parameter supported by official API)
         let categoryMap: [String: String] = [
-            "Trending": "characters-creatures", // 默认
+            "Trending": "characters-creatures", // default
             "Characters": "characters-creatures",
             "Animals": "animals-pets",
             "Buildings": "architecture",
@@ -154,7 +154,7 @@ final class SketchfabClient {
             queryItems.append(URLQueryItem(name: "categories", value: slug))
         }
 
-        // 处理关键词搜索
+        // Handle keyword search
         if let q = query, !q.isEmpty {
             queryItems.append(URLQueryItem(name: "q", value: q))
         }
@@ -162,7 +162,7 @@ final class SketchfabClient {
         components.queryItems = queryItems
 
         guard let url = components.url else {
-            throw NSError(domain: "SketchfabClient", code: -2, userInfo: [NSLocalizedDescriptionKey: "无效 URL"])
+            throw NSError(domain: "SketchfabClient", code: -2, userInfo: [NSLocalizedDescriptionKey: L("Invalid URL")])
         }
 
         return try await performFetch(url: url)
@@ -170,13 +170,13 @@ final class SketchfabClient {
 
     private func performFetch(url: URL) async throws -> SketchfabResponse {
         var req = URLRequest(url: url)
-        // 即使是公开模型搜索，带上 Token 通常能获得更稳定的响应
+        // Even for public model searches, including the Token usually results in a more stable response
         req.setValue("Token \(apiToken)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await session.data(for: req)
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw NSError(domain: "SketchfabClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "网络响应异常"])
+            throw NSError(domain: "SketchfabClient", code: -1, userInfo: [NSLocalizedDescriptionKey: L("Unexpected network response")])
         }
 
         if httpResponse.statusCode == 429 {
@@ -191,7 +191,7 @@ final class SketchfabClient {
     }
 }
 
-/// 下载进度代理：把 0…1 进度回调到主线程（用于进度条）。
+/// Download progress delegate: callbacks 0…1 progress to main thread (for progress bar).
 private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
     private let onProgress: (Double) -> Void
     init(onProgress: @escaping (Double) -> Void) { self.onProgress = onProgress }
@@ -205,7 +205,7 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
         DispatchQueue.main.async { self.onProgress(min(max(p, 0), 1)) }
     }
 
-    // 使用 async download(for:delegate:) 时文件由系统 API 返回，这里无需处理落地。
+    // When using async download(for:delegate:), the file is returned by system API, no need to handle saving here.
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didFinishDownloadingTo location: URL) {}
 }

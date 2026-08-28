@@ -2,8 +2,8 @@
 //  CharacterSceneView.swift
 //  Animo3D
 //
-//  SceneKit 3D 角色容器：加载 rigged 模型、定位骨骼节点，
-//  停掉自带动画（改由 BlazePose 驱动），并按模型尺寸自动取景。
+//  SceneKit 3D character container: Loads rigged models, locates bone nodes,
+//  stops built-in animations (now driven by BlazePose), and automatically frames based on model dimensions.
 //
 
 import SwiftUI
@@ -21,28 +21,28 @@ final class CharacterSceneController: ObservableObject {
     private(set) var characterRoot: SCNNode?
     private(set) var cameraNode: SCNNode?
     private(set) var isLoaded = false
-    private(set) var modelHeight: Float = 0   // 角色单位高度（AR 缩放用）
-    private(set) var scheme: BoneScheme = .mixamo   // 骨骼命名方案（Mixamo / VRM）
-    var isVRM: Bool { boneNodes["J_Bip_C_Hips"] != nil }   // VRoid 用完整动画 JSON 回放
-    var groundEnabled = false   // 仅表演大画面开启地面+俯视;缩略图/小卡片关闭
-    var contactShadowOnly = false   // 详情页:只加脚下接触阴影(给着地感),不加深色地板
-    var portraitMode = false    // 静态展示(缩略图/角色详情):摆 A-pose,避开 SceneKit 在 T 绑定姿势下的蒙皮塌陷
+    private(set) var modelHeight: Float = 0   // Character unit height (for AR scaling)
+    private(set) var scheme: BoneScheme = .mixamo   // Bone naming scheme (Mixamo / VRM)
+    var isVRM: Bool { boneNodes["J_Bip_C_Hips"] != nil }   // VRoid uses full animation JSON for playback
+    var groundEnabled = false   // Ground + top-down view enabled only for large performance view; disabled for thumbnails/small cards
+    var contactShadowOnly = false   // Detail page: Only add contact shadow under feet (to give grounding sense), no dark floor
+    var portraitMode = false    // Static display (thumbnails/character details): Strikes an A-pose to avoid skinning collapse in T-pose in SceneKit
     private var lightsAdded = false
 
     @Published var backgroundType: BackgroundType = .studio {
         didSet { updateBackgroundAndGround() }
     }
 
-    // 加载完成时的骨骼姿态（含 portraitMode 的 A-pose），用于复位。
+    // Skeletal pose at load time (includes A-pose for portraitMode), used for resetting.
     private var bindPose: [(node: SCNNode, orientation: simd_quatf, position: simd_float3)] = []
 
     private func captureBindPose() {
         bindPose = boneNodes.values.map { ($0, $0.simdOrientation, $0.simdPosition) }
     }
 
-    /// 复位到加载时的骨骼姿态。
-    /// 复用同一个控制器连续渲染多支舞的缩略图时必须先复位，否则 PoseRetargeter
-    /// 会把上一支舞的姿势当成"静止姿态"采样，姿势会一支比一支歪。
+    /// Reset to the skeletal pose at load time.
+    /// When reusing the same controller to render thumbnails for multiple dances consecutively, you must reset first, otherwise PoseRetargeter
+    /// will sample the pose of the previous dance as the "rest pose", causing poses to become increasingly distorted.
     func resetToRestPose() {
         for b in bindPose {
             b.node.simdOrientation = b.orientation
@@ -50,7 +50,7 @@ final class CharacterSceneController: ObservableObject {
         }
     }
 
-    /// 把角色根节点挂回本控制器的屏幕场景（从 AR 切回时用）。
+    /// Attach the character root node back to this controller's screen scene (used when switching back from AR).
     func reattachToScreenScene() {
         guard let root = characterRoot else { return }
         if root.parent !== scene.rootNode {
@@ -59,59 +59,59 @@ final class CharacterSceneController: ObservableObject {
         }
     }
 
-    /// 从 App 包加载模型（.usdz/.scn/.dae）。返回发现的 Mixamo 骨骼名。
-    /// 注意：这是同步版本，会在调用线程上解析 10~60MB 的模型文件。
-    /// 主线程调用会明显卡顿，优先用 `loadSceneFile` + `install` 的两段式。
+    /// Load model from App bundle (.usdz/.scn/.dae). Returns discovered Mixamo bone names.
+    /// Note: This is the synchronous version, which parses a 10~60MB model file on the calling thread.
+    /// Calling from the main thread will cause significant lag; prefer the two-step `loadSceneFile` + `install` approach.
     @discardableResult
     func loadModel(named filename: String) -> [String] {
         guard let loaded = Self.loadSceneFile(named: filename) else { return [] }
         return install(loaded)
     }
 
-    /// 只做磁盘解析，不碰任何已上屏的场景 —— 可以在后台线程调用。
-    /// 模型动辄 10~60MB，解析 + 贴图解码 + 建 skinner 在 iPhone X 上是几百 ms 到秒级，
-    /// 放主线程就是"进舞台页卡一下"的主因。
+    /// Only performs disk parsing, doesn't touch any on-screen scenes — can be called on background threads.
+    /// Models are often 10~60MB; parsing + texture decoding + creating skinner takes hundreds of ms to seconds on iPhone X,
+    /// and is the main reason for "lag when entering the stage page" if on the main thread.
     static func loadSceneFile(named filename: String, warmUp: Bool = false) -> SCNScene? {
         let base = (filename as NSString).deletingPathExtension
         let ext = (filename as NSString).pathExtension
         guard let url = Bundle.main.url(forResource: base,
                                         withExtension: ext.isEmpty ? nil : ext) else {
-            print("[Character] 找不到模型文件: \(filename)")
+            print("[Character] model file not found: \(filename)")
             return nil
         }
         guard let loaded = try? SCNScene(url: url, options: [.convertToYUp: false]) else {
-            print("[Character] 模型加载失败: \(url.lastPathComponent)")
+            print("[Character] failed to load model: \(url.lastPathComponent)")
             return nil
         }
         if warmUp { Self.warmUp(loaded) }
         return loaded
     }
 
-    /// 预热：把几何与贴图提前上传到 GPU。
-    /// 不做这一步的话，贴图是在**首帧渲染时**才解码上传的 —— 表现为刚进舞台页画面先顿一下。
-    /// prepare 是同步阻塞调用，只该在后台线程用。
+    /// Warm up: Pre-upload geometry and textures to the GPU.
+    /// Without this, textures are decoded and uploaded during the **first frame render**, causing a lag when first entering the stage page.
+    /// prepare is a synchronous blocking call and should only be used on background threads.
     static func warmUp(_ scene: SCNScene) {
         guard let device = MTLCreateSystemDefaultDevice() else { return }
         let r = SCNRenderer(device: device, options: nil)
         r.scene = scene
-        _ = r.prepare(scene.rootNode, shouldAbortBlock: nil)   // 同步阻塞版
+        _ = r.prepare(scene.rootNode, shouldAbortBlock: nil)   // Synchronous, blocking variant
     }
 
-    /// 把已解析好的场景挂进本控制器（轻量，主线程）。
+    /// Install the pre-parsed scene into this controller (lightweight, main thread).
     @discardableResult
     func install(_ loaded: SCNScene) -> [String] {
-        // 复用同一场景：先移除旧角色，避免每次切换都累积角色/内存（真机切几次会卡死的根因）
+        // Reuse the same scene: Remove the old character first to avoid accumulating characters/memory with each switch (root cause of crashing after several switches on physical devices)
         characterRoot?.removeFromParentNode()
         boneNodes.removeAll()
         isLoaded = false
 
-        // 不要 clone：克隆带蒙皮的节点会破坏 SCNSkinner 的骨骼引用（iOS 16 上尤其明显，
-        // 表现为网格塌陷/拉成三角片）。直接使用加载出来的根节点。
+        // Do not clone: Cloning skinned nodes breaks SCNSkinner's bone references (especially noticeable on iOS 16,
+        // manifesting as mesh collapse or stretched triangles). Use the loaded root node directly.
         let root = loaded.rootNode
         scene.rootNode.addChildNode(root)
         characterRoot = root
 
-        // 收集骨骼节点，同时彻底移除自带烘焙动画（否则动画会自己播放、抢占骨骼控制权）
+        // Collect bone nodes and completely remove built-in baked animations (otherwise animations will play themselves and fight for bone control)
         var found: [String] = []
         var animCount = 0
         root.removeAllAnimations()
@@ -124,27 +124,27 @@ final class CharacterSceneController: ObservableObject {
                 if name.hasPrefix("mixamorig") { found.append(name) }
             }
         }
-        print("[Character] 清除自带动画 keys=\(animCount)")
-        // 按骨骼命名判定方案：VRoid(VRM) 用 J_Bip_ 前缀，否则按 Mixamo
+        print("[Character] cleared built-in animations keys=\(animCount)")
+        // Bone naming scheme: VRoid(VRM) uses J_Bip_ prefix, otherwise Mixamo
         scheme = (boneNodes["J_Bip_C_Hips"] != nil) ? .vrm : .mixamo
-        print("[Character] 骨骼方案: \(boneNodes["J_Bip_C_Hips"] != nil ? "VRM" : "Mixamo")")
+        print("[Character] bone scheme: \(boneNodes["J_Bip_C_Hips"] != nil ? "VRM" : "Mixamo")")
         if portraitMode { applyPortraitPose() }
         normalizeOrientation(root)
         setupFrontCamera()
 
-        // 兜底高度计算：骨骼识别失败（如 Tripo 静态网格无 Mixamo 骨骼）时，
-        // 遍历所有几何体、把各自局部包围盒的 8 个角点转换到世界坐标求真实 AABB。
-        // 直接用 root.boundingBox 不可靠：不一定含子节点，也没算导入缩放。
+        // Fallback height calculation: When bone recognition fails (e.g., Tripo static mesh without Mixamo bones),
+        // traverse all geometries, convert the 8 corners of each local bounding box to world coordinates to find the true AABB.
+        // Using root.boundingBox directly is unreliable: it might not include child nodes or account for import scale.
         if modelHeight <= 0.01 {
             modelHeight = worldBoundingHeight(root)
-            print(String(format: "[Character] 使用包围盒兜底高度=%.3f", modelHeight))
+            print(String(format: "[Character] fallback bounding-box height=%.3f", modelHeight))
         }
 
         if !lightsAdded { addLights(); lightsAdded = true }
-        updateBackgroundAndGround()   // 内部已含 setupGround,不要再单独调一次(以前地面/阴影贴图每次加载都建两遍)
+        updateBackgroundAndGround()   // setupGround is called internally; don't call it separately (previously ground/shadow textures were created twice per load)
         captureBindPose()
         isLoaded = true
-        print("[Character] 加载成功，发现 \(found.count) 根 Mixamo 骨骼")
+        print("[Character] loaded, found \(found.count) Mixamo bones")
         return found.sorted()
     }
 
@@ -153,16 +153,16 @@ final class CharacterSceneController: ObservableObject {
         switch backgroundType {
         case .studio:
             scene.background.contents = CharacterSceneView.studioBackdrop()
-            fog = UIColor(red: 0.06, green: 0.06, blue: 0.10, alpha: 1)   // = 背景底色,地平线无缝
+            fog = UIColor(red: 0.06, green: 0.06, blue: 0.10, alpha: 1)   // = Background color, seamless at horizon
         case .sky:
             if let skyImage = UIImage(named: "sky_park") {
                 scene.background.contents = skyImage
             } else {
                 scene.background.contents = CharacterSceneView.skyBackdrop()
             }
-            fog = UIColor(red: 0.82, green: 0.88, blue: 0.95, alpha: 1)   // = 天空地平线色
+            fog = UIColor(red: 0.82, green: 0.88, blue: 0.95, alpha: 1)   // = Sky horizon color
         }
-        // 雾:地面远处渐隐到背景色 → 地面与背景无缝融合,产生纵深与着地感(仅表演大画面开)
+        // Fog: Ground fades into background in the distance -> Seamless fusion of ground and background, creating depth and grounding (only for large performance view)
         if groundEnabled {
             let h = max(modelHeight, 1)
             scene.fogColor = fog
@@ -179,16 +179,16 @@ final class CharacterSceneController: ObservableObject {
 
     private var floorNode: SCNNode?
     private var contactShadow: SCNNode?
-    private(set) var feetY: Float = 0   // 脚底世界 Y(特效地面定位用)
+    private(set) var feetY: Float = 0   // World Y of feet (for VFX ground positioning)
 
-    /// 地面：可见的地板(带轻微反射) + 脚下始终可见的柔和接触阴影,消除"悬空"感。
+    /// Ground: Visible floor (with slight reflection) + a soft contact shadow always visible under feet to eliminate "floating" sensation.
     private func setupGround(_ root: SCNNode) {
         guard groundEnabled || contactShadowOnly else {
             floorNode?.removeFromParentNode(); floorNode = nil
             contactShadow?.removeFromParentNode(); contactShadow = nil
             return
         }
-        // 脚底世界 Y + 水平范围
+        // World Y of feet + horizontal range
         var minY = Float.greatestFiniteMagnitude
         var minX = Float.greatestFiniteMagnitude, maxX = -Float.greatestFiniteMagnitude
         var minZ = Float.greatestFiniteMagnitude, maxZ = -Float.greatestFiniteMagnitude
@@ -207,16 +207,16 @@ final class CharacterSceneController: ObservableObject {
         let cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2
         let footSpan = max(maxX - minX, 0.001)
 
-        // 地板：比背景底色略亮 + 轻微反射，形成清晰的"地面"参照
+        // Floor: Slightly brighter than background color + slight reflection, forming a clear "ground" reference
         floorNode?.removeFromParentNode()
         let floor = SCNFloor()
         if backgroundType == .sky {
-            // 天空模式：只保留倒影，材质彻底透明且不捕捉光照，避免出现白色层
+            // Sky mode: Keep only reflections; material is completely transparent and doesn't capture lighting, avoiding a white layer
             floor.reflectivity = DeviceTier.skyFloorReflectivity
             floor.firstMaterial?.diffuse.contents = UIColor.clear
             floor.firstMaterial?.lightingModel = .constant
         } else {
-            // 恢复原始舞台模式：深色反射地板(低端机关反射——反射等于把整个场景多渲一遍)
+            // Restore original stage mode: Dark reflective floor (disable reflection on low-end devices — reflection means rendering the entire scene again)
             floor.reflectivity = DeviceTier.floorReflectivity
             floor.firstMaterial?.diffuse.contents = UIColor(red: 0.13, green: 0.13, blue: 0.18, alpha: 1)
             floor.firstMaterial?.lightingModel = .physicallyBased
@@ -227,7 +227,7 @@ final class CharacterSceneController: ObservableObject {
         scene.rootNode.addChildNode(node)
         floorNode = node
 
-        // 脚下柔和接触阴影(始终可见,即使方向光阴影渲染不到也有"着地"线索)
+        // Soft contact shadow under feet (always visible, provides "grounding" cues even if directional light shadows aren't rendered)
         contactShadow?.removeFromParentNode()
         let blob = SCNPlane(width: CGFloat(footSpan * 2.4), height: CGFloat(footSpan * 1.5))
         let bm = blob.firstMaterial!
@@ -236,14 +236,14 @@ final class CharacterSceneController: ObservableObject {
         bm.isDoubleSided = true
         bm.writesToDepthBuffer = false
         let bnode = SCNNode(geometry: blob)
-        bnode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)          // 平铺在地面上
+        bnode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)          // Tiled on the ground
         bnode.simdPosition = simd_float3(cx, minY + 0.003, cz)
-        bnode.renderingOrder = 1                                     // 画在地板之上
+        bnode.renderingOrder = 1                                     // Drawn above the floor
         scene.rootNode.addChildNode(bnode)
         contactShadow = bnode
     }
 
-    /// 柔和圆形接触阴影贴图：中心黑、边缘透明。内容固定 → 只生成一次。
+    /// Soft circular contact shadow map: black center, transparent edges. Fixed content -> generated only once.
     private static let contactShadowTexture: UIImage = makeContactShadowImage()
 
     private static func makeContactShadowImage() -> UIImage {
@@ -257,13 +257,13 @@ final class CharacterSceneController: ObservableObject {
         }
     }
 
-    /// 用骨骼位置算出角色实际的 上/左/前 三轴，强制把根节点旋正为 Y-up、面朝 +Z。
-    /// 不依赖 USD 的 upAxis 元数据（该模型元数据不可信）。
-    /// 静态肖像姿势：仅 VRM(VRoid) 需要。手臂放下成 A 字,并轻微扰动躯干链,
-    /// 让 SceneKit 重新求值蒙皮——否则这些骨架在 T 绑定姿势下会塌陷(手臂成片、头飘)。
-    /// 跳舞路径不调用(重定向器会自行驱动骨骼)。
+    /// Calculate the actual Up/Left/Forward axes using bone positions, forcing the root node to be Y-up and facing +Z.
+    /// Do not rely on USD's upAxis metadata (that metadata is unreliable).
+    /// Static portrait pose: Required only for VRM (VRoid). Arms lowered in an A-shape, with slight perturbations to the torso chain,
+    /// forcing SceneKit to re-evaluate skinning — otherwise these skeletons collapse in T-pose (arms becoming planes, heads floating).
+    /// Not called during dance paths (retargeter will drive bones itself).
     private func applyPortraitPose() {
-        guard boneNodes["J_Bip_C_Hips"] != nil else { return }   // 仅 VRM
+        guard boneNodes["J_Bip_C_Hips"] != nil else { return }   // VRM only
         rotateBone(scheme.leftArm,  angle:  1.0, axis: simd_float3(0, 0, 1))
         rotateBone(scheme.rightArm, angle: -1.0, axis: simd_float3(0, 0, 1))
         rotateBone(scheme.spine,    angle: 0.03, axis: simd_float3(1, 0, 0))
@@ -280,16 +280,16 @@ final class CharacterSceneController: ObservableObject {
               let head = boneNodes[scheme.head]?.simdWorldPosition,
               let lsh = boneNodes[scheme.leftShoulder]?.simdWorldPosition,
               let rsh = boneNodes[scheme.rightShoulder]?.simdWorldPosition else { return }
-        let up = simd_normalize(head - hips)            // 角色的“上”
-        let right0 = simd_normalize(lsh - rsh)           // 角色左肩→，作为 +X
+        let up = simd_normalize(head - hips)            // Character's "up"
+        let right0 = simd_normalize(lsh - rsh)           // Character's left shoulder ->, as +X
         let forward = simd_normalize(simd_cross(right0, up))
         let right = simd_normalize(simd_cross(up, forward))
-        // m: 恒等基 → 模型基；取逆即把模型旋正到恒等基
+        // m: Identity basis -> Model basis; Inverse rotates model back to identity basis
         let m = simd_float3x3(right, up, forward)
         root.simdOrientation = simd_quatf(m).inverse
     }
 
-    /// 用骨骼位置摆一个固定正面全身相机（比包围盒可靠，不受骨架外延干扰）。
+    /// Set a fixed front fullscreen camera using bone positions (more reliable than bounding boxes, not affected by skeleton extensions).
     private func setupFrontCamera() {
         guard let hips = boneNodes[scheme.hips]?.simdWorldPosition,
               let head = boneNodes[scheme.head]?.simdWorldPosition,
@@ -301,7 +301,7 @@ final class CharacterSceneController: ObservableObject {
         print(String(format: "[Cam] head.y=%.2f foot.y=%.2f height=%.2f center=(%.2f,%.2f,%.2f)",
                      head.y, foot.y, height, center.x, center.y, center.z))
 
-        // 复用已有相机（避免每次切换新增相机节点）
+        // Reuse existing camera (avoid adding new camera nodes on each switch)
         let cam = cameraNode ?? {
             let n = SCNNode(); n.camera = SCNCamera()
             scene.rootNode.addChildNode(n); cameraNode = n; return n
@@ -309,20 +309,20 @@ final class CharacterSceneController: ObservableObject {
         cam.camera?.zNear = Double(height) * 0.01
         cam.camera?.zFar = Double(height) * 50
         if groundEnabled {
-            // 表演大画面：略微俯视,让脚下地面与影子可见,像站在地上
+            // Large performance view: Slightly top-down, making the floor and shadows visible, as if standing on the ground
             cam.camera?.fieldOfView = 60
             cam.position = SCNVector3(center.x, foot.y + height * 1.05, center.z + height * 2.15)
             cam.look(at: SCNVector3(center.x, foot.y + height * 0.5, center.z))
         } else {
-            // 缩略图/卡片：正面平视,居中框全身
+            // Thumbnails/cards: Straight-on front view, centered full-body framing
             cam.camera?.fieldOfView = 62
             cam.position = SCNVector3(center.x, center.y, center.z + height * 1.9)
             cam.look(at: center)
         }
     }
 
-    /// 世界坐标下遍历整棵子树的几何体，求 AABB 的 Y 向高度（米）。
-    /// 处理任意嵌套变换与导入缩放，适用于无骨骼的静态模型。
+    /// Traverse geometries of the entire subtree in world coordinates to find the Y-height of the AABB (meters).
+    /// Handles arbitrary nested transforms and import scales, suitable for static models without skeletons.
     private func worldBoundingHeight(_ root: SCNNode) -> Float {
         var lo = simd_float3(repeating: .greatestFiniteMagnitude)
         var hi = simd_float3(repeating: -.greatestFiniteMagnitude)
@@ -352,18 +352,18 @@ final class CharacterSceneController: ObservableObject {
         ambient.light?.intensity = 500
         scene.rootNode.addChildNode(ambient)
 
-        // 从上前方打下的方向光，投出随动作变化的真实软阴影。
-        // forward 软阴影很贵(每帧一遍 shadow pass + 多次采样),低端机直接关掉——
-        // 脚下那张接触阴影贴图已经给足"着地"线索。
+        // Directional light from the front-top, casting realistic soft shadows that change with movement.
+        // forward soft shadows are expensive (one shadow pass per frame + multiple samples), disabled on low-end devices —
+        // the contact shadow map under the feet provides enough "grounding" cues.
         let sun = SCNNode()
         let l = SCNLight(); l.type = .directional
         l.castsShadow = DeviceTier.dynamicShadows
-        l.shadowMode = .forward            // 通用可靠(含模拟器),阴影落在地板上可见
+        l.shadowMode = .forward            // Universally reliable (including the Simulator), and the shadow is visible on the floor
         l.shadowColor = UIColor(white: 0, alpha: 0.5)
         l.shadowRadius = 6
         l.shadowSampleCount = DeviceTier.shadowSampleCount
         sun.light = l
-        sun.eulerAngles = SCNVector3(-Float.pi / 2.2, Float.pi / 12, 0)  // 更接近正上方 → 影子聚在脚下
+        sun.eulerAngles = SCNVector3(-Float.pi / 2.2, Float.pi / 12, 0)  // Closer to straight above -> shadows gather under feet
         scene.rootNode.addChildNode(sun)
     }
 }
@@ -378,25 +378,25 @@ struct CharacterSceneView: UIViewRepresentable {
     final class Coordinator { var framed = false }
 
     func makeUIView(context: Context) -> SCNView {
-        // 从 AR 切回时，把角色挂回屏幕场景，并让重定向重新采样
+        // When switching back from AR, reattach character to screen scene and re-sample retargeting
         controller.reattachToScreenScene()
         onAttach?()
         let view = SCNView()
         view.scene = controller.scene
-        view.antialiasingMode = DeviceTier.antialiasing   // 低端降抗锯齿,减卡顿
+        view.antialiasingMode = DeviceTier.antialiasing   // Lower anti-aliasing on low-end to reduce lag
         view.allowsCameraControl = true
-        // 受控转盘：绕角色水平环绕 + 限制俯仰角,避免转到贴地平视把地面光环糊到脸上
+        // Controlled turntable: Horizontal orbit around character + restricted pitch angle, avoiding ground halos in face at eye-level
         let cc = view.defaultCameraController
         cc.interactionMode = .orbitTurntable
         cc.inertiaEnabled = true
-        cc.minimumVerticalAngle = -6      // 不能太仰
-        cc.maximumVerticalAngle = 55      // 不能俯到贴地看地面特效
+        cc.minimumVerticalAngle = -6      // Can't look up too much
+        cc.maximumVerticalAngle = 55      // Can't look down to ground level to see ground VFX
         cc.target = SCNVector3(0, controller.feetY + controller.modelHeight * 0.5, 0)
-        // 根据背景类型设置背景与地面
+        // Set background and ground based on background type
         controller.updateBackgroundAndGround()
         view.backgroundColor = .clear
         view.autoenablesDefaultLighting = true
-        view.rendersContinuously = true      // 持续渲染，避免切换后画面冻结
+        view.rendersContinuously = true      // Continuous rendering to avoid frozen frames after switching
         view.isPlaying = true
         if let cam = controller.cameraNode { view.pointOfView = cam }
         holder?.scnView = view
@@ -407,8 +407,8 @@ struct CharacterSceneView: UIViewRepresentable {
         if let cam = controller.cameraNode { uiView.pointOfView = cam }
     }
 
-    /// 竖向渐变 + 底部聚光的"舞台"背景图。内容固定 → 只生成一次并复用
-    /// (以前每次 updateBackgroundAndGround 都重画一张 300x650 的 CG 图)。
+    /// "Stage" background image with vertical gradient + bottom spotlight. Fixed content -> generated once and reused
+    /// (previously a 300x650 CG image was redrawn every time updateBackgroundAndGround() was called).
     static let studioImage: UIImage = makeStudioBackdrop()
     static let skyImage: UIImage = makeSkyBackdrop()
 
@@ -419,21 +419,21 @@ struct CharacterSceneView: UIViewRepresentable {
         let size = CGSize(width: 300, height: 650)
         return UIGraphicsImageRenderer(size: size).image { ctx in
             let c = ctx.cgContext
-            // 竖向渐变：顶部冷紫 → 底部深色(=fogColor 0.06,0.06,0.10,与雾/地面无缝)
+            // Vertical gradient: Cold purple at top -> Dark color at bottom (=fogColor 0.06, 0.06, 0.10, seamless with fog/ground)
             let colors = [UIColor(red: 0.17, green: 0.15, blue: 0.28, alpha: 1).cgColor,
                           UIColor(red: 0.11, green: 0.10, blue: 0.17, alpha: 1).cgColor,
                           UIColor(red: 0.06, green: 0.06, blue: 0.10, alpha: 1).cgColor]
             let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray,
                                locations: [0, 0.5, 1])!
             c.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
-            // 地平线辉光：中下部一片暖紫柔光，像舞台后墙的聚光,给纵深
+            // Horizon glow: Warm purple soft light in the mid-bottom, like a spotlight on the back stage wall, adding depth
             let halo = [UIColor(red: 0.42, green: 0.33, blue: 0.7, alpha: 0.38).cgColor, UIColor.clear.cgColor]
             let hg = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: halo as CFArray, locations: [0, 1])!
             c.drawRadialGradient(hg,
                                  startCenter: CGPoint(x: size.width/2, y: size.height*0.64), startRadius: 0,
                                  endCenter: CGPoint(x: size.width/2, y: size.height*0.64), endRadius: size.width*0.85,
                                  options: [])
-            // 底部中心一圈柔光，像脚下舞台聚光
+            // Soft light circle at bottom center, like a spotlight at feet
             let glow = [UIColor.white.withAlphaComponent(0.10).cgColor, UIColor.clear.cgColor]
             let rg = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: glow as CFArray, locations: [0, 1])!
             c.drawRadialGradient(rg,
@@ -443,7 +443,7 @@ struct CharacterSceneView: UIViewRepresentable {
         }
     }
 
-    /// 兜底程序化天空背景
+    /// Fallback procedural sky background
     private static func makeSkyBackdrop() -> UIImage {
         let size = CGSize(width: 400, height: 800)
         return UIGraphicsImageRenderer(size: size).image { ctx in

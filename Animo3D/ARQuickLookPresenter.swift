@@ -2,9 +2,9 @@
 //  ARQuickLookPresenter.swift
 //  Animo3D
 //
-//  用 UIKit 原生方式弹出 AR Quick Look（QLPreviewController）。
-//  不走 SwiftUI 的 .fullScreenCover：详情页本身已是 fullScreenCover，
-//  再嵌套一层在 iOS 16 上经常弹不出来。UIKit modal 可以稳定叠加。
+//  Presents AR Quick Look (QLPreviewController) the native UIKit way.
+//  It deliberately avoids SwiftUI's .fullScreenCover: the detail page is already a fullScreenCover,
+//  and nesting another one often fails to appear on iOS 16. A UIKit modal stacks reliably.
 //
 
 import UIKit
@@ -13,15 +13,15 @@ import QuickLook
 
 final class ARQuickLookPresenter: NSObject, QLPreviewControllerDataSource {
     static let shared = ARQuickLookPresenter()
-    private var item: PreviewItem?   // 需强引用：QLPreviewController 的 dataSource 是 weak
+    private var item: PreviewItem?   // Needs a strong reference: QLPreviewController's dataSource is weak
 
-    /// 下载好的本地 USDZ → App 内轻量 3D 预览（运行时不透明、低内存）。
-    /// 高内存设备(4GB+)在预览里额外提供「AR」按钮跳系统 Quick Look 做实景放置；
-    /// 低内存设备(如 iPhone X 3GB)不提供 AR，避免重模型 + AR 顶爆内存导致设备重启。
+    /// A downloaded local USDZ -> lightweight in-app 3D preview (opaque at runtime, low memory).
+    /// High-memory devices (4GB+) additionally get an "AR" button in the preview that jumps to the system Quick Look for real-world placement;
+    /// low-memory devices (such as the 3GB iPhone X) do not offer AR, so a heavy model plus AR cannot blow past the memory limit and reboot the device.
     func presentPreview(url: URL, title: String) {
         let ram = ProcessInfo.processInfo.physicalMemory
         let onAR: (() -> Void)? = ram >= 4_000_000_000 ? { [weak self] in
-            let display = USDZOpacityFixer.makeOpaqueIfNeeded(url)   // 高内存设备才重导出
+            let display = USDZOpacityFixer.makeOpaqueIfNeeded(url)   // Only high-memory devices re-export
             self?.present(url: display, title: title)
         } : nil
         let host = UIHostingController(rootView:
@@ -30,7 +30,7 @@ final class ARQuickLookPresenter: NSObject, QLPreviewControllerDataSource {
         topViewController()?.present(host, animated: true)
     }
 
-    /// 下载好的本地 USDZ → 全屏原生 AR Quick Look。
+    /// A downloaded local USDZ -> full-screen native AR Quick Look.
     func present(url: URL, title: String?) {
         item = PreviewItem(url: url, title: title)
         let vc = QLPreviewController()
@@ -53,7 +53,7 @@ final class ARQuickLookPresenter: NSObject, QLPreviewControllerDataSource {
         return top
     }
 
-    /// 让预览标题显示模型名，而不是缓存文件名（uid）。
+    /// Show the model name as the preview title instead of the cache file name (uid).
     final class PreviewItem: NSObject, QLPreviewItem {
         let previewItemURL: URL?
         let previewItemTitle: String?

@@ -2,15 +2,15 @@
 //  DanceThumb.swift
 //  Animo3D
 //
-//  为每支舞渲染一张"角色摆出该舞蹈代表姿势"的缩略图。
-//  实际渲染/缓存都在 ThumbRenderer 里(全局串行 + 复用模型 + 三级缓存)。
+//  Renders one thumbnail per dance, showing the character striking that dance's signature pose.
+//  The actual rendering and caching live in ThumbRenderer (globally serial + model reuse + three-tier cache).
 //
 
 import SwiftUI
 
-/// 舞蹈姿势缩略图视图。
+/// Dance pose thumbnail view.
 struct DanceThumbView: View {
-    let model: String   // 含扩展名
+    let model: String   // Includes the extension
     let dance: String
     var style: Int = 0
     @State private var image: UIImage?
@@ -21,11 +21,11 @@ struct DanceThumbView: View {
             if let image {
                 Image(uiImage: image).resizable().scaledToFit()
             } else {
-                ProgressView().tint(.white).scaleEffect(1.2)   // 渲染中 loading
+                ProgressView().tint(.white).scaleEffect(1.2)   // Loading while rendering
             }
         }
-        .task(id: model + "|" + dance) {   // 角色(model)或舞蹈变化都重渲染
-            // 内存命中就同步显示,不闪 loading、不碰磁盘(列表滑动时这条路径最关键)
+        .task(id: model + "|" + dance) {   // Re-render whenever the character (model) or the dance changes
+            // On a memory-cache hit, display synchronously: no loading flash and no disk access (this path matters most while the list scrolls)
             if let m = ThumbRenderer.shared.memoryCached(model: model, dance: dance) {
                 image = m; return
             }

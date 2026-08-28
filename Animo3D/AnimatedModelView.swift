@@ -2,7 +2,7 @@
 //  AnimatedModelView.swift
 //  Animo3D
 //
-//  加载"带预制动画的角色 .scn"并循环播放（验证 Mixamo 预制动画质量）。
+//  Loads a "character .scn with a baked-in animation" and loops it (to judge the quality of Mixamo's baked animations).
 //
 
 import SwiftUI
@@ -29,7 +29,7 @@ struct AnimatedModelView: UIViewRepresentable {
         let root = loaded.rootNode
         scene.rootNode.addChildNode(root)
 
-        // 显式循环播放所有动画
+        // Explicitly loop every animation
         var animCount = 0
         root.enumerateChildNodes { node, _ in
             for key in node.animationKeys {
@@ -39,9 +39,9 @@ struct AnimatedModelView: UIViewRepresentable {
                 }
             }
         }
-        print("[Anim] 播放动画数: \(animCount)")
+        print("[Anim] animations playing: \(animCount)")
 
-        // 手动正面相机：按包围盒摆正、拉够远
+        // Manual front-facing camera: aligned to the bounding box and pulled far enough back
         let (minV, maxV) = root.boundingBox
         let c = root.convertPosition(SCNVector3((minV.x+maxV.x)/2, (minV.y+maxV.y)/2, (minV.z+maxV.z)/2),
                                      to: scene.rootNode)

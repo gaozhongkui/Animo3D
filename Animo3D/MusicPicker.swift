@@ -2,8 +2,8 @@
 //  MusicPicker.swift
 //  Animo3D
 //
-//  跳舞背景音乐：内置曲目(Res/music) + 本地导入(持久保存)。
-//  数据 + 播放器 + 本地曲库 + 文件选择器。UI(选择步骤)在 DanceStudioView。
+//  Dance background music: bundled tracks (Res/music) + local imports (persisted).
+//  Data + player + local library + file picker. The UI (the selection step) lives in DanceStudioView.
 //
 
 import SwiftUI
@@ -16,7 +16,7 @@ struct MusicTrack: Identifiable, Hashable {
     let name: String
     let url: URL
 
-    /// 内置曲目：扫描 App 包内音频。
+    /// Bundled tracks: scans the audio inside the app bundle.
     static var presets: [MusicTrack] {
         var out: [MusicTrack] = []
         for ext in ["m4a", "mp3"] {
@@ -30,16 +30,16 @@ struct MusicTrack: Identifiable, Hashable {
 
     private static func friendly(_ raw: String) -> String {
         switch raw {
-        case "sample_beat":  return "示例 · 节奏"
-        case "sample_chill": return "示例 · 舒缓"
-        case "anime_dance":  return "动感 · 二次元"
-        case "delta_works":  return "电子 · Delta"
+        case "sample_beat":  return "Sample · Beat"
+        case "sample_chill": return "Sample · Chill"
+        case "anime_dance":  return "Upbeat · Anime"
+        case "delta_works":  return "Electronic · Delta"
         default:             return raw.replacingOccurrences(of: "_", with: " ")
         }
     }
 }
 
-/// 背景音乐播放器（循环）。
+/// Background music player (looping).
 final class MusicController: ObservableObject {
     @Published private(set) var current: MusicTrack?
     private var player: AVAudioPlayer?
@@ -51,20 +51,20 @@ final class MusicController: ObservableObject {
             try AVAudioSession.sharedInstance().setActive(true)
             let p = try AVAudioPlayer(contentsOf: track.url)
             p.numberOfLoops = -1
-            p.isMeteringEnabled = true   // 供特效读实时能量(节拍驱动)
+            p.isMeteringEnabled = true   // Lets the VFX read the live energy (beat drive)
             p.play()
             player = p
             current = track
         } catch {
-            print("[Music] 播放失败: \(error.localizedDescription)")
+            print("[Music] playback failed: \(error.localizedDescription)")
         }
     }
 
-    /// 当前瞬时音量能量(0…1),供舞台特效跟随节奏脉动。无音乐时返回 0。
+    /// Current instantaneous volume energy (0...1), so the stage VFX can pulse with the beat. Returns 0 when there is no music.
     func currentLevel() -> Float {
         guard let p = player, p.isPlaying else { return 0 }
         p.updateMeters()
-        let db = p.averagePower(forChannel: 0)          // 约 -160…0 dB
+        let db = p.averagePower(forChannel: 0)          // Roughly -160...0 dB
         return max(0, min(1, (db + 45) / 45))            // -45dB…0 → 0…1
     }
 
@@ -75,7 +75,7 @@ final class MusicController: ObservableObject {
     }
 }
 
-/// 本地导入曲库（持久化到 Documents/music）。
+/// Locally imported library (persisted to Documents/music).
 final class LocalMusicStore: ObservableObject {
     static let shared = LocalMusicStore()
     @Published private(set) var tracks: [MusicTrack] = []
@@ -105,7 +105,7 @@ final class LocalMusicStore: ObservableObject {
         let dst = dir.appendingPathComponent(url.lastPathComponent)
         try? FileManager.default.removeItem(at: dst)
         do { try FileManager.default.copyItem(at: url, to: dst) } catch {
-            print("[Music] 导入失败: \(error.localizedDescription)"); return nil
+            print("[Music] import failed: \(error.localizedDescription)"); return nil
         }
         reload()
         return tracks.first { $0.url.lastPathComponent == dst.lastPathComponent }
@@ -117,7 +117,7 @@ final class LocalMusicStore: ObservableObject {
     }
 }
 
-/// 本地音频文件选择（"文件" App，避开 Apple Music DRM）。
+/// Local audio file selection (the Files app, which sidesteps Apple Music DRM).
 struct AudioDoc: UIViewControllerRepresentable {
     var onPick: (URL) -> Void
     func makeCoordinator() -> Coord { Coord(onPick: onPick) }

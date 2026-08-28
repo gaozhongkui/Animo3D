@@ -2,15 +2,15 @@
 //  PoseRetargeter.swift
 //  Animo3D
 //
-//  把 BlazePose 的 33 个 3D 世界坐标（位置）转换成 Mixamo 骨骼旋转，驱动角色。
+//  Converts BlazePose's 33 3D world-space landmarks (positions) into Mixamo bone rotations that drive the character.
 //
-//  思路（每根骨头）：
-//   1. 目标朝向 t = 归一化(landmark[to] - landmark[from])，转到角色坐标系
-//   2. 静止朝向 restWorldDir = 归一化(子骨世界位置 - 本骨世界位置)（加载时采样一次）
-//   3. delta = 把 restWorldDir 旋到 t 的四元数
-//   4. 期望世界朝向 = delta * restWorldOrient
-//   5. 本地朝向 = inverse(父骨当前世界朝向) * 期望世界朝向  → 写回 node.simdOrientation
-//  按“父在前子在后”的顺序处理，父骨更新后子骨才用其最新世界朝向。
+//  Approach (per bone):
+//   1. Target direction t = normalize(landmark[to] - landmark[from]), mapped into the character frame
+//   2. Rest direction restWorldDir = normalize(child bone world position - this bone world position) (sampled once at load)
+//   3. delta = the quaternion that rotates restWorldDir onto t
+//   4. Desired world orientation = delta * restWorldOrient
+//   5. Local orientation = inverse(parent current world orientation) * desired world orientation -> written back to node.simdOrientation
+//  Bones are processed parent-first, so a child always uses its parent's freshly updated world orientation.
 //
 
 import SceneKit
@@ -27,38 +27,38 @@ final class PoseRetargeter {
         let def: MixamoBoneMap.BoneDef
     }
     private var rests: [Rest] = []
-    private var characterFrame = simd_float3x3(1)   // 角色躯干坐标系(局部→世界)
+    private var characterFrame = simd_float3x3(1)   // Character torso frame (local -> world)
     private var captured = false
-    private var smoothed: [simd_float3]?             // 时间平滑后的关节点
+    private var smoothed: [simd_float3]?             // Landmarks after temporal smoothing
 
-    // 髋部位移：让腿弯时身体自然下沉、有踩点/重心（否则四肢在动、躯干钉死，很僵）
+    // Hip translation: lets the body sink naturally as the legs bend, giving weight and footing (otherwise the limbs move while the torso stays nailed down, which looks stiff)
     private var hipsNode: SCNNode?
     private var charHipsRestWorld = simd_float3(repeating: 0)
     private var charTorsoLen: Float = 1
     private var srcCaptured = false
     private var srcRestHip = simd_float3(repeating: 0)
-    private var srcRestFrame = simd_float3x3(1)      // 源静止躯干系
+    private var srcRestFrame = simd_float3x3(1)      // Source rest torso frame
     private var srcRestFrameInv = simd_float3x3(1)
     private var srcTorsoLen: Float = 1
 
-    // 脊柱驱动：让躯干跟着肩线扭动/前后倾（去掉上半身的板感）
+    // Spine drive: lets the torso twist and lean with the shoulder line (removes the board-like upper body)
     private var spineNode: SCNNode?
     private var spineRestWorldOrient = simd_quatf(angle: 0, axis: [0, 1, 0])
-    private let spineGain: Float = 0.7               // 阻尼，避免噪声放大 / 过冲
+    private let spineGain: Float = 0.7               // Damping, so noise is not amplified and the spine does not overshoot
 
     init(controller: CharacterSceneController) {
         self.controller = controller
     }
 
-    /// 切换展示场景（屏幕↔AR，角色被重新挂载）后调用，下一帧重新采样静止姿态。
+    /// Call after switching presentation scene (screen <-> AR, where the character is re-mounted); the rest pose is re-sampled on the next frame.
     func resetCapture() {
         captured = false
         srcCaptured = false
         smoothed = nil
     }
 
-    /// 由“上”方向和“右”方向构造一个正交躯干坐标系（列: 右, 上, 前）。
-    /// 右手系：前 = 右 × 上，右 = 上 × 前。source 和 character 用同一构造，保证相对方向一致。
+    /// Builds an orthonormal torso frame from an "up" and a "right" direction (columns: right, up, forward).
+    /// Right-handed: forward = right x up, right = up x forward. Source and character use the same construction, which keeps relative directions consistent.
     private static func makeFrame(up upRaw: simd_float3, right rightRaw: simd_float3) -> simd_float3x3 {
         let u = simd_normalize(upRaw)
         let f = simd_normalize(simd_cross(rightRaw, u))
@@ -66,7 +66,7 @@ final class PoseRetargeter {
         return simd_float3x3(r, u, f)
     }
 
-    /// 加载完成后采样一次：每根骨头的静止朝向 + 角色躯干坐标系。
+    /// Sampled once after loading: every bone's rest orientation plus the character's torso frame.
     private func captureRestIfNeeded() {
         guard !captured, controller.isLoaded else { return }
         rests.removeAll()
@@ -79,7 +79,7 @@ final class PoseRetargeter {
                               restWorldOrient: bone.simdWorldOrientation,
                               def: def))
         }
-        // 角色躯干坐标系：上 = 肩中心-髋中心，右 = 左髋-右髋（世界坐标）
+        // Character torso frame: up = shoulder center - hip center, right = left hip - right hip (world space)
         let s = controller.scheme
         if let lArm = controller.boneNodes[s.leftArm]?.simdWorldPosition,
            let rArm = controller.boneNodes[s.rightArm]?.simdWorldPosition,
@@ -90,41 +90,41 @@ final class PoseRetargeter {
             characterFrame = Self.makeFrame(up: shC - hipC, right: lUp - rUp)
             charTorsoLen = max(1e-3, simd_length(shC - hipC))
         }
-        // 髋骨节点 + 其静止世界位置（位移基准）
+        // Hip node plus its rest world position (translation reference)
         hipsNode = controller.boneNodes[s.hips]
         charHipsRestWorld = hipsNode?.simdWorldPosition ?? .init(repeating: 0)
-        // 脊柱骨 + 静止世界朝向（躯干扭动基准）
+        // Spine bone plus its rest world orientation (torso twist reference)
         spineNode = controller.boneNodes[s.spine]
         spineRestWorldOrient = spineNode?.simdWorldOrientation ?? simd_quatf(angle: 0, axis: [0, 1, 0])
         captured = !rests.isEmpty
-        if captured { print("[Retarget] 采样静止姿态成功，\(rests.count) 根骨头") }
+        if captured { print("[Retarget] rest pose captured, \(rests.count) bones") }
     }
 
     private var debugLogged = false
 
-    /// 调试用：已知姿势——双臂笔直向前(朝镜头)、双腿垂直站立。
-    /// 坐标系约定(实测)：+x=人体左侧, +y=向下, +z=人体后方（正面为 -z）。
+    /// Debug helper: a known pose - both arms straight forward (toward the camera), both legs standing vertically.
+    /// Axis convention (measured): +x = the body's left, +y = down, +z = behind the body (the front is -z).
     static func debugArmsForwardPose() -> [simd_float3] {
         var p = [simd_float3](repeating: .zero, count: 33)
-        // 肩
+        // Shoulders
         p[11] = [ 0.2, -0.4, 0];  p[12] = [-0.2, -0.4, 0]
-        // 肘（在肩正前方 = -z）
+        // Elbows (directly in front of the shoulders = -z)
         p[13] = [ 0.2, -0.4, -0.25]; p[14] = [-0.2, -0.4, -0.25]
-        // 腕（更前）
+        // Wrists (further forward)
         p[15] = [ 0.2, -0.4, -0.5];  p[16] = [-0.2, -0.4, -0.5]
-        // 髋 / 膝 / 踝（垂直向下 = +y）
+        // Hips / knees / ankles (straight down = +y)
         p[23] = [ 0.1, 0.0, 0]; p[24] = [-0.1, 0.0, 0]
         p[25] = [ 0.1, 0.5, 0]; p[26] = [-0.1, 0.5, 0]
         p[27] = [ 0.1, 1.0, 0]; p[28] = [-0.1, 1.0, 0]
         return p
     }
 
-    /// 用一帧的 33 个世界坐标驱动骨骼。必须在主线程调用。
+    /// Drives the skeleton with one frame of 33 world-space landmarks. Must be called on the main thread.
     func apply(world: [simd_float3]) {
         captureRestIfNeeded()
         guard captured, world.count >= 33 else { return }
 
-        // 一次性打印关键关节点原始坐标，用解剖关系判定 BlazePose 轴向
+        // Print the raw coordinates of the key landmarks once, so BlazePose's axes can be worked out from anatomy
         if !debugLogged {
             debugLogged = true
             func p(_ i: Int) -> String {
@@ -134,7 +134,7 @@ final class PoseRetargeter {
             print("[Axis] nose0=\(p(0)) Lsh11=\(p(11)) Rsh12=\(p(12)) Lhip23=\(p(23)) Rhip24=\(p(24)) Lankle27=\(p(27))")
         }
 
-        // 时间平滑：对每个关节点做低通，去抖 / 去顿挫
+        // Temporal smoothing: low-pass every landmark to remove jitter and stutter
         let alpha: Float = 0.35
         if smoothed == nil || smoothed!.count != world.count {
             smoothed = world
@@ -145,7 +145,7 @@ final class PoseRetargeter {
         }
         let w = smoothed!
 
-        // 关节点解析：支持虚拟中点（100=肩中心, 101=髋中心）
+        // Landmark lookup: supports virtual midpoints (100 = shoulder center, 101 = hip center)
         func lm(_ i: Int) -> simd_float3 {
             switch i {
             case MixamoBoneMap.shoulderCenter: return (w[11] + w[12]) / 2
@@ -154,13 +154,13 @@ final class PoseRetargeter {
             }
         }
 
-        // 1) 用这一帧的关节点构造“人”的躯干坐标系
+        // 1) Build the person's torso frame from this frame's landmarks
         let shC = (w[11] + w[12]) / 2
         let hipC = (w[23] + w[24]) / 2
         let srcFrame = Self.makeFrame(up: shC - hipC, right: w[23] - w[24])
-        let srcFrameInv = srcFrame.transpose   // 正交阵，逆=转置：世界→躯干局部
+        let srcFrameInv = srcFrame.transpose   // Orthonormal matrix, so inverse = transpose: world -> torso local
 
-        // 首帧记录源静止参考（髋位移基准，用固定的静止躯干系分解，保证稳定）
+        // On the first frame, record the source rest reference (hip translation baseline, decomposed in the fixed rest torso frame for stability)
         if !srcCaptured {
             srcCaptured = true
             srcRestHip = hipC
@@ -168,21 +168,21 @@ final class PoseRetargeter {
             srcRestFrameInv = srcFrame.transpose
             srcTorsoLen = max(1e-3, simd_length(shC - hipC))
         }
-        // 髋部位移：源髋相对静止的位移 → 角色髋骨（按躯干长度比例缩放）。
-        // 这样腿一弯，髋部随之下沉、脚基本留在地面，不再"腿动身不动"。
+        // Hip translation: the source hip displacement from rest -> the character's hip bone (scaled by the torso length ratio).
+        // So when the legs bend the hips sink with them and the feet stay on the ground, instead of "legs moving while the body does not".
         if let hips = hipsNode {
-            let deltaLocal = srcRestFrameInv * (hipC - srcRestHip)      // 源躯干局部位移
+            let deltaLocal = srcRestFrameInv * (hipC - srcRestHip)      // Displacement in source torso local space
             let deltaChar = characterFrame * (deltaLocal * (charTorsoLen / srcTorsoLen))
             let target = charHipsRestWorld + deltaChar
             hips.simdWorldPosition = simd_mix(hips.simdWorldPosition, target, simd_float3(repeating: 0.5))
         }
 
-        // 脊柱驱动：躯干相对静止的旋转 → 角色脊柱骨（在四肢之前，四肢会据父骨新朝向自校正）。
+        // Spine drive: torso rotation relative to rest -> the character's spine bone (applied before the limbs, which then self-correct against the parent's new orientation).
         if let spine = spineNode {
-            let rLocal = srcRestFrameInv * srcFrame                     // 躯干相对静止的旋转(躯干局部)
-            let rChar = characterFrame * rLocal * characterFrame.transpose  // 转到角色世界基
+            let rLocal = srcRestFrameInv * srcFrame                     // Torso rotation relative to rest (in torso local space)
+            let rChar = characterFrame * rLocal * characterFrame.transpose  // Into the character's world basis
             var q = simd_quatf(rChar)
-            q = simd_slerp(simd_quatf(angle: 0, axis: [0, 1, 0]), q, spineGain)   // 阻尼
+            q = simd_slerp(simd_quatf(angle: 0, axis: [0, 1, 0]), q, spineGain)   // Damping
             let desiredWorld = q * spineRestWorldOrient
             let parentWorld = spine.parent?.simdWorldOrientation ?? simd_quatf(angle: 0, axis: [0, 1, 0])
             let local = parentWorld.inverse * desiredWorld
@@ -192,12 +192,12 @@ final class PoseRetargeter {
         for r in rests {
             let target = lm(r.def.to) - lm(r.def.from)
             guard simd_length(target) > 1e-4 else { continue }
-            // 2) 肢体方向表达为“相对人躯干”的方向
+            // 2) Express the limb direction relative to the person's torso
             let dirLocal = simd_normalize(srcFrameInv * simd_normalize(target))
-            // 3) 套到角色躯干坐标系，得到角色世界系下的目标方向
+            // 3) Apply it to the character's torso frame to get the target direction in the character's world space
             let t = simd_normalize(characterFrame * dirLocal)
 
-            // 4) 把静止朝向旋到目标朝向，再转成相对父骨的本地朝向
+            // 4) Rotate the rest orientation onto the target, then convert it to a local orientation relative to the parent
             let delta = simd_quatf(from: r.restWorldDir, to: t)
             let desiredWorld = delta * r.restWorldOrient
             let parentWorld = r.node.parent?.simdWorldOrientation ?? simd_quatf(angle: 0, axis: [0, 1, 0])

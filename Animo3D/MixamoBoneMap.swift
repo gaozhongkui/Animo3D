@@ -2,70 +2,70 @@
 //  MixamoBoneMap.swift
 //  Animo3D
 //
-//  BlazePose 33 点 → Mixamo 标准骨骼 的映射。
-//  转成 USDZ 后 Mixamo 骨骼名以 "mixamorig_" 前缀（冒号被转为下划线），命名固定通用。
+//  Mapping from BlazePose's 33 points to the standard Mixamo skeleton.
+//  After USDZ conversion, Mixamo bone names carry the "mixamorig_" prefix (colons become underscores); the naming is fixed and universal.
 //
-//  BlazePose 索引参考:
-//  11 左肩 12 右肩 13 左肘 14 右肘 15 左腕 16 右腕
-//  23 左髋 24 右髋 25 左膝 26 右膝 27 左踝 28 右踝
+//  BlazePose index reference:
+//  11 left shoulder 12 right shoulder 13 left elbow 14 right elbow 15 left wrist 16 right wrist
+//  23 left hip 24 right hip 25 left knee 26 right knee 27 left ankle 28 right ankle
 //
 
 import Foundation
 
 enum MixamoBoneMap {
 
-    /// 一根骨头：由骨骼节点 + 其子骨骼节点（用于求静止朝向），
-    /// 以及一对 BlazePose 索引（用于求目标朝向）。
+    /// One bone: the bone node plus its child node (used to derive the rest direction),
+    /// together with a pair of BlazePose indices (used to derive the target direction).
     struct BoneDef {
-        let node: String        // 骨骼节点名
-        let childNode: String   // 子骨骼节点名（静止朝向 = 指向子节点的方向）
-        let from: Int           // 目标朝向起点 landmark
-        let to: Int             // 目标朝向终点 landmark
+        let node: String        // Bone node name
+        let childNode: String   // Child bone node name (rest direction = the direction toward the child node)
+        let from: Int           // Target direction start landmark
+        let to: Int             // Target direction end landmark
     }
 
-    /// 先驱动四肢（最明显、子节点清晰）。躯干/手指后续再加。
-    /// 顺序为“父在前、子在后”，保证重定向时父骨的世界朝向已更新。
+    /// Drive the limbs first (most visible, clearest child nodes). Torso and fingers can come later.
+    /// Ordered parent-first, so a parent's world orientation is already updated during retargeting.
     static let bones: [BoneDef] = [
-        // 左臂
+        // Left arm
         BoneDef(node: "mixamorig_LeftArm",      childNode: "mixamorig_LeftForeArm", from: 11, to: 13),
         BoneDef(node: "mixamorig_LeftForeArm",  childNode: "mixamorig_LeftHand",    from: 13, to: 15),
-        // 右臂
+        // Right arm
         BoneDef(node: "mixamorig_RightArm",     childNode: "mixamorig_RightForeArm", from: 12, to: 14),
         BoneDef(node: "mixamorig_RightForeArm", childNode: "mixamorig_RightHand",    from: 14, to: 16),
-        // 左腿
+        // Left leg
         BoneDef(node: "mixamorig_LeftUpLeg",    childNode: "mixamorig_LeftLeg",     from: 23, to: 25),
         BoneDef(node: "mixamorig_LeftLeg",      childNode: "mixamorig_LeftFoot",    from: 25, to: 27),
-        // 右腿
+        // Right leg
         BoneDef(node: "mixamorig_RightUpLeg",   childNode: "mixamorig_RightLeg",    from: 24, to: 26),
         BoneDef(node: "mixamorig_RightLeg",     childNode: "mixamorig_RightFoot",   from: 26, to: 28),
-        // 注：头/脖子驱动会把头甩到后面（鼻子相对肩中心的朝向不稳），先不驱动，头保持朝前更自然。
+        // Note: driving the head/neck throws the head backwards (the nose direction relative to the shoulder center is unstable), so it stays undriven - a forward-facing head looks more natural.
     ]
 
-    /// 虚拟关节点索引：100=肩中心, 101=髋中心
+    /// Virtual landmark indices: 100 = shoulder center, 101 = hip center
     static let shoulderCenter = 100
     static let hipCenter = 101
 
     static let rootNode = "mixamorig_Hips"
 }
 
-/// 骨骼命名方案：同一套重定向逻辑，适配不同来源的骨架命名（Mixamo / VRM）。
-/// 让 VRoid(VRM) 模型也能被现有的 Mixamo 动捕舞蹈驱动。
+/// Bone naming scheme: one retargeting implementation adapted to skeletons from different sources (Mixamo / VRM).
+/// Lets VRoid (VRM) models be driven by the existing Mixamo mocap dances as well.
 struct BoneScheme {
-    let bones: [MixamoBoneMap.BoneDef]   // 8 根肢体骨（角色驱动）
-    // 姿态旋正 / 取景用
+    let bones: [MixamoBoneMap.BoneDef]   // 8 limb bones (character drive)
+    // Used for pose normalization and framing
     let hips: String
     let head: String
     let leftShoulder: String
     let rightShoulder: String
     let leftFoot: String
-    let spine: String   // 驱动躯干扭动/前倾的脊柱骨（髋与肩之间）
-    // 躯干坐标系用
+    let spine: String   // Spine bone that drives torso twist and lean (between hips and shoulders)
+    // Used for the torso frame
     let leftArm: String
     let rightArm: String
     let leftUpLeg: String
     let rightUpLeg: String
 
-    /// Mixamo（我们自带角色）
+    /// Mixamo (our bundled characters)
     static let mixamo = BoneScheme(
         bones: MixamoBoneMap.bones,
         hips: "mixamorig_Hips", head: "mixamorig_Head",
@@ -74,7 +74,7 @@ struct BoneScheme {
         leftArm: "mixamorig_LeftArm", rightArm: "mixamorig_RightArm",
         leftUpLeg: "mixamorig_LeftUpLeg", rightUpLeg: "mixamorig_RightUpLeg")
 
-    /// VRM（VRoid 导出，J_Bip_ 命名）
+    /// VRM (VRoid export, J_Bip_ naming)
     static let vrm = BoneScheme(
         bones: [
             .init(node: "J_Bip_L_UpperArm", childNode: "J_Bip_L_LowerArm", from: 11, to: 13),

@@ -2,12 +2,12 @@
 //  CharacterThumb.swift
 //  Animo3D
 //
-//  角色 3D 缩略图。实际渲染/缓存在 ThumbRenderer 里(全局串行 + 三级缓存)。
+//  Character 3D thumbnail. The actual rendering and caching live in ThumbRenderer (globally serial + three-tier cache).
 //
 
 import SwiftUI
 
-/// 按角色 key 找到实际模型文件（.scn 或 .usdz）。
+/// Finds the actual model file (.scn or .usdz) for a character key.
 func characterModelFile(_ key: String) -> String {
     for ext in ["scn", "usdz"] {
         if Bundle.main.url(forResource: key, withExtension: ext) != nil { return "\(key).\(ext)" }
@@ -15,7 +15,7 @@ func characterModelFile(_ key: String) -> String {
     return "\(key).scn"
 }
 
-/// 角色缩略图视图：优先用缓存，没有则后台渲染。
+/// Character thumbnail view: prefers the cache, and renders in the background when there is no hit.
 struct CharacterThumbView: View {
     let characterKey: String
     var tint: Color = .accentColor

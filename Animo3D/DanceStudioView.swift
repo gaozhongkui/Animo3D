@@ -2,8 +2,8 @@
 //  DanceStudioView.swift
 //  Animo3D
 //
-//  舞蹈工作室：选角色 + 选舞蹈 → 角色跳起来。
-//  角色 .scn 与舞蹈 .json 均来自 App 包，清单由 manifest.json 描述（后续可换成网络下载）。
+//  Dance Studio: Select Character + Select Dance -> Character starts dancing.
+//  Character .scn and dance .json are both from the App bundle; the list is described by manifest.json (can be replaced with network downloads later).
 //
 
 import SwiftUI
@@ -19,8 +19,8 @@ struct Catalog: Decodable {
     let characters: [CatalogItem]
     let dances: [CatalogItem]
 
-    /// manifest.json 是只读的静态清单,全局解析一次即可。
-    /// 以前写成 View 的存储属性,SwiftUI 每次重建 struct 都要重读重解一遍。
+    /// manifest.json is a read-only static manifest, parsing it once globally is enough.
+    /// Previously written as a stored property of the View, SwiftUI would re-read and re-parse it every time the struct was rebuilt.
     static let shared = load()
 
     static func load() -> Catalog {
@@ -33,20 +33,20 @@ struct Catalog: Decodable {
     }
 }
 
-/// 管理当前角色 + 播放的舞蹈。
+/// Manage the current character + the dance being played.
 final class DanceStage: ObservableObject {
     let controller: CharacterSceneController = {
         let c = CharacterSceneController()
-        c.groundEnabled = true   // 表演页显示地面+阴影
+        c.groundEnabled = true   // Performance page shows ground + shadows
         return c
     }()
     private var retargeter: PoseRetargeter?
     private var player: MocapPlayer?
     private var vroidPlayer: VRoidClipPlayer?
 
-    /// 加载角色 + 舞蹈。**重活全在后台线程**：
-    /// 模型解析(10~60MB)与舞蹈数据解析(vr_*.json 最大 2.5MB)都不占主线程,
-    /// 只有挂节点/建播放器这点轻活回主线程 —— 这是"进舞台页卡一下"的正解。
+    /// Load character + dance. **All heavy lifting is on background threads**:
+    /// Model parsing (10~60MB) and dance data parsing (vr_*.json up to 2.5MB) do not occupy the main thread,
+    /// only lightweight tasks like attaching nodes/creating players return to the main thread — this is the solution to "lag when entering the stage page".
     @MainActor
     func load(character: String, dance: String) async {
         player?.stop(); vroidPlayer?.stop()
@@ -56,12 +56,12 @@ final class DanceStage: ObservableObject {
         let loaded = await Task.detached(priority: .userInitiated) {
             CharacterSceneController.loadSceneFile(named: file, warmUp: true)
         }.value
-        guard let loaded else { NSLog("[DanceStage] 模型加载失败 %@", file); return }
-        controller.install(loaded)   // 复用场景，换模型(.scn/.usdz)
+        guard let loaded else { NSLog("[DanceStage] failed to load model %@", file); return }
+        controller.install(loaded)   // Reuse scene, change model (.scn/.usdz)
         NSLog("[DanceStage] load char=%@ isVRM=%d dance=%@", character, controller.isVRM ? 1 : 0, dance)
 
         if controller.isVRM {
-            // VRoid：完整骨骼动画(three-vrm 重定向导出的四元数 JSON)
+            // VRoid: Full skeletal animation (quaternion JSON exported by three-vrm retargeting)
             retargeter = nil
             let name = "vr_\(dance)"
             let clip = await Task.detached(priority: .userInitiated) {
@@ -85,7 +85,7 @@ final class DanceStage: ObservableObject {
         }
     }
 
-    /// 屏幕↔AR 切换后重新采样静止姿态。
+    /// Re-sample the static pose after switching between Screen and AR.
     func resetRetarget() { retargeter?.resetCapture() }
 
     func stop() {
@@ -116,11 +116,11 @@ struct DanceStudioView: View {
     @State private var shareURL: URL?
     @State private var showShare = false
     @State private var showAudioDoc = false
-    @State private var processing = false   // 合成音乐中
-    @State private var loading = false      // 加载角色/舞蹈中(模型+动画在后台解析)
-    @State private var zoomChar: CatalogItem?   // 角色放大预览
-    @State private var zoomDance: CatalogItem?  // 舞蹈放大预览
-    @State private var vfx = DanceVFX()         // 舞台特效
+    @State private var processing = false   // Mixing music
+    @State private var loading = false      // Loading character/dance (model + animation parsing in background)
+    @State private var zoomChar: CatalogItem?   // Character zoom preview
+    @State private var zoomDance: CatalogItem?  // Dance zoom preview
+    @State private var vfx = DanceVFX()         // Stage VFX
     @State private var vfxOn = true
     @State private var vfxPreset = 0
 
@@ -128,19 +128,19 @@ struct DanceStudioView: View {
 
     var body: some View {
         ZStack {
-            // 最底层背景，永远静止，消除白闪
+            // Bottom background layer, always static, eliminates white flashes
             Color(.systemBackground).ignoresSafeArea()
 
             if step == .perform {
-                // 表演页：全屏沉浸，独立布局
+                // Performance page: Fullscreen immersion, independent layout
                 performStep
             } else {
-                // 向导页：标准的 页眉 + 内容 + 页脚 结构
+                // Wizard page: Standard Header + Content + Footer structure
                 VStack(spacing: 0) {
                     stepHeader
                         .padding(.top, 10)
 
-                    // 内容区：使用 if/else 保证视图 Identity 稳定，防止布局崩塌
+                    // Content area: Use if/else to ensure stable View identity and prevent layout collapse
                     ZStack {
                         if step == .character {
                             characterStep
@@ -159,11 +159,11 @@ struct DanceStudioView: View {
                 }
             }
         }
-        // 统一使用一个简单的标准动画，移除所有嵌套的 withAnimation
+        // Use one simple standard animation throughout and drop all the nested withAnimation calls
         .animation(.default, value: step)
         .overlay { if loading { loadingHUD } }
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .navigationBar)   // 自带统一的返回/关闭按钮
+        .toolbar(.hidden, for: .navigationBar)   // It ships its own unified back/close button
         .sheet(isPresented: $showShare) { if let url = shareURL { ShareSheet(items: [url]) } }
         .sheet(isPresented: $showAudioDoc) {
             AudioDoc { url in
@@ -171,8 +171,8 @@ struct DanceStudioView: View {
             }
         }
         .onAppear(perform: setupInitial)
-        // 音乐只该在「选音乐(试听)」和「表演」时响：任何路径退回前两步都收掉,
-        // 避免每个跳转点各写一遍 music.stop() 漏掉某条路。
+        // Music should only play during "Select Music (audition)" and "Performance": stop it if navigating back to the first two steps,
+        // to avoid writing music.stop() at every jump point and potentially missing a path.
         .onChange(of: step) { s in
             if s == .character || s == .dance { music.stop() }
         }
@@ -187,7 +187,7 @@ struct DanceStudioView: View {
         }
     }
 
-    /// 加载角色/舞蹈时的遮罩(模型几十 MB,后台解析要一会儿,不给反馈会被当成卡死)。
+    /// Mask when loading character/dance (model is dozens of MBs, background parsing takes a while, without feedback it might seem stuck).
     private var loadingHUD: some View {
         ZStack {
             Color.black.opacity(0.45).ignoresSafeArea()
@@ -201,9 +201,9 @@ struct DanceStudioView: View {
         .transition(.opacity)
     }
 
-    // MARK: 步骤头部（进度）
+    // MARK: Step header (progress)
     private var stepHeader: some View {
-        let titles = ["Select Character", "Select Dance", "Select Music", "Start Performance"]
+        let titles: [LocalizedStringKey] = ["Select Character", "Select Dance", "Select Music", "Start Performance"]
         return VStack(spacing: 16) {
             HStack(spacing: 20) {
                 circleButton(step == .character ? "xmark" : "chevron.left") { back() }
@@ -218,7 +218,7 @@ struct DanceStudioView: View {
 
                 Spacer()
 
-                // 进度圆环或简约进度条
+                // Progress ring or minimalist progress bar
                 HStack(spacing: 4) {
                     ForEach(0..<4) { i in
                         Capsule()
@@ -238,17 +238,17 @@ struct DanceStudioView: View {
 
     private func back() {
         switch step {
-        case .character: dismiss()          // 第一步返回=退出工作室
+        case .character: dismiss()          // Back from first step = exit studio
         case .dance:     step = .character
         case .music:     step = .dance
-        case .perform:                      // 舞台页返回=直接回主页,不退回选音乐
-            if recorder.isRecording { recorder.stop { _ in } }   // 录制中直接丢弃,别让写入器悬着
+        case .perform:                      // Back from performance page = return directly to home, don't return to music selection
+            if recorder.isRecording { recorder.stop { _ in } }   // Discard if recording, don't leave the writer hanging
             music.stop(); vfx.remove()
             dismiss()
         }
     }
 
-    // MARK: 步骤1 选角色
+    // MARK: Step 1 - select character
     private var characterStep: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
@@ -298,12 +298,12 @@ struct DanceStudioView: View {
         }
     }
 
-    // 选动作预览：用当前已选中的角色(没选到则用兜底模型)
+    // Action selection preview: Use currently selected character (fallback model if none selected)
     private var previewModel: String {
         character.isEmpty ? "vroid_preview.usdz" : characterModelFile(character)
     }
 
-    /// 每支舞的副标题（BPM · 风格），由名字确定性生成,仅作展示氛围。
+    /// Subtitle for each dance (BPM · style), deterministically generated from the name, just for atmosphere.
     private func danceMeta(_ key: String) -> String {
         let styles = ["Pop", "Hip Hop", "House", "Jazz", "K-Pop", "EDM"]
         let hash = abs(key.hashValue)
@@ -311,7 +311,7 @@ struct DanceStudioView: View {
         return "\(bpm) BPM · \(styles[hash % styles.count])"
     }
 
-    // MARK: 步骤2 选舞蹈（每张卡展示女孩摆出该动作）
+    // MARK: Step 2 Select Dance (Each card shows the character striking that pose)
     private var danceStep: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
@@ -362,7 +362,7 @@ struct DanceStudioView: View {
         }
     }
 
-    // MARK: 步骤3 选音乐
+    // MARK: Step 3 - select music
     private var musicStep: some View {
         ScrollView {
             VStack(spacing: 10) {
@@ -384,19 +384,19 @@ struct DanceStudioView: View {
     }
 
     private func trackRow(_ t: MusicTrack) -> some View {
-        musicRow(title: t.name, system: "music.note", selected: selectedMusic?.id == t.id) {
+        musicRow(title: LocalizedStringKey(t.name), system: "music.note", selected: selectedMusic?.id == t.id) {
             select(music: t)
         }
     }
-    private func sectionLabel(_ s: String) -> some View {
+    private func sectionLabel(_ s: LocalizedStringKey) -> some View {
         Text(s).font(.caption).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 6).padding(.leading, 4)
     }
-    private func musicRow(title: String, system: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    private func musicRow(title: LocalizedStringKey, system: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) { musicRowLabel(title: title, system: system, selected: selected, tint: .accentColor) }
             .buttonStyle(.plain)
     }
-    private func musicRowLabel(title: String, system: String, selected: Bool, tint: Color) -> some View {
+    private func musicRowLabel(title: LocalizedStringKey, system: String, selected: Bool, tint: Color) -> some View {
         HStack(spacing: 16) {
             Image(systemName: system)
                 .font(.system(size: 18, weight: .bold))
@@ -428,7 +428,7 @@ struct DanceStudioView: View {
         .shadow(color: .black.opacity(selected ? 0.05 : 0), radius: 5, y: 2)
     }
 
-    // MARK: 步骤4 表演
+    // MARK: Step 4 - perform
     private var performStep: some View {
         ZStack {
             Group {
@@ -441,7 +441,7 @@ struct DanceStudioView: View {
             .id(arMode)
             .ignoresSafeArea()
 
-            // AR 引导：如果开启了 AR 模式，但尚未成功检测平面或放置，显示引导
+            // AR guidance: when AR mode is on but no plane has been detected or placement made yet, show the guide
             if arMode {
                 ARCoachView()
                     .transition(.opacity)
@@ -475,7 +475,7 @@ struct DanceStudioView: View {
         }
     }
 
-    // 场景选择条：舞台 vs 天空
+    // Scene selection bar: Studio vs Sky
     private var sceneSelectionBar: some View {
         HStack(spacing: 12) {
             sceneChip(type: .studio, title: "Studio", icon: "house.fill")
@@ -484,11 +484,11 @@ struct DanceStudioView: View {
         .padding(.bottom, 10)
     }
 
-    private func sceneChip(type: CharacterSceneController.BackgroundType, title: String, icon: String) -> some View {
+    private func sceneChip(type: CharacterSceneController.BackgroundType, title: LocalizedStringKey, icon: String) -> some View {
         let on = stage.controller.backgroundType == type
         return Button {
             stage.controller.backgroundType = type
-            stage.objectWillChange.send() // 强制刷新 UI 以更新按钮状态
+            stage.objectWillChange.send() // Force UI refresh to update button state
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: icon).font(.caption2)
@@ -509,13 +509,13 @@ struct DanceStudioView: View {
         .buttonStyle(.plain)
     }
 
-    // 底部特效选择条(参考拍摄类产品：横滑 chips + 中间大录制键)
+    // Bottom VFX selection bar (referencing camera products: horizontal chips + large record button in the middle)
     private var vfxBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 vfxChip(title: "Off", icon: "nosign", on: !vfxOn) { vfxOn = false; installVFX() }
                 ForEach(Array(VFXPreset.all.enumerated()), id: \.offset) { i, p in
-                    vfxChip(title: p.name, icon: "sparkles", on: vfxOn && vfxPreset == i) {
+                    vfxChip(title: LocalizedStringKey(p.name), icon: "sparkles", on: vfxOn && vfxPreset == i) {
                         vfxOn = true; vfxPreset = i; installVFX()
                     }
                 }
@@ -524,7 +524,7 @@ struct DanceStudioView: View {
         }
     }
 
-    private func vfxChip(title: String, icon: String, on: Bool, action: @escaping () -> Void) -> some View {
+    private func vfxChip(title: LocalizedStringKey, icon: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: icon).font(.caption2)
@@ -552,7 +552,7 @@ struct DanceStudioView: View {
                 recorder.stop { url in
                     guard let url else { return }
                     let watermark = !ProStore.shared.isPro
-                    // 有音乐 或 需要水印 → 走导出;否则直接保存
+                    // Has music or needs watermark -> proceed to export; otherwise save directly
                     if selectedMusic != nil || watermark {
                         processing = true
                         Task {
@@ -591,11 +591,11 @@ struct DanceStudioView: View {
         .disabled(processing)
     }
 
-    // MARK: 底部主按钮
+    // MARK: Bottom primary button
     private var bottomBar: some View {
         Button(action: next) {
             HStack(spacing: 8) {
-                Text(loading ? "资源准备中…" : (step == .music ? "开始舞台表演" : "下一步"))
+                Text(loading ? "Preparing assets…" : (step == .music ? "Start Performance" : "Next"))
                 if !loading {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 14, weight: .bold))
@@ -629,15 +629,15 @@ struct DanceStudioView: View {
         }
     }
 
-    // MARK: 逻辑
+    // MARK: Logic
     private func setupInitial() {
         if let ic = initialCharacter, catalog.characters.contains(where: { $0.key == ic }) { character = ic }
         if let id = initialDance, catalog.dances.contains(where: { $0.key == id }) { dance = id }
-        // 从角色库带入角色 → 直接到选舞蹈,并默认选中第一支舞
+        // Brought in a character from the library -> go directly to dance selection, and select the first dance by default
         if !character.isEmpty && initialCharacter != nil { step = .dance; ensureDefaultDance() }
     }
 
-    /// 进入选舞蹈时,若还没选,默认选第一支。
+    /// When entering dance selection, if none is selected, default to the first one.
     private func ensureDefaultDance() {
         if dance.isEmpty { dance = catalog.dances.first?.key ?? "" }
     }
@@ -665,13 +665,13 @@ struct DanceStudioView: View {
         }
     }
 
-    /// 安装/刷新舞台特效(挂到角色屏幕场景,读音乐能量脉动)。
+    /// Install/refresh stage VFX (attach to character screen scene, read music energy pulses).
     private func installVFX() {
         vfx.remove()
         let cam = stage.controller.cameraNode?.camera
         guard vfxOn else { cam?.bloomIntensity = 0; return }
-        // Bloom 辉光后处理：只让超亮的发光粒子产生柔和光晕(高阈值,避免角色白衣过曝)
-        // 低端机(DeviceTier)关闭 bloom,消除全屏高斯模糊带来的卡顿。
+        // Bloom post-processing: Only let ultra-bright glowing particles produce a soft halo (high threshold to avoid overexposing character's white clothes)
+        // Disable bloom on low-end devices (DeviceTier) to eliminate lag from fullscreen Gaussian blur.
         cam?.bloomIntensity = DeviceTier.bloomIntensity
         cam?.bloomThreshold = 0.92
         cam?.bloomBlurRadius = 14
@@ -685,11 +685,11 @@ struct DanceStudioView: View {
     private func select(music track: MusicTrack) {
         HapticManager.selection()
         selectedMusic = track
-        music.play(track)   // 试听
+        music.play(track)   // Audition
     }
 }
 
-/// AR 引导组件：在用户未放置角色时显示。
+/// AR coaching component: Displayed when the user has not placed the character.
 struct ARCoachView: View {
     @State private var isAnimating = false
 

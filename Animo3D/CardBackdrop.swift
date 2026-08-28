@@ -2,7 +2,7 @@
 //  CardBackdrop.swift
 //  Animo3D
 //
-//  舞蹈卡片的装饰背景：散景 / 闪光 / 爱心 / 星星 / 彩虹，按序轮换，比纯渐变有质感。
+//  Decorative backgrounds for dance cards: bokeh / sparkle / hearts / stars / rainbow, cycled in order, which reads richer than a plain gradient.
 //
 
 import SwiftUI
@@ -38,20 +38,20 @@ struct CardBackdrop: View {
     @ViewBuilder
     private func motifs(w: CGFloat, h: CGFloat) -> some View {
         switch s {
-        case 0: // 散景
+        case 0: // Bokeh
             blob(hex(0x6EE7FF), 0.55*w, 0.22, 0.20)
             blob(hex(0xB794FF), 0.6*w, 0.75, 0.30)
             blob(hex(0x5A7BFF), 0.45*w, 0.5, 0.7)
-        case 1: // 闪光
+        case 1: // Sparkle
             sym("sparkle", 22, 0.25, 0.22); sym("sparkle", 14, 0.7, 0.35)
             sym("sparkle", 18, 0.5, 0.72); sym("sparkle", 12, 0.8, 0.8)
-        case 2: // 爱心
+        case 2: // Hearts
             sym("heart.fill", 20, 0.22, 0.24); sym("heart.fill", 13, 0.75, 0.3)
             sym("heart.fill", 16, 0.5, 0.7); sym("heart.fill", 11, 0.82, 0.78)
-        case 3: // 星星
+        case 3: // Stars
             sym("star.fill", 20, 0.24, 0.22); sym("star.fill", 13, 0.72, 0.32)
             sym("star.fill", 15, 0.48, 0.72); sym("star.fill", 11, 0.8, 0.8)
-        default: // 彩虹上加点闪光
+        default: // Rainbow with a touch of sparkle
             sym("sparkle", 18, 0.3, 0.25); sym("sparkle", 13, 0.72, 0.7)
         }
     }
@@ -71,7 +71,7 @@ struct CardBackdrop: View {
     }
 }
 
-/// 按父容器比例定位。
+/// Positioned as a fraction of the parent container.
 private struct PositionFrac: ViewModifier {
     let fx: CGFloat; let fy: CGFloat
     func body(content: Content) -> some View {

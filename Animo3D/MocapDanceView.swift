@@ -2,15 +2,15 @@
 //  MocapDanceView.swift
 //  Animo3D
 //
-//  预制舞蹈：加载采样好的 Mixamo 动捕关节位置(JSON)，逐帧喂给重定向器驱动角色。
-//  绕开苹果的动画导入问题，复用已验证的 body-frame 重定向。
+//  Prebuilt dances: loads sampled Mixamo mocap joint positions (JSON) and feeds them frame by frame to the retargeter to drive the character.
+//  This sidesteps Apple's animation import problems and reuses the proven body-frame retargeting.
 //
 
 import SwiftUI
 import SceneKit
 import simd
 
-/// 一段动捕：每帧 33 个关节位置。
+/// One mocap take: 33 joint positions per frame.
 struct MocapClip {
     let fps: Double
     let frames: [[simd_float3]]
@@ -27,7 +27,7 @@ struct MocapClip {
     }
 }
 
-/// 用 DisplayLink 逐帧播放动捕，驱动重定向器。
+/// Plays the mocap frame by frame with a DisplayLink, driving the retargeter.
 final class MocapPlayer {
     private let frames: [[simd_float3]]
     private let retargeter: PoseRetargeter
@@ -60,7 +60,7 @@ struct MocapDanceView: View {
     private let character = CharacterSceneController()
     @State private var retargeter: PoseRetargeter?
     @State private var player: MocapPlayer?
-    @State private var status = "加载中…"
+    @State private var status = L("Loading…")
 
     var body: some View {
         VStack {
@@ -77,11 +77,11 @@ struct MocapDanceView: View {
         retargeter = rt
         guard let url = Bundle.main.url(forResource: "hiphop", withExtension: "json"),
               let clip = MocapClip.load(url) else {
-            status = "找不到动捕数据"; return
+            status = L("Mocap data not found"); return
         }
         let p = MocapPlayer(frames: clip.frames, retargeter: rt)
         player = p
         p.start()
-        status = "骨骼 \(bones.count) · 帧 \(clip.frames.count) · Hip Hop"
+        status = String(format: L("Bones %d · Frames %d · Hip Hop"), bones.count, clip.frames.count)
     }
 }

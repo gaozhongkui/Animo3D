@@ -2,7 +2,7 @@
 //  VideoAudioMixer.swift
 //  Animo3D
 //
-//  导出作品：合成 视频 + (可选)背景音乐 + (非会员)右下角 "Animo3D" 水印。
+//  Export Work: Mix Video + (Optional) Background Music + (Non-member) "Animo3D" watermark in bottom right corner.
 //
 
 import Foundation
@@ -10,7 +10,7 @@ import AVFoundation
 import UIKit
 
 enum VideoAudioMixer {
-    /// 导出最终作品。audio 为 nil 则不加音乐；watermark=true 时右下角打 "Animo3D"。
+    /// Export final work. No music if audio is nil; add "Animo3D" watermark in the bottom right corner if watermark is true.
     static func export(video videoURL: URL, audio audioURL: URL?, watermark: Bool) async -> URL? {
         let comp = AVMutableComposition()
         let videoAsset = AVURLAsset(url: videoURL)
@@ -27,7 +27,7 @@ enum VideoAudioMixer {
             try vTrack.insertTimeRange(CMTimeRange(start: .zero, duration: vDur), of: vSrc, at: .zero)
             vTrack.preferredTransform = transform
 
-            // 背景音乐（循环铺满）
+            // Background music (loop to fill)
             if let audioURL {
                 let audioAsset = AVURLAsset(url: audioURL)
                 if let aSrc = try await audioAsset.loadTracks(withMediaType: .audio).first {
@@ -49,7 +49,7 @@ enum VideoAudioMixer {
             export.outputURL = out
             export.outputFileType = .mp4
 
-            // 水印：用 CoreAnimation 图层在右下角叠加产品名
+            // Watermark: Use CoreAnimation layer to overlay product name in bottom right corner
             if watermark {
                 let renderSize = naturalSize.applying(transform)
                 let size = CGSize(width: abs(renderSize.width), height: abs(renderSize.height))
@@ -66,10 +66,10 @@ enum VideoAudioMixer {
                 }
             }
             if export.status == .completed { return out }
-            print("[Export] 失败: \(export.error?.localizedDescription ?? "unknown")")
+            print("[Export] failed: \(export.error?.localizedDescription ?? "unknown")")
             return nil
         } catch {
-            print("[Export] 异常: \(error.localizedDescription)")
+            print("[Export] error: \(error.localizedDescription)")
             return nil
         }
     }
@@ -86,7 +86,7 @@ enum VideoAudioMixer {
         instr.layerInstructions = [layerInstr]
         vc.instructions = [instr]
 
-        // 图层树：视频层 + 水印文字层
+        // Layer tree: Video layer + Watermark text layer
         let parent = CALayer(); parent.frame = CGRect(origin: .zero, size: size)
         let videoLayer = CALayer(); videoLayer.frame = parent.frame
         parent.addSublayer(videoLayer)
@@ -103,7 +103,7 @@ enum VideoAudioMixer {
         text.contentsScale = 2
         let margin = size.height * 0.02
         let tw = fontSize * 5.2, th = fontSize * 1.4
-        text.frame = CGRect(x: size.width - tw - margin, y: margin, width: tw, height: th) // 右下角(视频坐标系原点在左下)
+        text.frame = CGRect(x: size.width - tw - margin, y: margin, width: tw, height: th) // Bottom right corner (video coordinate system origin is bottom left)
         parent.addSublayer(text)
 
         vc.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer, in: parent)

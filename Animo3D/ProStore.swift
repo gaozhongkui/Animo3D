@@ -2,8 +2,8 @@
 //  ProStore.swift
 //  Animo3D
 //
-//  极简变现：一次性永久买断 $2.99，唯一权益=去掉视频右下角水印。
-//  免费用户导出的视频带 "Animo3D" 水印（也是免费传播）。真实付款接 StoreKit,这里先本地。
+//  Minimal monetization: a one-time $2.99 lifetime purchase whose only benefit is removing the watermark in the video's bottom-right corner.
+//  Videos exported by free users carry the "Animo3D" watermark (which doubles as free promotion). Real payments will go through StoreKit; this is local for now.
 //
 
 import Foundation
@@ -16,7 +16,7 @@ final class ProStore: ObservableObject {
 
     private init() { isPro = UserDefaults.standard.bool(forKey: key) }
 
-    /// 解锁 Pro（TODO: 接 StoreKit 真实购买后调用）。
+    /// Unlocks Pro (TODO: call this after wiring up the real StoreKit purchase).
     func unlock() {
         isPro = true
         UserDefaults.standard.set(true, forKey: key)
@@ -24,7 +24,7 @@ final class ProStore: ObservableObject {
 
     let price = "$2.99"
 
-    // 免费额度：前 N 个角色/舞蹈免费，其余 Pro 解锁
+    // Free allowance: the first N characters/dances are free, the rest need Pro
     let freeCharacters = 3
     let freeDances = 6
     func characterLocked(_ index: Int) -> Bool { !isPro && index >= freeCharacters }
