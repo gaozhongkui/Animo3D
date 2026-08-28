@@ -21,7 +21,9 @@ struct WebView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
-        let request = URLRequest(url: url)
-        uiView.load(request)
+        // Only load when the target actually changes - updateUIView runs on every
+        // SwiftUI update, and reloading each time restarted the embed mid-view.
+        guard uiView.url != url, !uiView.isLoading else { return }
+        uiView.load(URLRequest(url: url))
     }
 }

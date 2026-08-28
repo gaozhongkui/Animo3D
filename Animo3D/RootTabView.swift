@@ -104,19 +104,20 @@ struct ModelCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ZStack(alignment: .bottomTrailing) {
-                AsyncImage(url: URL(string: model.bestThumbnail ?? "")) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    ZStack {
-                        Color(.secondarySystemBackground)
-                        Image(systemName: "cube.transparent")
-                            .font(.system(size: 30))
-                            .foregroundStyle(.tertiary)
+                Color(.secondarySystemBackground)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 150)
+                    .overlay {
+                        AsyncImage(url: URL(string: model.bestThumbnail ?? "")) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            Image(systemName: "cube.transparent")
+                                .font(.system(size: 30))
+                                .foregroundStyle(.tertiary)
+                        }
                     }
-                }
-                .frame(height: 150)
-                .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
 
                 // Elegant badge
                 HStack(spacing: 4) {
@@ -167,7 +168,14 @@ struct ModelDetailView: View {
                     // Top main display area: Default static image, tap to open interactive 3D
                     ZStack(alignment: .bottom) {
                         if show3DPreview, let url = URL(string: model.embedUrl) {
-                            WebView(url: url)
+                            ZStack {
+                                // The web view is transparent, so this placeholder covers the few
+                                // seconds the embed needs to load instead of flashing a blank box.
+                                Color(.secondarySystemBackground)
+                                ProgressView()
+                                WebView(url: url)
+                            }
+                                .frame(maxWidth: .infinity)
                                 .frame(height: 400)
                                 .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
                                 .overlay(alignment: .topTrailing) {
@@ -181,17 +189,23 @@ struct ModelDetailView: View {
                                     }
                                 }
                         } else {
-                            AsyncImage(url: URL(string: model.bestThumbnail ?? "")) { image in
-                                image.resizable().scaledToFill()
-                            } placeholder: {
-                                Color(.secondarySystemBackground)
-                                    .overlay(Image(systemName: "cube.fill").font(.largeTitle).foregroundStyle(.tertiary))
-                            }
-                            .frame(height: 400)
-                            .frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
-                            .contentShape(Rectangle())
-                            .onTapGesture { show3DPreview = true }
+                            // A scaled-to-fill image reports its own oversized width, which used to
+                            // stretch the whole page far wider than the screen. Kept as an overlay on a
+                            // fixed-size container, it can no longer influence layout.
+                            Color(.secondarySystemBackground)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 400)
+                                .overlay {
+                                    AsyncImage(url: URL(string: model.bestThumbnail ?? "")) { image in
+                                        image.resizable().scaledToFill()
+                                    } placeholder: {
+                                        Image(systemName: "cube.fill").font(.largeTitle).foregroundStyle(.tertiary)
+                                    }
+                                }
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+                                .contentShape(Rectangle())
+                                .onTapGesture { show3DPreview = true }
 
                             LinearGradient(colors: [.clear, .black.opacity(0.4)],
                                            startPoint: .center, endPoint: .bottom)
@@ -206,6 +220,7 @@ struct ModelDetailView: View {
                             .padding(.horizontal, 20).padding(.vertical, 12)
                             .background(.ultraThinMaterial, in: Capsule())
                             .padding(.bottom, 24)
+                            .allowsHitTesting(false)   // The whole image is the tap target; the hint must not swallow it
                         }
 
                         if arLoading { DownloadOverlay(progress: arProgress) }
