@@ -405,7 +405,7 @@ struct DanceStudioView: View {
 
             Text(title)
                 .font(.system(size: 16, weight: selected ? .bold : .medium))
-                .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.primary.opacity(0.8)))
+                .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.8))
 
             Spacer()
 
@@ -488,7 +488,14 @@ struct DanceStudioView: View {
             }
             .foregroundStyle(on ? Color.black : Color.white)
             .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(on ? AnyShapeStyle(.white) : AnyShapeStyle(.ultraThinMaterial), in: Capsule())
+            .background {
+                if on {
+                    Color.white
+                } else {
+                    Color.clear.background(.ultraThinMaterial)
+                }
+            }
+            .clipShape(Capsule())
             .overlay(Capsule().stroke(.white.opacity(on ? 0 : 0.25), lineWidth: 0.5))
         }
         .buttonStyle(.plain)
@@ -517,7 +524,14 @@ struct DanceStudioView: View {
             }
             .foregroundStyle(on ? Color.black : Color.white)
             .padding(.horizontal, 14).padding(.vertical, 9)
-            .background(on ? AnyShapeStyle(.white) : AnyShapeStyle(.ultraThinMaterial), in: Capsule())
+            .background {
+                if on {
+                    Color.white
+                } else {
+                    Color.clear.background(.ultraThinMaterial)
+                }
+            }
+            .clipShape(Capsule())
             .overlay(Capsule().stroke(.white.opacity(on ? 0 : 0.25), lineWidth: 0.5))
         }
         .buttonStyle(.plain)
@@ -577,11 +591,13 @@ struct DanceStudioView: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
-            .background(
-                nextEnabled ?
-                AnyShapeStyle(LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.8)], startPoint: .leading, endPoint: .trailing)) :
-                AnyShapeStyle(Color(.systemGray4))
-            )
+            .background {
+                if nextEnabled {
+                    LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
+                } else {
+                    Color(.systemGray4)
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .shadow(color: nextEnabled ? Color.accentColor.opacity(0.3) : .clear, radius: 10, y: 5)
         }
