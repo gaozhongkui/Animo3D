@@ -187,6 +187,34 @@ final class CharacterSceneController: ObservableObject {
     private var floorNode: SCNNode?
     private var contactShadow: SCNNode?
     private var stageRig: SCNNode?              // Spotlight beams + floor light pool (studio stage only)
+
+    /// Music energy for the stage rig, supplied by the player. Same source the particle VFX use.
+    var levelProvider: (() -> Float)?
+    private var beamBodies: [SCNNode] = []          // Pulsed with the music
+    private var beamMaterials: [[SCNMaterial]] = [] // Per beam, recoloured on a beat
+    private var poolBody: SCNNode?
+    private var crowdGlow: [SCNNode] = []
+    private var crowdRows: [(node: SCNNode, baseY: Float, phase: Float)] = []
+    private var wallMaterial: SCNMaterial?
+    private var beatEnv: Float = 0                  // Smoothed level, the baseline a beat rises above
+    private var crowdPhase: Float = 0
+    private var confetti: SCNParticleSystem?
+    private var fireworks: [SCNParticleSystem] = []
+    private var burstFrames = 0            // Frames left in the current burst
+    private var chorusEnv: Float = 0       // Very slow envelope - a chorus is sustained, not a single hit
+    private var chorusCooldown = 0
+    private var stageHeight: Float = 1              // Character height, the unit the rig is built in
+    private var beatCooldown = 0
+    private var paletteShift = 0
+
+    /// Beam colours, rotated by one position on every detected beat.
+    private static let beamPalette: [UIColor] = [
+        UIColor(red: 1.00, green: 0.25, blue: 0.65, alpha: 1),
+        UIColor(red: 0.45, green: 0.35, blue: 1.00, alpha: 1),
+        UIColor(red: 0.25, green: 0.80, blue: 1.00, alpha: 1),
+        UIColor(red: 1.00, green: 0.72, blue: 0.30, alpha: 1),
+        UIColor(red: 0.40, green: 1.00, blue: 0.75, alpha: 1),
+    ]
     private weak var ambientLight: SCNLight?    // Dimmed while the stage rig is lit, so the mood stays dark
     private weak var keyLight: SCNLight?
     private weak var sunLight: SCNLight?
@@ -298,15 +326,20 @@ final class CharacterSceneController: ObservableObject {
     /// background only - the sky stage is meant to read as daylight.
     private func setupStageRig(feetY: Float, center: simd_float3) {
         stageRig?.removeFromParentNode(); stageRig = nil
+        beamBodies.removeAll(); beamMaterials.removeAll(); crowdGlow.removeAll(); crowdRows.removeAll()
+        confetti = nil; fireworks.removeAll(); burstFrames = 0
+        poolBody = nil; wallMaterial = nil
 
         guard groundEnabled, backgroundType == .studio else {
             // Back to the plain lighting used by the sky stage, thumbnails and AR.
             ambientLight?.intensity = 430
             keyLight?.intensity = 700
             sunLight?.intensity = 760
+            scene.lightingEnvironment.contents = nil
             return
         }
         let h = max(modelHeight, 0.1)
+        stageHeight = h
         let rig = SCNNode()
 
         // The stage lamps carry the image; the generic rig only fills the shadows.
@@ -321,12 +354,40 @@ final class CharacterSceneController: ObservableObject {
         let wall = SCNPlane(width: CGFloat(h * 5.2), height: CGFloat(h * 3.4))
         let wm = SCNMaterial()
         wm.lightingModel = .constant                       // A screen emits; it is not lit
-        wm.diffuse.contents = CharacterSceneView.studioBackdrop()
+        wm.diffuse.contents = CharacterSceneView.ledContentTexture
+        wm.diffuse.wrapS = .repeat
+        wm.diffuse.wrapT = .repeat
         wm.isDoubleSided = false
+        // The content scrolls by translating the texture matrix exactly one full repeat, which is
+        // why the pattern has to tile seamlessly top-to-bottom - anything else flashes a seam once
+        // per loop. Cheap: no geometry moves and no texture is re-uploaded.
+        let tile = SCNMatrix4MakeScale(1, 1.6, 1)
+        wm.diffuse.contentsTransform = tile
+        let scroll = CABasicAnimation(keyPath: "contentsTransform")
+        scroll.fromValue = tile
+        scroll.toValue = SCNMatrix4Mult(tile, SCNMatrix4MakeTranslation(0, 1, 0))
+        scroll.duration = 9
+        scroll.repeatCount = .infinity
+        wm.diffuse.addAnimation(scroll, forKey: "ledScroll")
         wall.materials = [wm]
+        wallMaterial = wm
         let wallNode = SCNNode(geometry: wall)
         wallNode.simdPosition = simd_float3(center.x, feetY + h * 1.25, center.z - h * 2.0)
         rig.addChildNode(wallNode)
+
+        // Framing sits on its own plane in front of the screen: the fade into the floor and the
+        // vignette have to stay put. Baking them into the scrolling texture would send a black
+        // band travelling up the wall.
+        let mask = SCNPlane(width: CGFloat(h * 5.2), height: CGFloat(h * 3.4))
+        let mm = SCNMaterial()
+        mm.lightingModel = .constant
+        mm.diffuse.contents = CharacterSceneView.ledMaskTexture
+        mm.writesToDepthBuffer = false
+        mm.isDoubleSided = false
+        mask.materials = [mm]
+        let maskNode = SCNNode(geometry: mask)
+        maskNode.simdPosition = simd_float3(center.x, feetY + h * 1.25, center.z - h * 1.99)
+        rig.addChildNode(maskNode)
 
         // MARK: Truss
         let truss = SCNBox(width: CGFloat(h * 4.0), height: CGFloat(h * 0.07),
@@ -382,6 +443,8 @@ final class CharacterSceneController: ObservableObject {
             }
             beamNode.opacity = 0.8
             pivot.addChildNode(beamNode)
+            beamBodies.append(beamNode)
+            beamMaterials.append(beamNode.childNodes.compactMap { $0.geometry?.firstMaterial })
 
             // Sweep and breathe, each fixture on its own period so they never move as one block.
             let out = SCNAction.rotateBy(x: 0.04, y: 0.18, z: CGFloat(b.x > 0 ? -0.15 : 0.15), duration: b.period)
@@ -389,10 +452,8 @@ final class CharacterSceneController: ObservableObject {
             out.timingMode = .easeInEaseOut; back.timingMode = .easeInEaseOut
             pivot.runAction(.repeatForever(.sequence([out, back])))
 
-            let dim = SCNAction.fadeOpacity(to: 0.5, duration: b.period * 0.37)
-            let up = SCNAction.fadeOpacity(to: 0.95, duration: b.period * 0.51)
-            dim.timingMode = .easeInEaseOut; up.timingMode = .easeInEaseOut
-            beamNode.runAction(.repeatForever(.sequence([dim, up])))
+            // No scripted fade here: brightness is driven by the music every frame instead, and a
+            // running action would keep overwriting it.
 
             rig.addChildNode(pivot)
         }
@@ -444,10 +505,116 @@ final class CharacterSceneController: ObservableObject {
             n.look(at: SCNVector3(center.x, feetY + h * 0.65, center.z))
             return n
         }
-        rig.addChildNode(spot(-0.9, 2.2, 0.9, UIColor(red: 1.0, green: 0.80, blue: 0.93, alpha: 1), 720, 20, 55, shadow: true))
-        rig.addChildNode(spot( 0.9, 2.2, 0.9, UIColor(red: 0.76, green: 0.90, blue: 1.0, alpha: 1), 430, 20, 55))
+        // The cel-shaded VRM path clamps its own diffuse term; the physically based Mixamo
+        // characters do not, and the same intensities clip them to flat white. Their light comes
+        // mostly from the image-based environment below instead.
+        let k: CGFloat = isVRM ? 1.0 : 0.32
+        rig.addChildNode(spot(-0.9, 2.2, 0.9, UIColor(red: 1.0, green: 0.80, blue: 0.93, alpha: 1), 720 * k, 20, 55, shadow: true))
+        rig.addChildNode(spot( 0.9, 2.2, 0.9, UIColor(red: 0.76, green: 0.90, blue: 1.0, alpha: 1), 430 * k, 20, 55))
         // Front fill: without it the face falls into shadow against a bright LED wall.
-        rig.addChildNode(spot( 0.0, 1.35, 1.9, UIColor(red: 1.0, green: 0.98, blue: 0.96, alpha: 1), 540, 26, 62))
+        rig.addChildNode(spot( 0.0, 1.35, 1.9, UIColor(red: 1.0, green: 0.98, blue: 0.96, alpha: 1), 540 * k, 26, 62))
+
+        // Image-based light. SceneKit's physically based materials expect an environment to sit in;
+        // with analytic lights alone they need punishing intensities to read at all, which is what
+        // pushed them into clipping. Lambert (the VRM path) ignores this, so it costs nothing there.
+        scene.lightingEnvironment.contents = CharacterSceneView.studioEnvironment
+        scene.lightingEnvironment.intensity = isVRM ? 0.0 : 1.9
+
+        // MARK: Crowd
+        // Silhouettes give the stage a depth cue nothing else provides: something sits in front of
+        // the wall and behind the performer, so the space reads as a venue rather than a backdrop.
+        // Three strips - one across the back, two angled in from the sides - each a flat card, so
+        // the whole crowd costs six draw calls.
+        func crowdRow(width: Float, at pos: simd_float3, yaw: Float) {
+            let bodies = SCNPlane(width: CGFloat(width), height: CGFloat(width * 0.25))
+            let bmat = SCNMaterial()
+            bmat.lightingModel = .constant
+            bmat.diffuse.contents = CharacterSceneView.crowdTextures.bodies
+            bmat.isDoubleSided = true
+            bmat.writesToDepthBuffer = false          // Never punch a hole in the wall behind them
+            bodies.materials = [bmat]
+            let bnode = SCNNode(geometry: bodies)
+            bnode.simdPosition = pos
+            bnode.eulerAngles = SCNVector3(0, yaw, 0)
+            rig.addChildNode(bnode)
+
+            // Glow sticks on their own additive card, a hair in front, so they can pulse alone.
+            let glow = SCNPlane(width: CGFloat(width), height: CGFloat(width * 0.25))
+            let gmat = SCNMaterial()
+            gmat.lightingModel = .constant
+            gmat.diffuse.contents = CharacterSceneView.crowdTextures.glow
+            gmat.blendMode = .add
+            gmat.isDoubleSided = true
+            gmat.writesToDepthBuffer = false
+            glow.materials = [gmat]
+            let gnode = SCNNode(geometry: glow)
+            gnode.simdPosition = pos + simd_float3(sin(yaw), 0, cos(yaw)) * (h * 0.02)
+            gnode.eulerAngles = SCNVector3(0, yaw, 0)
+            gnode.opacity = 0.7
+            rig.addChildNode(gnode)
+            crowdGlow.append(gnode)
+
+            // Rows bob with the music, each on its own phase so the crowd never moves as one slab.
+            let phase = Float(crowdRows.count) * 1.9
+            crowdRows.append((bnode, pos.y, phase))
+            crowdRows.append((gnode, gnode.simdPosition.y, phase))
+        }
+
+        crowdRow(width: h * 5.0, at: simd_float3(center.x, feetY + h * 0.52, center.z - h * 1.55), yaw: 0)
+        crowdRow(width: h * 3.4, at: simd_float3(center.x - h * 2.0, feetY + h * 0.46, center.z - h * 0.2), yaw: 0.9)
+        crowdRow(width: h * 3.4, at: simd_float3(center.x + h * 2.0, feetY + h * 0.46, center.z - h * 0.2), yaw: -0.9)
+
+        // MARK: Chorus burst - confetti from the rig, fireworks off the wings
+        // Both sit idle at birthRate 0 and are opened up for a few frames when a chorus is
+        // detected. Creating the systems up front keeps the burst instant; building them on the
+        // beat would drop frames exactly when the stage is busiest.
+        let conf = SCNParticleSystem()
+        conf.particleImage = CharacterSceneView.confettiTexture
+        conf.birthRate = 0
+        conf.particleLifeSpan = 4.5
+        conf.particleLifeSpanVariation = 1.5
+        conf.particleSize = CGFloat(h * 0.016)
+        conf.particleSizeVariation = CGFloat(h * 0.007)
+        conf.particleVelocity = CGFloat(h * 0.35)
+        conf.particleVelocityVariation = CGFloat(h * 0.4)
+        conf.spreadingAngle = 55
+        conf.emittingDirection = SCNVector3(0, -1, 0)
+        conf.acceleration = SCNVector3(0, -h * 0.65, 0)          // Flutter down, not plummet
+        conf.particleAngularVelocity = 260
+        conf.particleAngularVelocityVariation = 320
+        conf.particleColorVariation = SCNVector4(0.9, 0.5, 0.4, 0)   // Wide hue spread
+        conf.particleColor = UIColor(red: 1.0, green: 0.55, blue: 0.75, alpha: 1)
+        conf.isLightingEnabled = false
+        conf.emitterShape = SCNBox(width: CGFloat(h * 3.4), height: 0.01, length: CGFloat(h * 1.2), chamferRadius: 0)
+        conf.birthLocation = .volume
+        let confNode = SCNNode()
+        confNode.simdPosition = simd_float3(center.x, feetY + h * 2.35, center.z - h * 0.2)
+        confNode.addParticleSystem(conf)
+        rig.addChildNode(confNode)
+        confetti = conf
+
+        for side in [Float(-1), Float(1)] {
+            let fw = SCNParticleSystem()
+            fw.particleImage = CharacterSceneView.sparkTexture
+            fw.birthRate = 0
+            fw.particleLifeSpan = 1.1
+            fw.particleLifeSpanVariation = 0.5
+            fw.particleSize = CGFloat(h * 0.045)
+            fw.particleVelocity = CGFloat(h * 2.6)
+            fw.particleVelocityVariation = CGFloat(h * 1.1)
+            fw.spreadingAngle = 180                                // A sphere of sparks
+            fw.acceleration = SCNVector3(0, -h * 1.1, 0)
+            fw.blendMode = .additive
+            fw.isLightingEnabled = false
+            fw.stretchFactor = 0.02                                // Slight streak along the travel
+            fw.particleColorVariation = SCNVector4(0.6, 0.4, 0.5, 0)
+            fw.particleColor = UIColor(red: 1.0, green: 0.8, blue: 0.5, alpha: 1)
+            let node = SCNNode()
+            node.simdPosition = simd_float3(center.x + side * h * 1.9, feetY + h * 1.9, center.z - h * 0.9)
+            node.addParticleSystem(fw)
+            rig.addChildNode(node)
+            fireworks.append(fw)
+        }
 
         // MARK: Pool of light on the floor
         let pool = SCNPlane(width: CGFloat(h * 2.4), height: CGFloat(h * 1.3))
@@ -461,6 +628,7 @@ final class CharacterSceneController: ObservableObject {
         poolNode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
         poolNode.simdPosition = simd_float3(center.x, feetY + 0.002, center.z)
         rig.addChildNode(poolNode)
+        poolBody = poolNode
 
         scene.rootNode.addChildNode(rig)
         stageRig = rig
@@ -469,6 +637,66 @@ final class CharacterSceneController: ObservableObject {
     /// Beam texture: a shaft that widens and fades as it falls, soft at both sides. Painted as
     /// greyscale on black - under additive blending black adds nothing, so no alpha handling is
     /// involved and the beam can never darken what is behind it.
+    /// Drives the stage rig from the music, once per rendered frame. SceneKit already calls its
+    /// renderer delegate on every frame it draws, so there is no second display link to own or
+    /// invalidate - it stops on its own when the view goes away.
+    func driveStage() {
+        guard !beamBodies.isEmpty, let level = levelProvider?() else { return }
+        beatEnv = beatEnv * 0.82 + level * 0.18
+
+        // Beams brighten with the music but never go fully dark, or the stage reads as broken.
+        let glow = CGFloat(min(1.0, 0.42 + level * 1.15))
+        for (i, body) in beamBodies.enumerated() {
+            // Alternate fixtures sit slightly lower, so the row pulses as a wave, not a block.
+            let bias: CGFloat = (i % 2 == 0) ? 0 : -0.12
+            body.opacity = max(0.28, glow + bias)
+        }
+
+        if let pool = poolBody {
+            let sc = 1.0 + level * 0.28
+            pool.simdScale = simd_float3(sc, sc, 1)
+            pool.opacity = CGFloat(0.45 + level * 0.55)
+        }
+        for g in crowdGlow { g.opacity = CGFloat(0.45 + level * 0.75) }
+        // Crowd bob: driven by the smoothed level rather than the raw one, so they ride the track
+        // instead of twitching on every transient.
+        crowdPhase += 0.09 + beatEnv * 0.16
+        for row in crowdRows {
+            row.node.simdPosition.y = row.baseY + sin(crowdPhase + row.phase) * (0.012 + beatEnv * 0.05) * stageHeight
+        }
+        // The wall breathes with the track too, but gently - it has to stay behind the performer.
+        wallMaterial?.multiply.contents = UIColor(white: CGFloat(0.85 + level * 0.30), alpha: 1)
+
+        // A chorus is energy that stays up, so it is tested against a very slow envelope - a
+        // single loud hit moves beatEnv but barely moves this one.
+        chorusEnv = chorusEnv * 0.985 + level * 0.015
+        if chorusCooldown > 0 { chorusCooldown -= 1 }
+        if burstFrames > 0 {
+            burstFrames -= 1
+            if burstFrames == 0 {                       // Close the emitters again
+                confetti?.birthRate = 0
+                for fw in fireworks { fw.birthRate = 0 }
+            }
+        } else if chorusEnv > 0.20, level > 0.28, chorusCooldown == 0 {
+            confetti?.birthRate = 900
+            for fw in fireworks { fw.birthRate = 900 }
+            burstFrames = 20                            // Roughly a third of a second of emission
+            chorusCooldown = 60 * 12                    // At most one burst every ~12s
+        }
+
+        if beatCooldown > 0 { beatCooldown -= 1 }
+        // A beat is a level that jumps clear of its own running average - the same test the
+        // particle VFX use, so the lights and the particles hit together.
+        if level > beatEnv * 1.28, level > 0.18, beatCooldown == 0 {
+            beatCooldown = 14
+            paletteShift += 1
+            for (i, mats) in beamMaterials.enumerated() {
+                let colour = Self.beamPalette[(i + paletteShift) % Self.beamPalette.count]
+                for m in mats { m.multiply.contents = colour }
+            }
+        }
+    }
+
     private static let beamTexture: UIImage = {
         let side: CGFloat = 256
         let s = CGSize(width: side, height: side)
@@ -722,9 +950,18 @@ struct CharacterSceneView: UIViewRepresentable {
     var onAttach: (() -> Void)? = nil
     var holder: SceneHolder? = nil
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(controller: controller) }
 
-    final class Coordinator { var framed = false }
+    final class Coordinator: NSObject, SCNSceneRendererDelegate {
+        var framed = false
+        private let controller: CharacterSceneController
+
+        init(controller: CharacterSceneController) { self.controller = controller }
+
+        func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
+            controller.driveStage()
+        }
+    }
 
     func makeUIView(context: Context) -> SCNView {
         // When switching back from AR, reattach character to screen scene and re-sample retargeting
@@ -747,6 +984,7 @@ struct CharacterSceneView: UIViewRepresentable {
         // Our own light rig lights the scene. autoenablesDefaultLighting would add another
         // full-strength omni on top of it, which is what blew the character out to flat white.
         view.autoenablesDefaultLighting = false
+        view.delegate = context.coordinator          // Feeds the music-driven stage rig each frame
         view.rendersContinuously = true      // Continuous rendering to avoid frozen frames after switching
         view.isPlaying = true
         if let cam = controller.cameraNode { view.pointOfView = cam }
@@ -760,38 +998,44 @@ struct CharacterSceneView: UIViewRepresentable {
 
     /// "Stage" background image with vertical gradient + bottom spotlight. Fixed content -> generated once and reused
     /// (previously a 300x650 CG image was redrawn every time updateBackgroundAndGround() was called).
-    static let studioImage: UIImage = makeStudioBackdrop()
     static let skyImage: UIImage = makeSkyBackdrop()
 
-    static func studioBackdrop() -> UIImage { studioImage }
     static func skyBackdrop() -> UIImage { skyImage }
 
     /// The LED back wall: colour bands behind a panel grid, knocked back and vignetted so it
     /// frames the performer instead of flooding the frame.
-    private static func makeStudioBackdrop() -> UIImage {
+    /// LED content. Every row is drawn from a function whose period is exactly the texture
+    /// height, so the top edge matches the bottom edge and the scroll loops invisibly.
+    static let ledContentTexture: UIImage = {
         let size = CGSize(width: 512, height: 288)
         return UIGraphicsImageRenderer(size: size).image { ctx in
             let c = ctx.cgContext
-            let rgb = CGColorSpaceCreateDeviceRGB()
-            c.setFillColor(UIColor.black.cgColor)
-            c.fill(CGRect(origin: .zero, size: size))
-
-            let bands: [(CGFloat, UIColor)] = [
-                (0.10, UIColor(red: 0.95, green: 0.15, blue: 0.55, alpha: 1)),
-                (0.32, UIColor(red: 0.45, green: 0.20, blue: 0.95, alpha: 1)),
-                (0.55, UIColor(red: 0.10, green: 0.65, blue: 0.98, alpha: 1)),
-                (0.78, UIColor(red: 0.55, green: 0.25, blue: 0.95, alpha: 1)),
+            // A closed loop of stops - ending where it starts is what makes the tile seamless.
+            let stops: [(CGFloat, CGFloat, CGFloat)] = [
+                (0.95, 0.15, 0.55),   // magenta
+                (0.45, 0.20, 0.95),   // violet
+                (0.10, 0.65, 0.98),   // cyan
+                (0.45, 0.20, 0.95),   // violet again, closing the ring
             ]
-            for (y, color) in bands {
-                let cols = [color.withAlphaComponent(0.85).cgColor, color.withAlphaComponent(0).cgColor]
-                c.drawRadialGradient(CGGradient(colorsSpace: rgb, colors: cols as CFArray, locations: [0, 1])!,
-                                     startCenter: CGPoint(x: size.width * 0.5, y: size.height * y), startRadius: 0,
-                                     endCenter: CGPoint(x: size.width * 0.5, y: size.height * y),
-                                     endRadius: size.width * 0.55, options: [])
+            let rows = Int(size.height)
+            for y in 0..<rows {
+                let t = CGFloat(y) / CGFloat(rows)
+                let p = t * CGFloat(stops.count)
+                let i = Int(p) % stops.count
+                let j = (i + 1) % stops.count
+                let f = p - floor(p)
+                let a = stops[i], b = stops[j]
+                // Bright bars sweeping through, also on a whole number of cycles
+                let bar = pow(0.5 + 0.5 * sin(t * .pi * 4), 3)
+                let level = 0.30 + 0.70 * bar
+                c.setFillColor(UIColor(red: (a.0 + (b.0 - a.0) * f) * level,
+                                       green: (a.1 + (b.1 - a.1) * f) * level,
+                                       blue: (a.2 + (b.2 - a.2) * f) * level, alpha: 1).cgColor)
+                c.fill(CGRect(x: 0, y: CGFloat(y), width: size.width, height: 1))
             }
 
-            // Panel seams
-            c.setStrokeColor(UIColor(white: 0, alpha: 0.30).cgColor)
+            // Panel seams. 288 / 32 = 9 rows exactly, so the grid tiles along with the colour.
+            c.setStrokeColor(UIColor(white: 0, alpha: 0.32).cgColor)
             c.setLineWidth(1)
             for i in stride(from: 0, through: Int(size.width), by: 32) {
                 c.move(to: CGPoint(x: CGFloat(i), y: 0)); c.addLine(to: CGPoint(x: CGFloat(i), y: size.height))
@@ -801,21 +1045,134 @@ struct CharacterSceneView: UIViewRepresentable {
             }
             c.strokePath()
 
-            // Sink the bottom into black so the wall meets the floor without a seam
-            let fade = [UIColor.clear.cgColor, UIColor.black.cgColor]
-            c.drawLinearGradient(CGGradient(colorsSpace: rgb, colors: fade as CFArray, locations: [0, 0.55])!,
-                                 start: CGPoint(x: 0, y: size.height * 0.45), end: .zero, options: [])
+            // Overall knock-down: the wall must never out-shine the performer
+            c.setFillColor(UIColor(white: 0, alpha: 0.52).cgColor)
+            c.fill(CGRect(origin: .zero, size: size))
+        }
+    }()
 
-            // Vignette, then an overall knock-down: the wall must not out-shine the performer
-            let vig = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.75).cgColor]
-            c.drawRadialGradient(CGGradient(colorsSpace: rgb, colors: vig as CFArray, locations: [0.35, 1])!,
+    /// One confetti flake: a small rounded rectangle, tinted per particle by colour variation.
+    static let confettiTexture: UIImage = {
+        let s = CGSize(width: 64, height: 64)
+        return UIGraphicsImageRenderer(size: s).image { ctx in
+            ctx.cgContext.setFillColor(UIColor.white.cgColor)
+            // Thin strip inside a transparent square: particles are always drawn square, so the
+            // ribbon shape has to live in the texture.
+            ctx.cgContext.addPath(UIBezierPath(roundedRect: CGRect(x: 23, y: 8, width: 18, height: 48),
+                                               cornerRadius: 5).cgPath)
+            ctx.cgContext.fillPath()
+        }
+    }()
+
+    /// Firework spark: a soft dot, bright core fading out, for additive blending.
+    static let sparkTexture: UIImage = {
+        let s = CGSize(width: 64, height: 64)
+        return UIGraphicsImageRenderer(size: s).image { ctx in
+            let cols = [UIColor.white.cgColor,
+                        UIColor.white.withAlphaComponent(0.5).cgColor,
+                        UIColor.white.withAlphaComponent(0).cgColor]
+            ctx.cgContext.drawRadialGradient(
+                CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: cols as CFArray,
+                           locations: [0, 0.35, 1])!,
+                startCenter: CGPoint(x: 32, y: 32), startRadius: 0,
+                endCenter: CGPoint(x: 32, y: 32), endRadius: 32, options: [])
+        }
+    }()
+
+    /// A crowd, generated once. Heads, shoulders and a few raised arms along a strip; the random
+    /// numbers come from a fixed seed so the same crowd is drawn every launch (an unstable crowd
+    /// would pop every time the stage is rebuilt). The glow sticks live in a separate texture -
+    /// that layer is additive and pulses with the beat, while the bodies stay flat black.
+    private static func makeCrowd() -> (bodies: UIImage, glow: UIImage) {
+        let size = CGSize(width: 1024, height: 256)
+        var seed: UInt64 = 0x5EED
+        func rnd() -> CGFloat {                       // Small deterministic LCG
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return CGFloat((seed >> 33) % 10000) / 10000
+        }
+        var arms: [(CGPoint, CGFloat)] = []           // Tip positions for the glow pass
+
+        let bodies = UIGraphicsImageRenderer(size: size).image { ctx in
+            let c = ctx.cgContext
+            c.setFillColor(UIColor(white: 0.02, alpha: 1).cgColor)
+            var x: CGFloat = 10
+            while x < size.width + 40 {
+                let scale = 0.8 + rnd() * 0.5
+                let headR = 15 * scale
+                let baseY = size.height - 6 - rnd() * 14      // Slight variation in how tall they stand
+                let headY = baseY - 96 * scale
+                c.fillEllipse(in: CGRect(x: x - headR, y: headY - headR, width: headR * 2, height: headR * 2))
+                // Shoulders: a wide rounded body under the head
+                let bw = headR * 3.1, bh = 110 * scale
+                let body = UIBezierPath(roundedRect: CGRect(x: x - bw / 2, y: headY + headR * 0.4,
+                                                            width: bw, height: bh),
+                                        cornerRadius: bw * 0.42)
+                c.addPath(body.cgPath); c.fillPath()
+                // Roughly a third of them have an arm up
+                if rnd() < 0.34 {
+                    let side: CGFloat = rnd() < 0.5 ? -1 : 1
+                    let tipX = x + side * headR * 1.5
+                    let tipY = headY - 52 * scale - rnd() * 26
+                    c.setLineWidth(7 * scale)
+                    c.setStrokeColor(UIColor(white: 0.02, alpha: 1).cgColor)
+                    c.setLineCap(.round)
+                    c.move(to: CGPoint(x: x + side * headR * 0.9, y: headY + headR * 1.1))
+                    c.addLine(to: CGPoint(x: tipX, y: tipY))
+                    c.strokePath()
+                    arms.append((CGPoint(x: tipX, y: tipY), scale))
+                }
+                x += 34 + rnd() * 22
+            }
+        }
+
+        let glow = UIGraphicsImageRenderer(size: size).image { ctx in
+            let c = ctx.cgContext
+            let rgb = CGColorSpaceCreateDeviceRGB()
+            for (p, scale) in arms {
+                let r = 16 * scale
+                let tint = UIColor(red: 0.55 + rnd() * 0.45, green: 0.45 + rnd() * 0.4, blue: 0.95, alpha: 1)
+                let cols = [tint.cgColor, UIColor.black.cgColor]
+                c.drawRadialGradient(CGGradient(colorsSpace: rgb, colors: cols as CFArray, locations: [0, 1])!,
+                                     startCenter: p, startRadius: 0, endCenter: p, endRadius: r, options: [])
+            }
+        }
+        return (bodies, glow)
+    }
+
+    static let crowdTextures: (bodies: UIImage, glow: UIImage) = makeCrowd()
+
+    /// Environment map for the studio: cool stage light from above, warm bounce from the floor.
+    /// Small on purpose - it is only ever used as a low-frequency light source, never seen directly.
+    static let studioEnvironment: UIImage = {
+        let size = CGSize(width: 128, height: 64)
+        return UIGraphicsImageRenderer(size: size).image { ctx in
+            let cols = [UIColor(red: 0.42, green: 0.40, blue: 0.62, alpha: 1).cgColor,
+                        UIColor(red: 0.20, green: 0.18, blue: 0.28, alpha: 1).cgColor,
+                        UIColor(red: 0.16, green: 0.13, blue: 0.14, alpha: 1).cgColor]
+            ctx.cgContext.drawLinearGradient(
+                CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: cols as CFArray,
+                           locations: [0, 0.6, 1])!,
+                start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+        }
+    }()
+
+    /// Static framing laid over the screen: sinks the bottom into the floor and vignettes the
+    /// edges. Black with a varying alpha, so the scrolling content shows through the middle.
+    static let ledMaskTexture: UIImage = {
+        let size = CGSize(width: 512, height: 288)
+        return UIGraphicsImageRenderer(size: size).image { ctx in
+            let c = ctx.cgContext
+            let rgb = CGColorSpaceCreateDeviceRGB()
+            let vig = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.85).cgColor]
+            c.drawRadialGradient(CGGradient(colorsSpace: rgb, colors: vig as CFArray, locations: [0.30, 1])!,
                                  startCenter: CGPoint(x: size.width / 2, y: size.height * 0.55), startRadius: 0,
                                  endCenter: CGPoint(x: size.width / 2, y: size.height * 0.55),
                                  endRadius: size.width * 0.62, options: [])
-            c.setFillColor(UIColor(white: 0, alpha: 0.45).cgColor)
-            c.fill(CGRect(origin: .zero, size: size))
+            let fade = [UIColor.clear.cgColor, UIColor.black.cgColor]
+            c.drawLinearGradient(CGGradient(colorsSpace: rgb, colors: fade as CFArray, locations: [0, 0.55])!,
+                                 start: CGPoint(x: 0, y: size.height * 0.45), end: .zero, options: [])
         }
-    }
+    }()
 
     /// Fallback procedural sky background
     private static func makeSkyBackdrop() -> UIImage {
