@@ -148,3 +148,9 @@
 "Bones %d · Frames %d · Hip Hop" = "ボーン %d ・フレーム %d ・ヒップホップ";
 "Full Skeletal Animation · X Bot Walking" = "フルスケルタルアニメーション・X Bot ウォーク";
 "Native SceneKit playback · drag to orbit" = "SceneKit ネイティブ再生・ドラッグで視点回転";
+"Full body in frame, one person, steady shot works best" = "全身が写る・一人だけ・カメラを固定、が最適です";
+"Looking for a person…" = "人物を検出中…";
+"Motion locked" = "モーションを捕捉";
+"Preparing character…" = "キャラクターを準備中…";
+"Source" = "ソース";
+"Step %lld of 3" = "ステップ %lld / 3";

@@ -148,3 +148,9 @@
 "Bones %d · Frames %d · Hip Hop" = "본 %d · 프레임 %d · 힙합";
 "Full Skeletal Animation · X Bot Walking" = "전체 스켈레탈 애니메이션 · X Bot 걷기";
 "Native SceneKit playback · drag to orbit" = "SceneKit 네이티브 재생 · 드래그로 시점 회전";
+"Full body in frame, one person, steady shot works best" = "전신이 나오고 한 사람만, 흔들리지 않는 영상이 가장 좋습니다";
+"Looking for a person…" = "사람을 찾는 중…";
+"Motion locked" = "모션 인식됨";
+"Preparing character…" = "캐릭터 준비 중…";
+"Source" = "원본";
+"Step %lld of 3" = "%lld/3단계";

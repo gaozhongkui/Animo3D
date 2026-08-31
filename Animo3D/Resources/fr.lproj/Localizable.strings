@@ -148,3 +148,9 @@
 "Bones %d · Frames %d · Hip Hop" = "Os %d · Images %d · Hip-hop";
 "Full Skeletal Animation · X Bot Walking" = "Animation squelettique complète · X Bot marche";
 "Native SceneKit playback · drag to orbit" = "Lecture native SceneKit · glissez pour pivoter";
+"Full body in frame, one person, steady shot works best" = "Corps entier dans le cadre, une seule personne, plan stable : c'est l'idéal";
+"Looking for a person…" = "Recherche d'une personne…";
+"Motion locked" = "Mouvement capté";
+"Preparing character…" = "Préparation du personnage…";
+"Source" = "Source";
+"Step %lld of 3" = "Étape %lld sur 3";
