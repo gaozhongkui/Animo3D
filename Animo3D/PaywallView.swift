@@ -14,7 +14,6 @@ struct PaywallView: View {
     @ObservedObject private var store = ProStore.shared
     @State private var animateItems = false
     @State private var selectedID: String?
-    @State private var legal: LegalDoc?
 
     /// The plan the CTA will buy. Defaults to the first offer (yearly) once products arrive.
     private var selected: Product? {
@@ -127,9 +126,6 @@ struct PaywallView: View {
         }
         .onAppear {
             animateItems = true
-        }
-        .sheet(item: $legal) { doc in
-            LegalSheet(resource: doc.id, title: doc.title)
         }
         .alert("Purchase", isPresented: Binding(get: { store.lastError != nil },
                                                 set: { if !$0 { store.lastError = nil } })) {
@@ -299,14 +295,19 @@ struct PaywallView: View {
         }
     }
 
+    /// The same two URLs that go in App Store Connect, so the binding subscription terms have a
+    /// single source of truth - an in-app copy drifts the moment the hosted page is edited.
+    private static let termsURL = URL(string: "https://sites.google.com/view/livo3dtermsofservice")!
+    private static let privacyURL = URL(string: "https://sites.google.com/view/livo3dprivacypolicy")!
+
     private var legalRow: some View {
         HStack(spacing: 20) {
             Button("Restore") { Task { await store.restore() } }
                 .disabled(store.isRestoring)
             Text("•")
-            Button("Terms") { legal = LegalDoc(id: "terms_of_service", title: "Terms of Service") }
+            Link("Terms", destination: Self.termsURL)
             Text("•")
-            Button("Privacy") { legal = LegalDoc(id: "privacy_policy", title: "Privacy Policy") }
+            Link("Privacy", destination: Self.privacyURL)
         }
         .font(.system(size: 11))
         .foregroundStyle(.tertiary)
@@ -340,49 +341,6 @@ struct PaywallView: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(Color(.label).opacity(0.03), lineWidth: 1)
         )
-    }
-}
-
-/// Which bundled document a sheet is showing.
-struct LegalDoc: Identifiable {
-    let id: String      // resource name, without the .md
-    let title: String
-}
-
-/// Renders one of the bundled legal documents.
-///
-/// The paywall used to link both of these to example.com. A subscription paywall has to offer
-/// working terms and privacy links, and placeholder URLs are a rejection on their own.
-struct LegalSheet: View {
-    let resource: String
-    let title: String
-    @Environment(\.dismiss) private var dismiss
-
-    private var text: String {
-        guard let url = Bundle.main.url(forResource: resource, withExtension: "md"),
-              let s = try? String(contentsOf: url, encoding: .utf8) else {
-            return "This document is unavailable."
-        }
-        return s
-    }
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                Text(text)
-                    .font(.system(size: 14))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding(20)
-            }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
     }
 }
 
