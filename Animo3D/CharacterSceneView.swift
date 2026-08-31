@@ -335,17 +335,17 @@ final class CharacterSceneController: ObservableObject {
         tm.diffuse.contents = UIColor(white: 0.16, alpha: 1)
         truss.materials = [tm]
         let trussNode = SCNNode(geometry: truss)
-        trussNode.simdPosition = simd_float3(center.x, feetY + h * 2.25, center.z - h * 0.6)
+        trussNode.simdPosition = simd_float3(center.x, feetY + h * 2.25, center.z - h * 1.25)
         rig.addChildNode(trussNode)
 
         // MARK: Beams, hanging off the fixtures on that truss
         let beams: [(x: Float, color: UIColor, period: Double)] = [
-            (-1.35, UIColor(red: 1.00, green: 0.25, blue: 0.65, alpha: 1), 6.8),
-            (-0.80, UIColor(red: 0.45, green: 0.35, blue: 1.00, alpha: 1), 5.3),
-            (-0.28, UIColor(red: 0.25, green: 0.80, blue: 1.00, alpha: 1), 7.6),
-            ( 0.28, UIColor(red: 0.25, green: 0.80, blue: 1.00, alpha: 1), 6.1),
-            ( 0.80, UIColor(red: 0.45, green: 0.35, blue: 1.00, alpha: 1), 7.1),
-            ( 1.35, UIColor(red: 1.00, green: 0.25, blue: 0.65, alpha: 1), 5.7),
+            (-1.50, UIColor(red: 1.00, green: 0.25, blue: 0.65, alpha: 1), 6.8),
+            (-0.95, UIColor(red: 0.45, green: 0.35, blue: 1.00, alpha: 1), 5.3),
+            (-0.50, UIColor(red: 0.25, green: 0.80, blue: 1.00, alpha: 1), 7.6),
+            ( 0.50, UIColor(red: 0.25, green: 0.80, blue: 1.00, alpha: 1), 6.1),
+            ( 0.95, UIColor(red: 0.45, green: 0.35, blue: 1.00, alpha: 1), 7.1),
+            ( 1.50, UIColor(red: 1.00, green: 0.25, blue: 0.65, alpha: 1), 5.7),
         ]
         let len = h * 2.6
         for b in beams {
@@ -354,11 +354,11 @@ final class CharacterSceneController: ObservableObject {
             cm.diffuse.contents = UIColor(white: 0.1, alpha: 1)
             can.materials = [cm]
             let canNode = SCNNode(geometry: can)
-            canNode.simdPosition = simd_float3(center.x + b.x * h, feetY + h * 2.19, center.z - h * 0.6)
+            canNode.simdPosition = simd_float3(center.x + b.x * h, feetY + h * 2.19, center.z - h * 1.25)
             rig.addChildNode(canNode)
 
             let pivot = SCNNode()
-            pivot.simdPosition = simd_float3(center.x + b.x * h, feetY + h * 2.15, center.z - h * 0.6)
+            pivot.simdPosition = simd_float3(center.x + b.x * h, feetY + h * 2.15, center.z - h * 1.25)
             pivot.eulerAngles = SCNVector3(0, 0, -b.x * 0.30)   // Leaning in on the performer
 
             // Crossed quads rather than a cone: a cone always shows a hard silhouette edge and
@@ -444,10 +444,10 @@ final class CharacterSceneController: ObservableObject {
             n.look(at: SCNVector3(center.x, feetY + h * 0.65, center.z))
             return n
         }
-        rig.addChildNode(spot(-0.9, 2.2, 0.9, UIColor(red: 1.0, green: 0.78, blue: 0.92, alpha: 1), 640, 20, 55, shadow: true))
+        rig.addChildNode(spot(-0.9, 2.2, 0.9, UIColor(red: 1.0, green: 0.80, blue: 0.93, alpha: 1), 720, 20, 55, shadow: true))
         rig.addChildNode(spot( 0.9, 2.2, 0.9, UIColor(red: 0.76, green: 0.90, blue: 1.0, alpha: 1), 430, 20, 55))
         // Front fill: without it the face falls into shadow against a bright LED wall.
-        rig.addChildNode(spot( 0.0, 1.35, 1.9, UIColor(red: 1.0, green: 0.98, blue: 0.96, alpha: 1), 470, 26, 62))
+        rig.addChildNode(spot( 0.0, 1.35, 1.9, UIColor(red: 1.0, green: 0.98, blue: 0.96, alpha: 1), 540, 26, 62))
 
         // MARK: Pool of light on the floor
         let pool = SCNPlane(width: CGFloat(h * 2.4), height: CGFloat(h * 1.3))
@@ -565,9 +565,38 @@ final class CharacterSceneController: ObservableObject {
             for m in g.materials {
                 m.lightingModel = .lambert
                 m.specular.contents = UIColor.black
+                m.shaderModifiers = [
+                    .lightingModel: Self.toonRampModifier,
+                    .fragment: Self.rimLightModifier,
+                ]
             }
         }
     }
+
+    /// Two-band cel shading. Instead of a smooth falloff, every light resolves to either "lit" or
+    /// "shadow" across a narrow terminator, which is what gives anime characters their readable
+    /// shapes. The shadow band is lifted rather than black - MToon does the same - so the face keeps
+    /// its features when a stage light is behind her.
+    private static let toonRampModifier = """
+    #pragma body
+    float ndl  = dot(normalize(_surface.normal), normalize(_light.direction));
+    float band = smoothstep(0.18, 0.32, ndl);          // soft terminator, avoids a jagged edge
+    float ramp = mix(0.55, 1.0, band);
+    _lightingContribution.diffuse = _light.intensity.rgb * ramp;
+    """
+
+    /// Rim light: the character picks up a cool edge where she turns away from the camera, which
+    /// separates her from the backdrop. A true outline would mean an inverted-hull copy of the mesh,
+    /// and cloning a skinned node collapses these VRoid skeletons on iOS 16 - so the silhouette is
+    /// drawn with fresnel instead. Scaled by alpha so transparent hair cards do not glow.
+    private static let rimLightModifier = """
+    #pragma body
+    float3 n = normalize(_surface.normal);
+    float3 v = normalize(_surface.view);
+    float rim = 1.0 - saturate(dot(n, v));
+    rim = pow(rim, 3.0) * 0.42;
+    _output.color.rgb += rim * float3(0.62, 0.70, 1.0) * _output.color.a;
+    """
 
     private func applyPortraitPose() {
         guard boneNodes["J_Bip_C_Hips"] != nil else { return }   // VRM only
