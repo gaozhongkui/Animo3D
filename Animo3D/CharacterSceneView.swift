@@ -59,28 +59,12 @@ final class CharacterSceneController: ObservableObject {
         }
     }
 
-    /// Load model from App bundle (.usdz/.scn/.dae). Returns discovered Mixamo bone names.
-    /// Note: This is the synchronous version, which parses a 10~60MB model file on the calling thread.
-    /// Calling from the main thread will cause significant lag; prefer the two-step `loadSceneFile` + `install` approach.
-    @discardableResult
-    func loadModel(named filename: String) -> [String] {
-        guard let loaded = Self.loadSceneFile(named: filename) else { return [] }
-        return install(loaded)
-    }
-
     /// Only performs disk parsing, doesn't touch any on-screen scenes — can be called on background threads.
     /// Models are often 10~60MB; parsing + texture decoding + creating skinner takes hundreds of ms to seconds on iPhone X,
     /// and is the main reason for "lag when entering the stage page" if on the main thread.
-    static func loadSceneFile(named filename: String, warmUp: Bool = false) -> SCNScene? {
-        let base = (filename as NSString).deletingPathExtension
-        let ext = (filename as NSString).pathExtension
-        guard let url = Bundle.main.url(forResource: base,
-                                        withExtension: ext.isEmpty ? nil : ext) else {
-            print("[Character] model file not found: \(filename)")
-            return nil
-        }
+    static func loadSceneFile(at url: URL, warmUp: Bool = false) -> SCNScene? {
         guard let loaded = try? SCNScene(url: url, options: [.convertToYUp: false]) else {
-            print("[Character] failed to load model: \(url.lastPathComponent)")
+            print("[Character] failed to load model at url: \(url.lastPathComponent)")
             return nil
         }
         if warmUp { Self.warmUp(loaded) }

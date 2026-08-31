@@ -8,7 +8,12 @@
    "sha256": "4e9cee75ebb7f496da25c0cf8f3d0541d191eb650c71fdf3d6e70a9418a37627",
    "key": "vroid_4",
    "name": "Girl C",
-   "rig": "vrm"
+   "rig": "vrm",
+   "thumb": {
+    "file": "thumb_vroid_4.png",
+    "bytes": 31103,
+    "sha256": "a71394974ef86672c2348e708b42ebd4b1916315fb627da610d1b73b59ef6adc"
+   }
   },
   {
    "file": "char_Erika_Archer.scn",
@@ -16,7 +21,12 @@
    "sha256": "31effb2c7f657a32c0ac32bfa6db0ba81ea88c60abb0f410aaba0fa3385f946e",
    "key": "Erika_Archer",
    "name": "Erika Archer",
-   "rig": "mixamo"
+   "rig": "mixamo",
+   "thumb": {
+    "file": "thumb_Erika_Archer.png",
+    "bytes": 35792,
+    "sha256": "96d0f279dad7771661cb5c693c4fdef086117fa3a26caaf2f034bc61e804db5b"
+   }
   },
   {
    "file": "char_Mutant.scn",
@@ -24,7 +34,12 @@
    "sha256": "63aaf3b3a9985b94cd5203377365da3f347bb303d67857a52566f135d9b5b37d",
    "key": "Mutant",
    "name": "Mutant",
-   "rig": "mixamo"
+   "rig": "mixamo",
+   "thumb": {
+    "file": "thumb_Mutant.png",
+    "bytes": 77517,
+    "sha256": "c7fb5d0cda8bd83337f9e5baa99c27bb010c999f751049dbea4ed74893fcf3b0"
+   }
   },
   {
    "file": "char_Peasant_Girl.scn",
@@ -32,7 +47,12 @@
    "sha256": "78e8f67d5eaaa9e8db4bdd470a2be6b0e8271b8d1cabdc521824362b9292b268",
    "key": "Peasant_Girl",
    "name": "Peasant Girl",
-   "rig": "mixamo"
+   "rig": "mixamo",
+   "thumb": {
+    "file": "thumb_Peasant_Girl.png",
+    "bytes": 48794,
+    "sha256": "f3b73544c48ccd775b3f2203a6fc4a89469ab13287d85fe2a55f2faa2cfa79ef"
+   }
   },
   {
    "file": "char_Remy.scn",
@@ -40,7 +60,12 @@
    "sha256": "394a6d043766ad3cf4a4d420a1a86e5bf56f563ab727fa11f9ba0c294789f2f2",
    "key": "Remy",
    "name": "Remy",
-   "rig": "mixamo"
+   "rig": "mixamo",
+   "thumb": {
+    "file": "thumb_Remy.png",
+    "bytes": 35683,
+    "sha256": "9a05ad205ed3bfde7081dcf865f26734ecb76fdc6ddefa3c98239f7c5a95b265"
+   }
   },
   {
    "file": "char_The_Boss.scn",
@@ -48,7 +73,12 @@
    "sha256": "a1add9f4bf79e33e4935fa089ae4a14caa11ad22003bd9cdff57780bac153c77",
    "key": "The_Boss",
    "name": "The Boss",
-   "rig": "mixamo"
+   "rig": "mixamo",
+   "thumb": {
+    "file": "thumb_The_Boss.png",
+    "bytes": 53394,
+    "sha256": "71ad9f55cd508c86c3276aa382e25fcce00e5bd570ab885766941363a6306826"
+   }
   },
   {
    "file": "char_Vanguard_By_T._Choonyung.scn",
@@ -56,7 +86,12 @@
    "sha256": "a2e831da76b8c564b23367294ab47db8f43463ec4498647c4b71e82f210bf47b",
    "key": "Vanguard_By_T._Choonyung",
    "name": "Vanguard By T. Choonyung",
-   "rig": "mixamo"
+   "rig": "mixamo",
+   "thumb": {
+    "file": "thumb_Vanguard_By_T._Choonyung.png",
+    "bytes": 50077,
+    "sha256": "4a9aff04b85a06909f4faa4901d1ccfc8b12f72bce346c4cb6ef38cd46f76f23"
+   }
   },
   {
    "file": "char_X_Bot.scn",
@@ -64,7 +99,12 @@
    "sha256": "af59ae893556a53b225d9fa1a5e1d4ae13bbbf5932c6771a51bf35d7543c85f3",
    "key": "X_Bot",
    "name": "X Bot",
-   "rig": "mixamo"
+   "rig": "mixamo",
+   "thumb": {
+    "file": "thumb_X_Bot.png",
+    "bytes": 26502,
+    "sha256": "8d60c3071ed32dac9c4a92eb8036423af1050db8de332f4d9482b8581935f3d3"
+   }
   },
   {
    "file": "char_Y_Bot.scn",
@@ -72,7 +112,12 @@
    "sha256": "3ec9e168ec0643f7eca41e13043ff945c77f57a9a8db6c0747b77a5127362ee8",
    "key": "Y_Bot",
    "name": "Y Bot",
-   "rig": "mixamo"
+   "rig": "mixamo",
+   "thumb": {
+    "file": "thumb_Y_Bot.png",
+    "bytes": 31046,
+    "sha256": "c03a453d4ad939903bf764834f65f78c3e952cd9523da6df514fe6a2f13ff6d2"
+   }
   }
  ],
  "dances": [
@@ -90,6 +135,11 @@
      "bytes": 1508600,
      "sha256": "fa302b01ca0757985f8a9a87c76ed0d708d8bf2d9287893a788ab62946752f7d"
     }
+   },
+   "pose": {
+    "file": "pose_Arms_Hip_Hop_Dance.json",
+    "bytes": 1160,
+    "sha256": "600e18c0a1f81f93d5660ceb925bf79b11e656f085cbbc9f992d094d3bc95218"
    }
   },
   {
@@ -106,6 +156,11 @@
      "bytes": 1345657,
      "sha256": "01bdf8565aa66a7b228fa0aeb16a8f7cd069765dd2c0489a6d04e0413592cac8"
     }
+   },
+   "pose": {
+    "file": "pose_Belly_Dance.json",
+    "bytes": 1155,
+    "sha256": "912742a08dff1b7adc4445a07d2c932ad73b68bee4af8dc920667539d1bf8c22"
    }
   },
   {
@@ -122,6 +177,11 @@
      "bytes": 338517,
      "sha256": "f95154fe5605bbac0c309cb8d9de5a3cbae5a7c88b90af0bcec3c48889b25d8b"
     }
+   },
+   "pose": {
+    "file": "pose_Booty_Hip_Hop_Dance.json",
+    "bytes": 1165,
+    "sha256": "4fe3b66f2735627bb18724185f60f7eb59b6c95022ece4cb2a31e04d6a840e11"
    }
   },
   {
@@ -138,6 +198,11 @@
      "bytes": 330259,
      "sha256": "95e344240a9c613feb22192f38e9c17daa5f15cf23559f2a5c88e1704b366ae3"
     }
+   },
+   "pose": {
+    "file": "pose_Chicken_Dance.json",
+    "bytes": 1162,
+    "sha256": "af22cddfbcc6f7aa3e120f763552de1f157274bbfb7fa6d312e45213de558450"
    }
   },
   {
@@ -154,6 +219,11 @@
      "bytes": 1469340,
      "sha256": "5d9860fbb841d4d1a7092ebabe0ea02c7929007d2c696d2600ba7dfd0d187026"
     }
+   },
+   "pose": {
+    "file": "pose_Dancing.json",
+    "bytes": 1155,
+    "sha256": "ca024a96c403a4d956b591166b355fd66ed9af3207ecd602fadca04a8a64b59c"
    }
   },
   {
@@ -170,6 +240,11 @@
      "bytes": 182972,
      "sha256": "52d1a3f6e23d2456e85e9909c5fd3b4217faa636ba05ea480bf3c07bc3ab618f"
     }
+   },
+   "pose": {
+    "file": "pose_Dancing_1.json",
+    "bytes": 1151,
+    "sha256": "76beaedbaa284c98c8249a930232e8157909ce997800ab9b758e162dcf3664f8"
    }
   },
   {
@@ -186,6 +261,11 @@
      "bytes": 557066,
      "sha256": "3c7c689f713ba6966e7075a88130bf3e23aae4560c61ea23bbae113c7b201d66"
     }
+   },
+   "pose": {
+    "file": "pose_Dancing_2.json",
+    "bytes": 1166,
+    "sha256": "77b4dc079f3b5239fb48230c6b66ec1bb50bff41f419a1ade59d9507c8c8e528"
    }
   },
   {
@@ -202,6 +282,11 @@
      "bytes": 222876,
      "sha256": "e8666c3965bdb3e0e212c0276c9ca64b22276a9c943e5a790e747564c56279e7"
     }
+   },
+   "pose": {
+    "file": "pose_Dancing_Maraschino_Step.json",
+    "bytes": 1156,
+    "sha256": "eeb33b6de0d2d7e5c2fcdafdbea9ab96c3b0f64046240d370493da607d251ca6"
    }
   },
   {
@@ -218,6 +303,11 @@
      "bytes": 1277070,
      "sha256": "b550a60a4d6418b864d4411bf5fbee406448d74591d425033b0c1107d2ea01b1"
     }
+   },
+   "pose": {
+    "file": "pose_Hip_Hop_Dancing.json",
+    "bytes": 1161,
+    "sha256": "de83c572622514beaa4b387ccf123e834d50ac7e20989ff430dcaba5499623f2"
    }
   },
   {
@@ -234,6 +324,11 @@
      "bytes": 325372,
      "sha256": "090bfe0881044719aa3e8bed727519d882e4db5ccbe7709a5675e7fcbc239d6b"
     }
+   },
+   "pose": {
+    "file": "pose_Hip_Hop_Dancing_1.json",
+    "bytes": 1156,
+    "sha256": "1d2e3265a93f91b060eaf1ab26909250710eb3d4df1e3dcd76e4207086f3b0ef"
    }
   },
   {
@@ -250,6 +345,11 @@
      "bytes": 1187266,
      "sha256": "4c5e2bdcd44526912702c13c2c61ad792bc5004fcdca0b1cca7adf30b9ea349d"
     }
+   },
+   "pose": {
+    "file": "pose_Hip_Hop_Dancing_2.json",
+    "bytes": 1160,
+    "sha256": "54ea0d7cc2f936157b3354c87f335a04dc1594fccfb858f6349f503399d41641"
    }
   },
   {
@@ -266,6 +366,11 @@
      "bytes": 1795442,
      "sha256": "6a95dd1093c17f3fb38f24c93f9213b5d81f5cd3e6f3c99614fc175b66214171"
     }
+   },
+   "pose": {
+    "file": "pose_House_Dancing.json",
+    "bytes": 1150,
+    "sha256": "eab02e1ec4e400edcd3ab2eb7692be810e596baa1f42cd24a1b2ad188e5ced11"
    }
   },
   {
@@ -282,6 +387,11 @@
      "bytes": 1357294,
      "sha256": "1a081ed16c8e523b56c4a56c9960ae06267ce81b54243b5dbee55582362eba45"
     }
+   },
+   "pose": {
+    "file": "pose_House_Dancing_1.json",
+    "bytes": 1157,
+    "sha256": "db60f9c1b155013de1ccbc4745c9b44bd78a25a5a680a3510fbc1544b17436c6"
    }
   },
   {
@@ -298,6 +408,11 @@
      "bytes": 1464846,
      "sha256": "9acf1ad4d4c200c6e1948a1a6a844a5a4cd610ab53799df1316580dcdab03b1f"
     }
+   },
+   "pose": {
+    "file": "pose_House_Dancing_2.json",
+    "bytes": 1164,
+    "sha256": "8e67147a0b3d55b39fe23f46472d4554f182d22f009d209a6d848c0967ea1cb2"
    }
   },
   {
@@ -314,6 +429,11 @@
      "bytes": 376698,
      "sha256": "60155b0ec5d2af0bffc7b28705d802813a6db0d86cfec87de640afa2d38ab276"
     }
+   },
+   "pose": {
+    "file": "pose_Jazz_Dancing.json",
+    "bytes": 1154,
+    "sha256": "795a631b3acb3cdea8414d59a6a57f221221eafd0cfabcdd4dfd4da8ca1d4bb0"
    }
   },
   {
@@ -330,6 +450,11 @@
      "bytes": 155043,
      "sha256": "a43e2ced216cb13c80df80906e9a1e92b558742a32a47f3751ea6e86a54853f1"
     }
+   },
+   "pose": {
+    "file": "pose_Jazz_Dancing_1.json",
+    "bytes": 1148,
+    "sha256": "a3dc173f4ce4401f9768a31a43e56e50429e47924b46765cd7558d91d4690b2f"
    }
   },
   {
@@ -346,6 +471,11 @@
      "bytes": 139739,
      "sha256": "303c65d01a391187f2896459cbc96615e22fab51d0e3e6b7f8f0c45de59340f9"
     }
+   },
+   "pose": {
+    "file": "pose_Jazz_Dancing_2.json",
+    "bytes": 1147,
+    "sha256": "3fee8ab519f5a2e1ebecd0aab56f825b6cdd41f96e7764000a39594d478af938"
    }
   },
   {
@@ -362,6 +492,11 @@
      "bytes": 1165540,
      "sha256": "ff9b0714c307f464b03fe60f7fa718b68a9fc099e22ef104c157cbde5a8b5e2a"
     }
+   },
+   "pose": {
+    "file": "pose_Locking_Hip_Hop_Dance.json",
+    "bytes": 1161,
+    "sha256": "d8d59d59f17582c2899f18d5106d30bea00644963038e62e34d750cd3342fcde"
    }
   },
   {
@@ -378,6 +513,11 @@
      "bytes": 567281,
      "sha256": "e2c3d5fd1ac45e7ea8e1d8e7beb9759da5c00a743a44c027760573efc7c4466d"
     }
+   },
+   "pose": {
+    "file": "pose_Macarena_Dance.json",
+    "bytes": 1161,
+    "sha256": "39ac340855718ff2a63436cbfd609c4dddd7875c314dbd971ba51ac8b85c93ff"
    }
   },
   {
@@ -394,6 +534,11 @@
      "bytes": 1107627,
      "sha256": "2187f66cd8476b00ef2357a50568b14e3647cc3d10113658212ecbe7c39f09b6"
     }
+   },
+   "pose": {
+    "file": "pose_Northern_Soul_Dance.json",
+    "bytes": 1153,
+    "sha256": "946f6d5f7cac647283af4ef6a6d732426ad6a428c2e949aa94148be1a4cf4250"
    }
   },
   {
@@ -410,6 +555,11 @@
      "bytes": 727615,
      "sha256": "8d6035cc8bb91de2401fa276a3e21cd78012bc00167858a6b44d7a78d83608e7"
     }
+   },
+   "pose": {
+    "file": "pose_Northern_Soul_Floor_Combo.json",
+    "bytes": 1148,
+    "sha256": "8c8cda69bf713209a249e005f7d2403cacd8473d15586efed27ee7c32909a92f"
    }
   },
   {
@@ -426,6 +576,11 @@
      "bytes": 605549,
      "sha256": "d41c51845dcc3aa43a32cd3b5e4c668b8207cc4e70b904ad4c1c2e2f7b124af1"
     }
+   },
+   "pose": {
+    "file": "pose_Northern_Soul_Spin_Combo.json",
+    "bytes": 1163,
+    "sha256": "5dae6d9eb71b4c17689fba7327334805557163b37baae4acb9209b1aa16abd26"
    }
   },
   {
@@ -442,6 +597,11 @@
      "bytes": 1061519,
      "sha256": "59f678eb2a913598c080f100b22de2924bc7b0ebe24e68feab9fd690aee71b16"
     }
+   },
+   "pose": {
+    "file": "pose_Robot_Hip_Hop_Dance.json",
+    "bytes": 1157,
+    "sha256": "470569725add1d5a826eb256a07bc83ef24c57015637f2e5a7c9341d1c7bd51f"
    }
   },
   {
@@ -458,6 +618,11 @@
      "bytes": 1249953,
      "sha256": "3c5b373bf63dbf0dd85c4704206c4cb79501137e678ce6777550cd1e224fcaab"
     }
+   },
+   "pose": {
+    "file": "pose_Samba_Dancing.json",
+    "bytes": 1140,
+    "sha256": "fe156a0e44a411f4bbcb13a31ca1f90cc715de01cfcce56975c6f28ccd62d5d2"
    }
   },
   {
@@ -474,6 +639,11 @@
      "bytes": 1092838,
      "sha256": "60a06ceeb5b7cee5764c0d9de7c0b3ed593429e29dfaf24b0ef89295b4480d0e"
     }
+   },
+   "pose": {
+    "file": "pose_Shopping_Cart_Dance.json",
+    "bytes": 1142,
+    "sha256": "12e5b70ca6465b34d4d97e8cc1e4170f92062ebf9c522c83612b1f0ed5be2e9b"
    }
   },
   {
@@ -490,6 +660,11 @@
      "bytes": 515541,
      "sha256": "1f067fb4e8e0f47135284bac047475bcef47734c157c48d436a0dc25c9e3581c"
     }
+   },
+   "pose": {
+    "file": "pose_Shuffling.json",
+    "bytes": 1157,
+    "sha256": "93eaf2905609c054d88c8769afcff08bb81bfa3c01959cb3cd5c5a67bd8196a3"
    }
   },
   {
@@ -506,6 +681,11 @@
      "bytes": 1189613,
      "sha256": "2243c0c40644ce4cda9e7531c5ece8002d714720ef7435dc04044e6b51b6753c"
     }
+   },
+   "pose": {
+    "file": "pose_Slide_Hip_Hop_Dance.json",
+    "bytes": 1158,
+    "sha256": "cbb14672c6f1ecaa67a2d400c320362042b0da397f894e99e953d483414164d1"
    }
   },
   {
@@ -522,6 +702,11 @@
      "bytes": 1045107,
      "sha256": "b1e696f88cf6957736682dbcb513f0fbf9d76253b95bdacff7b3219701fc33da"
     }
+   },
+   "pose": {
+    "file": "pose_Snake_Hip_Hop_Dance.json",
+    "bytes": 1165,
+    "sha256": "fd3eefdd6c24da19b6474da2d9602781346b22536b16106e175aae025c335d07"
    }
   },
   {
@@ -538,6 +723,11 @@
      "bytes": 1045107,
      "sha256": "b1e696f88cf6957736682dbcb513f0fbf9d76253b95bdacff7b3219701fc33da"
     }
+   },
+   "pose": {
+    "file": "pose_Snake_Hip_Hop_Dance_1.json",
+    "bytes": 1165,
+    "sha256": "fd3eefdd6c24da19b6474da2d9602781346b22536b16106e175aae025c335d07"
    }
   },
   {
@@ -554,6 +744,11 @@
      "bytes": 537101,
      "sha256": "e24e59f6c7c3a108ad3a26ec9ecf205b0769d39d00bc756497a80dd3edca7fcb"
     }
+   },
+   "pose": {
+    "file": "pose_Step_Hip_Hop_Dance.json",
+    "bytes": 1150,
+    "sha256": "d70797312bca7cd721fadfd055a8dda533ec96a2c82e6eb4848f834e262e3ff5"
    }
   },
   {
@@ -570,6 +765,11 @@
      "bytes": 1439033,
      "sha256": "934e9f12a6a3319c99f09d7140c920eda8276e636812f587f5d51ccffc78b3be"
     }
+   },
+   "pose": {
+    "file": "pose_Swing_Dancing.json",
+    "bytes": 1148,
+    "sha256": "8237a590dabb9e64640ba38d1dc750d9fc306d3b8d2d84a77eb081589d5e81e1"
    }
   },
   {
@@ -586,6 +786,11 @@
      "bytes": 171941,
      "sha256": "5cc84828cfb2806b79b7be9af87d656f7558eed8ea85f77ee97c0dcb35979f05"
     }
+   },
+   "pose": {
+    "file": "pose_Swing_Dancing_1.json",
+    "bytes": 1156,
+    "sha256": "d19202ef16b4b07d2fd8700a4c6e369114913e136227e189632a06da557d5f89"
    }
   },
   {
@@ -602,6 +807,11 @@
      "bytes": 1603099,
      "sha256": "e6dbf9821cae70cd978562870fdb700db94bbf648e7e7d123b2df94807c648f0"
     }
+   },
+   "pose": {
+    "file": "pose_Swing_Dancing_2.json",
+    "bytes": 1150,
+    "sha256": "dacd37b4f1c0d2fa9f5eabc1972760d5f64afbc6710300820db1f49ad5c69e30"
    }
   },
   {
@@ -618,6 +828,11 @@
      "bytes": 1697692,
      "sha256": "fcae36f71f8ca602d54a748e8d9432278c1cf49af2b71b68d517c7297017f64f"
     }
+   },
+   "pose": {
+    "file": "pose_Swing_Dancing_3.json",
+    "bytes": 1154,
+    "sha256": "75e3fefdeeaa1f6a773c00f3eea37d7ebb37a81e79ceb9bb41081160d9b6444b"
    }
   },
   {
@@ -634,6 +849,11 @@
      "bytes": 357137,
      "sha256": "00822224436b1041921ea01e227049bb179e2f4fa1376b40e502d12f3372b99b"
     }
+   },
+   "pose": {
+    "file": "pose_Swing_Dancing_4.json",
+    "bytes": 1151,
+    "sha256": "88dc7d36984ba1f880f79f1219ca9562ec5e8c26495ff1beaecfb6ec3083b487"
    }
   },
   {
@@ -650,6 +870,11 @@
      "bytes": 1292179,
      "sha256": "34a10c256404cc7846e5d4eb49ef086f71443e717af340e08368ce4aa0964e34"
     }
+   },
+   "pose": {
+    "file": "pose_Thriller_Part_2.json",
+    "bytes": 1138,
+    "sha256": "465a3028fc9965981574b03d0cf0cac3dc970827ab1391c1b7c028ec419d78ae"
    }
   },
   {
@@ -666,6 +891,11 @@
      "bytes": 1755495,
      "sha256": "033076289f949e8d7177170379ff41adb633f6a69af637f80499fab714f45069"
     }
+   },
+   "pose": {
+    "file": "pose_Thriller_Part_3.json",
+    "bytes": 1160,
+    "sha256": "8da0d7b097b121e537550a17f701e1688a3543fa7b87c9f955e842b78d2312d7"
    }
   },
   {
@@ -682,6 +912,11 @@
      "bytes": 2541426,
      "sha256": "6fe762ff57de2a3f96ccb988984571d0bf7b99c493d364f79e5b77e897533061"
     }
+   },
+   "pose": {
+    "file": "pose_Thriller_Part_4.json",
+    "bytes": 1152,
+    "sha256": "16a3eb186379febc1a824ff866edcfbee3b9f31907e5dd76485177731b963130"
    }
   },
   {
@@ -698,6 +933,11 @@
      "bytes": 1164849,
      "sha256": "33f53bf37d4f22f9de691e05751bf2df29c1c17773d31d90e4f8369039e593cc"
     }
+   },
+   "pose": {
+    "file": "pose_Tut_Hip_Hop_Dance.json",
+    "bytes": 1156,
+    "sha256": "09530e7d71f20df7b3b82f06bbac3bc8a6a2b8a130debcfbc028807102f13957"
    }
   },
   {
@@ -714,6 +954,11 @@
      "bytes": 833951,
      "sha256": "7e7bd2c7eef69a98bba96e0282ba6585fb9c9374b76ac07dfb728be9df7d5aa0"
     }
+   },
+   "pose": {
+    "file": "pose_Tut_Hip_Hop_Dance_1.json",
+    "bytes": 1146,
+    "sha256": "6c72e18ef13adc8c7df9472535c39a096501ea9a060ffd746eba7cf3a7e33a98"
    }
   },
   {
@@ -730,6 +975,11 @@
      "bytes": 648273,
      "sha256": "10ff51916a00148aa0db7b28d4478adf70ed250504bcb48269d58063c66cfbab"
     }
+   },
+   "pose": {
+    "file": "pose_Twist_Dance.json",
+    "bytes": 1161,
+    "sha256": "c79afe15ae13203daf1106941266137984ffdc92fbc6a188d57ba5287fd9e243"
    }
   },
   {
@@ -746,6 +996,11 @@
      "bytes": 1097614,
      "sha256": "1ecf91bfc014cf14ffd93e93d0036d60d8adc89c7baea46e447f19b5749d1676"
     }
+   },
+   "pose": {
+    "file": "pose_Wave_Hip_Hop_Dance.json",
+    "bytes": 1160,
+    "sha256": "e56b851206a7145b972d8686a93cce045f0ae46b196c3844c43674b2bc0a65d7"
    }
   },
   {
@@ -762,6 +1017,11 @@
      "bytes": 1097614,
      "sha256": "1ecf91bfc014cf14ffd93e93d0036d60d8adc89c7baea46e447f19b5749d1676"
     }
+   },
+   "pose": {
+    "file": "pose_Wave_Hip_Hop_Dance_1.json",
+    "bytes": 1160,
+    "sha256": "e56b851206a7145b972d8686a93cce045f0ae46b196c3844c43674b2bc0a65d7"
    }
   },
   {
@@ -778,6 +1038,11 @@
      "bytes": 308221,
      "sha256": "b5a0cd9dd1bda3527b547e2023a55e56f0dfa71be6dad238a0b03640f46431e1"
     }
+   },
+   "pose": {
+    "file": "pose_Ymca_Dance.json",
+    "bytes": 1155,
+    "sha256": "08c11fc53e22029280f16a7a930daf7b9f39730de44973592ef24180fe5cf199"
    }
   }
  ],

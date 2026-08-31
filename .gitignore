@@ -22,3 +22,6 @@ Pods/
 .idea/misc.xml
 .idea/swift-settings.xml
 .idea/vcs.xml
+/releases
+/build
+/upload_new

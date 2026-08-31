@@ -32,12 +32,18 @@ struct LiveDanceView: UIViewRepresentable {
         v.antialiasingMode = DeviceTier.antialiasing
         v.allowsCameraControl = interactive
 
-        // Both the model (10-60MB) and the dance JSON (up to 1.2MB) are parsed in the background.
-        // This used to load synchronously here, so tapping a dance card caused a clearly visible main-thread hitch.
+        // Both the model (4-60MB) and the dance JSON (up to 1.2MB) are fetched and parsed in the
+        // background. This used to load synchronously here, so tapping a dance card caused a clearly
+        // visible main-thread hitch - and later, once assets moved to the CDN, it read the bundle for
+        // files that were no longer in it and silently showed nothing.
         let modelFile = model, danceKey = dance
         Task.detached(priority: .userInitiated) {
-            let scene = CharacterSceneController.loadSceneFile(named: modelFile, warmUp: true)
-            let clip = Bundle.main.url(forResource: danceKey, withExtension: "json").flatMap { MocapClip.load($0) }
+            guard let modelURL = try? await RemoteAssets.shared.resolve(file: modelFile) else { return }
+            // Mixamo clip regardless of rig: playback here goes through PoseRetargeter (world-space joints).
+            let ref = RemoteAssets.shared.dance(danceKey)?.clip(rig: "mixamo") ?? AssetRef(file: "mocap_\(danceKey).json")
+            let clipURL = try? await RemoteAssets.shared.resolve(ref)
+            let scene = CharacterSceneController.loadSceneFile(at: modelURL, warmUp: true)
+            let clip = clipURL.flatMap { MocapClip.load($0) }
             await MainActor.run {
                 guard !c.cancelled, let scene else { return }
                 c.controller.install(scene)

@@ -55,9 +55,10 @@ struct SplashView: View {
             }
         }
         .onAppear {
-            // Warm up heavy assets (like Catalog), using splash time for IO
+            // Warm up the catalog during the splash: touching it decodes the bundled seed (or the
+            // cached copy) and kicks off the network refresh, so the first grid is already populated.
             Task(priority: .userInitiated) {
-                _ = Catalog.shared
+                _ = RemoteAssets.shared
             }
 
             withAnimation(.easeIn(duration: 1.2)) {

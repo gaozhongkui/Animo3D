@@ -20,12 +20,69 @@ struct StudioLaunch: Identifiable {
     var dance: String? = nil
 }
 
+/// The showcase model for the trend cards. It ships in the bundle, so those cards render and dance
+/// on a cold, offline launch instead of sitting on a spinner.
+///
+/// A file-scope constant rather than a member of HomeView: referencing a property of `self` from
+/// inside that (very large) body crashes the Swift 6.2 type checker while solving the result
+/// builder. A plain global needs no capture and sidesteps it.
+private let builtInShowcaseModel: String = characterModelFile(BuiltInAssets.characterKey)
+
 struct HomeView: View {
-    private let catalog = Catalog.shared
+    @ObservedObject private var remoteAssets = RemoteAssets.shared
     @State private var launch: StudioLaunch?
     @State private var showVideo = false
 
     private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
+
+    // The two carousels are their own properties, not inlined in `body`: the whole screen in one
+    // result builder is more than the Swift 6.2 type checker can solve (it crashes outright once a
+    // non-literal is referenced inside them).
+    private var charactersSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sectionHeader("Recommended Characters") {
+                // Send notification to switch to Characters Tab
+                NotificationCenter.default.post(name: NSNotification.Name("SwitchToCharactersTab"), object: nil)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(Array(remoteAssets.characters.enumerated()), id: \.element.id) { i, c in
+                        Button { launch = StudioLaunch(character: c.key) } label: {
+                            posterCard(title: c.name, subtitle: "Ready to Dance") {
+                                CharacterThumbView(characterKey: c.key, tint: tints[i % tints.count])
+                            }
+                        }.buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+
+    private var dancesSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sectionHeader("Trending Dances") {
+                launch = StudioLaunch()
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(Array(remoteAssets.dances.prefix(12).enumerated()), id: \.element.id) { i, d in
+                        Button { launch = StudioLaunch(dance: d.key) } label: {
+                            posterCard(title: d.name, subtitle: "Hot Trend") {
+                                if i == 0 {
+                                    CardBackdrop(style: 0)
+                                        .overlay(LiveDanceView(model: builtInShowcaseModel, dance: d.key))
+                                } else {
+                                    DanceThumbView(model: builtInShowcaseModel, dance: d.key, style: i)
+                                }
+                            }
+                        }.buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -51,49 +108,9 @@ struct HomeView: View {
                         .padding(.horizontal)
                         .shadow(color: Color.accentColor.opacity(0.3), radius: 12, x: 0, y: 8)
 
-                    // Recommended characters
-                    VStack(alignment: .leading, spacing: 16) {
-                        sectionHeader("Recommended Characters") {
-                            // Send notification to switch to Characters Tab
-                            NotificationCenter.default.post(name: NSNotification.Name("SwitchToCharactersTab"), object: nil)
-                        }
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 16) {
-                                ForEach(Array(catalog.characters.enumerated()), id: \.element.id) { i, c in
-                                    Button { launch = StudioLaunch(character: c.key) } label: {
-                                        posterCard(title: c.name, subtitle: "Ready to Dance") {
-                                            CharacterThumbView(characterKey: c.key, tint: tints[i % tints.count])
-                                        }
-                                    }.buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.horizontal)
-                        }
-                    }
+                    charactersSection
 
-                    // Trending dances
-                    VStack(alignment: .leading, spacing: 16) {
-                        sectionHeader("Trending Dances") {
-                            launch = StudioLaunch()
-                        }
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 16) {
-                                ForEach(Array(catalog.dances.prefix(12).enumerated()), id: \.element.id) { i, d in
-                                    Button { launch = StudioLaunch(dance: d.key) } label: {
-                                        posterCard(title: d.name, subtitle: "Hot Trend") {
-                                            if i == 0 {
-                                                CardBackdrop(style: 0)
-                                                    .overlay(LiveDanceView(model: "vroid_preview.usdz", dance: d.key))
-                                            } else {
-                                                DanceThumbView(model: "vroid_preview.usdz", dance: d.key, style: i)
-                                            }
-                                        }
-                                    }.buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.horizontal)
-                        }
-                    }
+                    dancesSection
 
                     // More ways to play
                     VStack(alignment: .leading, spacing: 16) {

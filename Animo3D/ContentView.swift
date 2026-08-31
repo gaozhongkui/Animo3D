@@ -15,7 +15,7 @@ import simd
 
 struct VideoDriveView: View {
     @Environment(\.dismiss) private var dismiss
-    private let catalog = Catalog.shared          // Shared: re-parsing the JSON per view rebuild is wasted work
+    @ObservedObject private var remoteAssets = RemoteAssets.shared
 
     enum Step: Int, CaseIterable { case video, character, perform }
     @State private var step: Step = .video
@@ -71,7 +71,7 @@ struct VideoDriveView: View {
         .toolbar(.hidden, for: .navigationBar)   // The wizard ships its own header and back button
         .sheet(isPresented: $showShare) { if let url = shareURL { ShareSheet(items: [url]) } }
         .fullScreenCover(item: $zoomChar) { c in
-            let idx = catalog.characters.firstIndex { $0.key == c.key } ?? 0
+            let idx = remoteAssets.characters.firstIndex { $0.key == c.key } ?? 0
             CharacterPreviewPage(key: c.key, name: c.name, style: idx)
         }
         .onChange(of: pickerItem) { item in
@@ -168,7 +168,7 @@ struct VideoDriveView: View {
     private var characterStep: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
-                ForEach(Array(catalog.characters.enumerated()), id: \.element.id) { i, c in
+                ForEach(Array(remoteAssets.characters.enumerated()), id: \.element.id) { i, c in
                     let isSelected = character == c.key
                     VStack(alignment: .leading, spacing: 10) {
                         ZStack(alignment: .bottomLeading) {
@@ -386,7 +386,7 @@ struct VideoDriveView: View {
         switch step {
         case .video:
             previewPlayer?.pause()
-            if character.isEmpty { character = catalog.characters.first?.key ?? "Y_Bot" }
+            if character.isEmpty { character = remoteAssets.characters.first?.key ?? "Y_Bot" }
             step = .character
         case .character:
             startPerform()
@@ -468,8 +468,11 @@ final class VideoCharStage: ObservableObject {
         // Characters ship as .scn or .usdz. The old code assumed .scn, so every VRoid character -
         // including the first one in the catalog - silently failed to load and left a black screen.
         let file = characterModelFile(character)
+        guard let url = try? await RemoteAssets.shared.resolveCharacterModel(character) else {
+            NSLog("[VideoDrive] failed to download/locate model %@", file); return
+        }
         let loaded = await Task.detached(priority: .userInitiated) {
-            CharacterSceneController.loadSceneFile(named: file, warmUp: true)
+            CharacterSceneController.loadSceneFile(at: url, warmUp: true)
         }.value
         guard let loaded else { NSLog("[VideoDrive] failed to load model %@", file); return }
         _ = controller.install(loaded)

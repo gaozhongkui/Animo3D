@@ -14,17 +14,42 @@ import Combine
 struct MusicTrack: Identifiable, Hashable {
     let id: String
     let name: String
-    let url: URL
+    /// nil for a catalog track that has not been fetched yet - it is resolved when played.
+    let url: URL?
+    let asset: AssetRef?
 
-    /// Bundled tracks: scans the audio inside the app bundle.
+    init(id: String, name: String, url: URL?, asset: AssetRef? = nil) {
+        self.id = id
+        self.name = name
+        self.url = url
+        self.asset = asset
+    }
+
+    /// Catalog tracks plus anything bundled. The catalog states each track's real filename, so there
+    /// is no need to try `.mp3` and then `.m4a` and eat a failed round trip on the wrong guess.
     static var presets: [MusicTrack] {
         var out: [MusicTrack] = []
+        var seen = Set<String>()
+
+        for m in RemoteAssets.shared.music {
+            guard let ref = m.asset else { continue }
+            seen.insert(ref.file)
+            out.append(MusicTrack(id: "remote_" + m.key,
+                                  name: friendly(m.name),
+                                  url: RemoteAssets.shared.localURL(for: ref.file),
+                                  asset: ref))
+        }
+
+        // Anything shipped inside the app that the catalog does not already cover.
         for ext in ["m4a", "mp3"] {
             for url in Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: nil) ?? [] {
+                let file = url.lastPathComponent
+                guard !seen.contains(file) else { continue }
                 let base = url.deletingPathExtension().lastPathComponent
-                out.append(MusicTrack(id: url.lastPathComponent, name: friendly(base), url: url))
+                out.append(MusicTrack(id: file, name: friendly(base), url: url))
             }
         }
+
         return out.sorted { $0.name < $1.name }
     }
 
@@ -46,10 +71,28 @@ final class MusicController: ObservableObject {
 
     func play(_ track: MusicTrack) {
         stop()
+        if let url = track.url {
+            startPlayback(at: url, track: track)
+            return
+        }
+        guard let asset = track.asset else {
+            print("[Music] no source for \(track.name)")
+            return
+        }
+        Task { @MainActor in
+            guard let url = try? await RemoteAssets.shared.resolve(asset) else {
+                print("[Music] download failed for \(asset.file)")
+                return
+            }
+            self.startPlayback(at: url, track: track)
+        }
+    }
+
+    private func startPlayback(at url: URL, track: MusicTrack) {
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
             try AVAudioSession.sharedInstance().setActive(true)
-            let p = try AVAudioPlayer(contentsOf: track.url)
+            let p = try AVAudioPlayer(contentsOf: url)
             p.numberOfLoops = -1
             p.isMeteringEnabled = true   // Lets the VFX read the live energy (beat drive)
             p.play()
@@ -108,11 +151,12 @@ final class LocalMusicStore: ObservableObject {
             print("[Music] import failed: \(error.localizedDescription)"); return nil
         }
         reload()
-        return tracks.first { $0.url.lastPathComponent == dst.lastPathComponent }
+        return tracks.first { $0.url?.lastPathComponent == dst.lastPathComponent }
     }
 
     func delete(_ track: MusicTrack) {
-        try? FileManager.default.removeItem(at: track.url)
+        guard let url = track.url else { return }   // catalog tracks are not part of the local library
+        try? FileManager.default.removeItem(at: url)
         reload()
     }
 }

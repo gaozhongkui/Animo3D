@@ -68,7 +68,7 @@ private struct PickedCharacter: Identifiable { let id: String; let name: String 
 
 /// My characters: the library of characters that can dance. Tap one to enter the dance studio with it.
 struct MyCharactersView: View {
-    private let catalog = Catalog.shared
+    @ObservedObject private var remoteAssets = RemoteAssets.shared
     @State private var picked: PickedCharacter?
     private let cols = [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)]
 
@@ -82,7 +82,7 @@ struct MyCharactersView: View {
                     .padding(.horizontal)
 
                 LazyVGrid(columns: cols, spacing: 18) {
-                    ForEach(Array(catalog.characters.enumerated()), id: \.element.id) { i, c in
+                    ForEach(Array(remoteAssets.characters.enumerated()), id: \.element.id) { i, c in
                         Button {
                             HapticManager.light()
                             picked = PickedCharacter(id: c.key, name: c.name)

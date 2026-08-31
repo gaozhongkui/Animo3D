@@ -62,16 +62,29 @@ final class PreviewStage: ObservableObject {
         guard !loaded else { return }
         loaded = true
         if dance == nil { controller.portraitMode = true }   // Static character detail: strike an A-pose
+
+        guard let localModelURL = try? await RemoteAssets.shared.resolve(file: model) else {
+            NSLog("[PreviewStage] failed to download/locate model %@", model)
+            return
+        }
+
         let scene = await Task.detached(priority: .userInitiated) {
-            CharacterSceneController.loadSceneFile(named: model, warmUp: true)
+            CharacterSceneController.loadSceneFile(at: localModelURL, warmUp: true)
         }.value
         guard let scene else { return }
         controller.install(scene)
         ready = true
         guard let dance else { return }
         let rt = PoseRetargeter(controller: controller); retargeter = rt
-        let clip = await Task.detached(priority: .userInitiated) {
-            Bundle.main.url(forResource: dance, withExtension: "json").flatMap { MocapClip.load($0) }
+
+        // Always the mixamo clip here, whatever the rig: this page drives the character through
+        // PoseRetargeter, which reads world-space joint positions. A vrm clip holds bone quaternions
+        // and MocapClip cannot parse it, so asking for one left every VRoid preview frozen.
+        let ref = RemoteAssets.shared.dance(dance)?.clip(rig: "mixamo") ?? AssetRef(file: "mocap_\(dance).json")
+        let clipURL = try? await RemoteAssets.shared.resolve(ref)
+        let clip = await Task.detached(priority: .userInitiated) { () -> MocapClip? in
+            guard let clipURL else { return nil }
+            return MocapClip.load(clipURL)
         }.value
         if let clip {
             let p = MocapPlayer(frames: clip.frames, retargeter: rt)
@@ -148,7 +161,7 @@ struct DancePreviewPage: View {
     let dance: String
     let name: String
     var style: Int = 0
-    var model: String = "vroid_preview.usdz"
+    var model: String = characterModelFile(BuiltInAssets.characterKey)
     var body: some View {
         PreviewShell(name: name, style: style, model: model, dance: dance)
     }

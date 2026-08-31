@@ -10,29 +10,6 @@ import SwiftUI
 import SceneKit
 import Combine
 
-struct CatalogItem: Identifiable, Decodable {
-    let key: String
-    let name: String
-    var id: String { key }
-}
-struct Catalog: Decodable {
-    let characters: [CatalogItem]
-    let dances: [CatalogItem]
-
-    /// manifest.json is a read-only static manifest, parsing it once globally is enough.
-    /// Previously written as a stored property of the View, SwiftUI would re-read and re-parse it every time the struct was rebuilt.
-    static let shared = load()
-
-    static func load() -> Catalog {
-        guard let url = Bundle.main.url(forResource: "manifest", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let c = try? JSONDecoder().decode(Catalog.self, from: data) else {
-            return Catalog(characters: [], dances: [])
-        }
-        return c
-    }
-}
-
 /// Manage the current character + the dance being played.
 final class DanceStage: ObservableObject {
     let controller: CharacterSceneController = {
@@ -53,8 +30,15 @@ final class DanceStage: ObservableObject {
         player = nil; vroidPlayer = nil
 
         let file = characterModelFile(character)
+
+        // Bundled built-ins resolve instantly; everything else is fetched once and cached.
+        guard let localModelURL = try? await RemoteAssets.shared.resolveCharacterModel(character) else {
+            NSLog("[DanceStage] failed to download/locate model %@", file)
+            return
+        }
+
         let loaded = await Task.detached(priority: .userInitiated) {
-            CharacterSceneController.loadSceneFile(named: file, warmUp: true)
+            CharacterSceneController.loadSceneFile(at: localModelURL, warmUp: true)
         }.value
         guard let loaded else { NSLog("[DanceStage] failed to load model %@", file); return }
         controller.install(loaded)   // Reuse scene, change model (.scn/.usdz)
@@ -63,10 +47,13 @@ final class DanceStage: ObservableObject {
         if controller.isVRM {
             // VRoid: Full skeletal animation (quaternion JSON exported by three-vrm retargeting)
             retargeter = nil
-            let name = "vr_\(dance)"
-            let clip = await Task.detached(priority: .userInitiated) {
-                VRoidClip.load(named: name)
-            }.value
+            // The clip file comes from the catalog rather than a hand-assembled "vrm_" prefix.
+            guard let ref = RemoteAssets.shared.dance(dance)?.clip(rig: "vrm"),
+                  let url = try? await RemoteAssets.shared.resolve(ref) else {
+                NSLog("[DanceStage] no vrm clip for %@", dance)
+                return
+            }
+            let clip = await Task.detached(priority: .userInitiated) { VRoidClip.load(at: url) }.value
             guard let clip else { return }
             let p = VRoidClipPlayer(clip: clip, controller: controller)
             vroidPlayer = p
@@ -75,9 +62,12 @@ final class DanceStage: ObservableObject {
             let rt = PoseRetargeter(controller: controller)
             retargeter = rt
             rt.resetCapture()
-            let clip = await Task.detached(priority: .userInitiated) {
-                Bundle.main.url(forResource: dance, withExtension: "json").flatMap { MocapClip.load($0) }
-            }.value
+            guard let ref = RemoteAssets.shared.dance(dance)?.clip(rig: "mixamo"),
+                  let url = try? await RemoteAssets.shared.resolve(ref) else {
+                NSLog("[DanceStage] no mocap clip for %@", dance)
+                return
+            }
+            let clip = await Task.detached(priority: .userInitiated) { MocapClip.load(url) }.value
             guard let clip else { return }
             let p = MocapPlayer(frames: clip.frames, retargeter: rt)
             player = p
@@ -96,7 +86,7 @@ final class DanceStage: ObservableObject {
 struct DanceStudioView: View {
     var initialCharacter: String? = nil
     var initialDance: String? = nil
-    private let catalog = Catalog.shared
+    @ObservedObject private var remoteAssets = RemoteAssets.shared
     @Environment(\.dismiss) private var dismiss
 
     @StateObject private var stage = DanceStage()
@@ -178,11 +168,11 @@ struct DanceStudioView: View {
         }
         .onDisappear { music.stop(); vfx.remove(); stage.stop() }
         .fullScreenCover(item: $zoomChar) { c in
-            let idx = catalog.characters.firstIndex { $0.key == c.key } ?? 0
+            let idx = remoteAssets.characters.firstIndex { $0.key == c.key } ?? 0
             CharacterPreviewPage(key: c.key, name: c.name, style: idx)
         }
         .fullScreenCover(item: $zoomDance) { d in
-            let idx = catalog.dances.firstIndex { $0.key == d.key } ?? 0
+            let idx = remoteAssets.dances.firstIndex { $0.key == d.key } ?? 0
             DancePreviewPage(dance: d.key, name: d.name, style: idx)
         }
     }
@@ -252,7 +242,7 @@ struct DanceStudioView: View {
     private var characterStep: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
-                ForEach(Array(catalog.characters.enumerated()), id: \.element.id) { i, c in
+                ForEach(Array(remoteAssets.characters.enumerated()), id: \.element.id) { i, c in
                     let isSelected = character == c.key
                     VStack(alignment: .leading, spacing: 10) {
                         ZStack(alignment: .bottomLeading) {
@@ -300,7 +290,7 @@ struct DanceStudioView: View {
 
     // Action selection preview: Use currently selected character (fallback model if none selected)
     private var previewModel: String {
-        character.isEmpty ? "vroid_preview.usdz" : characterModelFile(character)
+        character.isEmpty ? characterModelFile(BuiltInAssets.characterKey) : characterModelFile(character)
     }
 
     /// Subtitle for each dance (BPM · style), deterministically generated from the name, just for atmosphere.
@@ -315,7 +305,7 @@ struct DanceStudioView: View {
     private var danceStep: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
-                ForEach(Array(catalog.dances.enumerated()), id: \.element.id) { i, d in
+                ForEach(Array(remoteAssets.dances.enumerated()), id: \.element.id) { i, d in
                     let isSelected = dance == d.key
                     VStack(alignment: .leading, spacing: 10) {
                         ZStack(alignment: .bottomLeading) {
@@ -631,15 +621,18 @@ struct DanceStudioView: View {
 
     // MARK: Logic
     private func setupInitial() {
-        if let ic = initialCharacter, catalog.characters.contains(where: { $0.key == ic }) { character = ic }
-        if let id = initialDance, catalog.dances.contains(where: { $0.key == id }) { dance = id }
+        if let ic = initialCharacter, remoteAssets.characters.contains(where: { $0.key == ic }) { character = ic }
+        if let id = initialDance, remoteAssets.dances.contains(where: { $0.key == id }) { dance = id }
         // Brought in a character from the library -> go directly to dance selection, and select the first dance by default
         if !character.isEmpty && initialCharacter != nil { step = .dance; ensureDefaultDance() }
     }
 
     /// When entering dance selection, if none is selected, default to the first one.
     private func ensureDefaultDance() {
-        if dance.isEmpty { dance = catalog.dances.first?.key ?? "" }
+        guard dance.isEmpty else { return }
+        // Prefer the bundled dance: it plays with no network at all.
+        dance = remoteAssets.dances.first { $0.key == BuiltInAssets.danceKey }?.key
+            ?? remoteAssets.dances.first?.key ?? ""
     }
 
     private func next() {

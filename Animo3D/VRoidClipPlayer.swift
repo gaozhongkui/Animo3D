@@ -20,13 +20,12 @@ struct VRoidClip {
 
     var isEmpty: Bool { frames.isEmpty }
 
-    /// clipName excludes the extension, e.g. "vr_Arms_Hip_Hop_Dance". **Expensive, do not call on the main thread.**
-    static func load(named clipName: String) -> VRoidClip? {
-        guard let url = Bundle.main.url(forResource: clipName, withExtension: "json"),
-              let data = try? Data(contentsOf: url),
+    /// **Expensive, do not call on the main thread.**
+    static func load(at url: URL) -> VRoidClip? {
+        guard let data = try? Data(contentsOf: url),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let fr = obj["frames"] as? [[String: [Double]]] else {
-            NSLog("[VRoidClip] FAIL not found or parse error: %@", clipName)
+            NSLog("[VRoidClip] FAIL parse error: %@", url.lastPathComponent)
             return nil
         }
         let fps = (obj["fps"] as? Double) ?? 30
@@ -39,7 +38,7 @@ struct VRoidClip {
             }
             return out
         }
-        NSLog("[VRoidClip] OK %@ frames=%d fps=%.0f", clipName, frames.count, fps)
+        NSLog("[VRoidClip] OK %@ frames=%d fps=%.0f", url.lastPathComponent, frames.count, fps)
         return VRoidClip(fps: fps, frames: frames)
     }
 }
@@ -55,12 +54,6 @@ final class VRoidClipPlayer {
         self.clip = clip
         self.controller = controller
         NSLog("[VRoidClip] ready frames=%d sceneBones=%d", clip.frames.count, controller.boneNodes.count)
-    }
-
-    /// Compatibility with older callers: synchronous parsing. **Blocks the calling thread**; new code should use `VRoidClip.load` + `init(clip:controller:)`.
-    convenience init?(clipName: String, controller: CharacterSceneController) {
-        guard let clip = VRoidClip.load(named: clipName) else { return nil }
-        self.init(clip: clip, controller: controller)
     }
 
     var frameCount: Int { clip.frames.count }
