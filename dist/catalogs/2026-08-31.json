@@ -1,0 +1,814 @@
+{
+ "schema": 1,
+ "version": "2026-08-31",
+ "characters": [
+  {
+   "file": "char_vroid_4.usdz",
+   "bytes": 11316596,
+   "sha256": "4e9cee75ebb7f496da25c0cf8f3d0541d191eb650c71fdf3d6e70a9418a37627",
+   "key": "vroid_4",
+   "name": "Girl C",
+   "rig": "vrm"
+  },
+  {
+   "file": "char_Erika_Archer.scn",
+   "bytes": 42452382,
+   "sha256": "31effb2c7f657a32c0ac32bfa6db0ba81ea88c60abb0f410aaba0fa3385f946e",
+   "key": "Erika_Archer",
+   "name": "Erika Archer",
+   "rig": "mixamo"
+  },
+  {
+   "file": "char_Mutant.scn",
+   "bytes": 21898092,
+   "sha256": "63aaf3b3a9985b94cd5203377365da3f347bb303d67857a52566f135d9b5b37d",
+   "key": "Mutant",
+   "name": "Mutant",
+   "rig": "mixamo"
+  },
+  {
+   "file": "char_Peasant_Girl.scn",
+   "bytes": 4747577,
+   "sha256": "78e8f67d5eaaa9e8db4bdd470a2be6b0e8271b8d1cabdc521824362b9292b268",
+   "key": "Peasant_Girl",
+   "name": "Peasant Girl",
+   "rig": "mixamo"
+  },
+  {
+   "file": "char_Remy.scn",
+   "bytes": 60842260,
+   "sha256": "394a6d043766ad3cf4a4d420a1a86e5bf56f563ab727fa11f9ba0c294789f2f2",
+   "key": "Remy",
+   "name": "Remy",
+   "rig": "mixamo"
+  },
+  {
+   "file": "char_The_Boss.scn",
+   "bytes": 31033986,
+   "sha256": "a1add9f4bf79e33e4935fa089ae4a14caa11ad22003bd9cdff57780bac153c77",
+   "key": "The_Boss",
+   "name": "The Boss",
+   "rig": "mixamo"
+  },
+  {
+   "file": "char_Vanguard_By_T._Choonyung.scn",
+   "bytes": 9635346,
+   "sha256": "a2e831da76b8c564b23367294ab47db8f43463ec4498647c4b71e82f210bf47b",
+   "key": "Vanguard_By_T._Choonyung",
+   "name": "Vanguard By T. Choonyung",
+   "rig": "mixamo"
+  },
+  {
+   "file": "char_X_Bot.scn",
+   "bytes": 4028570,
+   "sha256": "af59ae893556a53b225d9fa1a5e1d4ae13bbbf5932c6771a51bf35d7543c85f3",
+   "key": "X_Bot",
+   "name": "X Bot",
+   "rig": "mixamo"
+  },
+  {
+   "file": "char_Y_Bot.scn",
+   "bytes": 4575212,
+   "sha256": "3ec9e168ec0643f7eca41e13043ff945c77f57a9a8db6c0747b77a5127362ee8",
+   "key": "Y_Bot",
+   "name": "Y Bot",
+   "rig": "mixamo"
+  }
+ ],
+ "dances": [
+  {
+   "key": "Arms_Hip_Hop_Dance",
+   "name": "Arms Hip Hop Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Arms_Hip_Hop_Dance.json",
+     "bytes": 752092,
+     "sha256": "26b960e6f24cf07a396210241eeb5f030fb17d7f3e3f0a6352f81980903e5626"
+    },
+    "vrm": {
+     "file": "vrm_Arms_Hip_Hop_Dance.json",
+     "bytes": 1508600,
+     "sha256": "fa302b01ca0757985f8a9a87c76ed0d708d8bf2d9287893a788ab62946752f7d"
+    }
+   }
+  },
+  {
+   "key": "Belly_Dance",
+   "name": "Belly Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Belly_Dance.json",
+     "bytes": 667375,
+     "sha256": "763fc60b644cc666b4486b5a258e6eb337edf158b43d2f9a8c78bff4a0329189"
+    },
+    "vrm": {
+     "file": "vrm_Belly_Dance.json",
+     "bytes": 1345657,
+     "sha256": "01bdf8565aa66a7b228fa0aeb16a8f7cd069765dd2c0489a6d04e0413592cac8"
+    }
+   }
+  },
+  {
+   "key": "Booty_Hip_Hop_Dance",
+   "name": "Booty Hip Hop Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Booty_Hip_Hop_Dance.json",
+     "bytes": 167951,
+     "sha256": "46872d2754f502a66ab157fef7a55ce91a91c6de6417b8da130a430949c2ca6d"
+    },
+    "vrm": {
+     "file": "vrm_Booty_Hip_Hop_Dance.json",
+     "bytes": 338517,
+     "sha256": "f95154fe5605bbac0c309cb8d9de5a3cbae5a7c88b90af0bcec3c48889b25d8b"
+    }
+   }
+  },
+  {
+   "key": "Chicken_Dance",
+   "name": "Chicken Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Chicken_Dance.json",
+     "bytes": 163878,
+     "sha256": "97f785b93f5a7c7bbd047ae7a028c928a8fbd59757c96f253afdb0631c617c71"
+    },
+    "vrm": {
+     "file": "vrm_Chicken_Dance.json",
+     "bytes": 330259,
+     "sha256": "95e344240a9c613feb22192f38e9c17daa5f15cf23559f2a5c88e1704b366ae3"
+    }
+   }
+  },
+  {
+   "key": "Dancing",
+   "name": "Dancing",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Dancing.json",
+     "bytes": 726430,
+     "sha256": "1350e4a76174b23af7a8dd278c0cb14395e2cd0cd069df50e8c3575fb3126856"
+    },
+    "vrm": {
+     "file": "vrm_Dancing.json",
+     "bytes": 1469340,
+     "sha256": "5d9860fbb841d4d1a7092ebabe0ea02c7929007d2c696d2600ba7dfd0d187026"
+    }
+   }
+  },
+  {
+   "key": "Dancing_1",
+   "name": "Dancing 1",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Dancing_1.json",
+     "bytes": 90294,
+     "sha256": "891730b83d8ceedb36ed13b1afa0c69a0e13aca18377f4fadd464ea43ddc2671"
+    },
+    "vrm": {
+     "file": "vrm_Dancing_1.json",
+     "bytes": 182972,
+     "sha256": "52d1a3f6e23d2456e85e9909c5fd3b4217faa636ba05ea480bf3c07bc3ab618f"
+    }
+   }
+  },
+  {
+   "key": "Dancing_2",
+   "name": "Dancing 2",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Dancing_2.json",
+     "bytes": 277330,
+     "sha256": "e8b03be7488c774a9a8900be97df5675344e5e93ccb5ee69d77845d2b6c3b30a"
+    },
+    "vrm": {
+     "file": "vrm_Dancing_2.json",
+     "bytes": 557066,
+     "sha256": "3c7c689f713ba6966e7075a88130bf3e23aae4560c61ea23bbae113c7b201d66"
+    }
+   }
+  },
+  {
+   "key": "Dancing_Maraschino_Step",
+   "name": "Dancing Maraschino Step",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Dancing_Maraschino_Step.json",
+     "bytes": 111197,
+     "sha256": "8f8aaf98c08d872e34a751d094cd05eb052000655a4f42492999e7e05c6e71e0"
+    },
+    "vrm": {
+     "file": "vrm_Dancing_Maraschino_Step.json",
+     "bytes": 222876,
+     "sha256": "e8666c3965bdb3e0e212c0276c9ca64b22276a9c943e5a790e747564c56279e7"
+    }
+   }
+  },
+  {
+   "key": "Hip_Hop_Dancing",
+   "name": "Hip Hop Dancing",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Hip_Hop_Dancing.json",
+     "bytes": 635083,
+     "sha256": "29e71767e0208a804dfa7896e04f20c3ce46b7c41ff7419ae74d2ba6db373d19"
+    },
+    "vrm": {
+     "file": "vrm_Hip_Hop_Dancing.json",
+     "bytes": 1277070,
+     "sha256": "b550a60a4d6418b864d4411bf5fbee406448d74591d425033b0c1107d2ea01b1"
+    }
+   }
+  },
+  {
+   "key": "Hip_Hop_Dancing_1",
+   "name": "Hip Hop Dancing 1",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Hip_Hop_Dancing_1.json",
+     "bytes": 162471,
+     "sha256": "b366a89dae7636a1dc1b55ff9b9469421f08fa87be5a894cc31347715db75986"
+    },
+    "vrm": {
+     "file": "vrm_Hip_Hop_Dancing_1.json",
+     "bytes": 325372,
+     "sha256": "090bfe0881044719aa3e8bed727519d882e4db5ccbe7709a5675e7fcbc239d6b"
+    }
+   }
+  },
+  {
+   "key": "Hip_Hop_Dancing_2",
+   "name": "Hip Hop Dancing 2",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Hip_Hop_Dancing_2.json",
+     "bytes": 585394,
+     "sha256": "416ddb5785395994d485f00f32160f9e73bf3d3452b92cd5dcadff1bb3004170"
+    },
+    "vrm": {
+     "file": "vrm_Hip_Hop_Dancing_2.json",
+     "bytes": 1187266,
+     "sha256": "4c5e2bdcd44526912702c13c2c61ad792bc5004fcdca0b1cca7adf30b9ea349d"
+    }
+   }
+  },
+  {
+   "key": "House_Dancing",
+   "name": "House Dancing",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_House_Dancing.json",
+     "bytes": 892245,
+     "sha256": "12aec2ee74b30c68116d40aea3d86d3103145e3729900d8c81d10a205557c229"
+    },
+    "vrm": {
+     "file": "vrm_House_Dancing.json",
+     "bytes": 1795442,
+     "sha256": "6a95dd1093c17f3fb38f24c93f9213b5d81f5cd3e6f3c99614fc175b66214171"
+    }
+   }
+  },
+  {
+   "key": "House_Dancing_1",
+   "name": "House Dancing 1",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_House_Dancing_1.json",
+     "bytes": 673644,
+     "sha256": "60d6d44672a2fa10873ce283607acfc1d1a606196f432fe4a1cf6ace52f00054"
+    },
+    "vrm": {
+     "file": "vrm_House_Dancing_1.json",
+     "bytes": 1357294,
+     "sha256": "1a081ed16c8e523b56c4a56c9960ae06267ce81b54243b5dbee55582362eba45"
+    }
+   }
+  },
+  {
+   "key": "House_Dancing_2",
+   "name": "House Dancing 2",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_House_Dancing_2.json",
+     "bytes": 726807,
+     "sha256": "66ade619b451511f8f8c319ff411475bf5d021193e272410c7bd1922674bb8da"
+    },
+    "vrm": {
+     "file": "vrm_House_Dancing_2.json",
+     "bytes": 1464846,
+     "sha256": "9acf1ad4d4c200c6e1948a1a6a844a5a4cd610ab53799df1316580dcdab03b1f"
+    }
+   }
+  },
+  {
+   "key": "Jazz_Dancing",
+   "name": "Jazz Dancing",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Jazz_Dancing.json",
+     "bytes": 186066,
+     "sha256": "4ab5e77f18a8c99cded31ea8c2613b55814b7f1b1912e180575d3f51e7c79394"
+    },
+    "vrm": {
+     "file": "vrm_Jazz_Dancing.json",
+     "bytes": 376698,
+     "sha256": "60155b0ec5d2af0bffc7b28705d802813a6db0d86cfec87de640afa2d38ab276"
+    }
+   }
+  },
+  {
+   "key": "Jazz_Dancing_1",
+   "name": "Jazz Dancing 1",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Jazz_Dancing_1.json",
+     "bytes": 78139,
+     "sha256": "f9ba62ddb61168a4f94b71ccdbb4c25ed88846505466d0acdc11b441afac7318"
+    },
+    "vrm": {
+     "file": "vrm_Jazz_Dancing_1.json",
+     "bytes": 155043,
+     "sha256": "a43e2ced216cb13c80df80906e9a1e92b558742a32a47f3751ea6e86a54853f1"
+    }
+   }
+  },
+  {
+   "key": "Jazz_Dancing_2",
+   "name": "Jazz Dancing 2",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Jazz_Dancing_2.json",
+     "bytes": 70032,
+     "sha256": "6729516815ff78b0634fd1a9f202f09b767b7caa407b561e10bf83f91ea6953c"
+    },
+    "vrm": {
+     "file": "vrm_Jazz_Dancing_2.json",
+     "bytes": 139739,
+     "sha256": "303c65d01a391187f2896459cbc96615e22fab51d0e3e6b7f8f0c45de59340f9"
+    }
+   }
+  },
+  {
+   "key": "Locking_Hip_Hop_Dance",
+   "name": "Locking Hip Hop Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Locking_Hip_Hop_Dance.json",
+     "bytes": 580206,
+     "sha256": "302d45ec4606e062c6f4ce7e588da8145a806543877c954df2a769d52af603e8"
+    },
+    "vrm": {
+     "file": "vrm_Locking_Hip_Hop_Dance.json",
+     "bytes": 1165540,
+     "sha256": "ff9b0714c307f464b03fe60f7fa718b68a9fc099e22ef104c157cbde5a8b5e2a"
+    }
+   }
+  },
+  {
+   "key": "Macarena_Dance",
+   "name": "Macarena Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Macarena_Dance.json",
+     "bytes": 282510,
+     "sha256": "48855e9a21ff8b750f866fd1efd8d6b8cb78f3f63bbed000a105ab9f02b6494c"
+    },
+    "vrm": {
+     "file": "vrm_Macarena_Dance.json",
+     "bytes": 567281,
+     "sha256": "e2c3d5fd1ac45e7ea8e1d8e7beb9759da5c00a743a44c027760573efc7c4466d"
+    }
+   }
+  },
+  {
+   "key": "Northern_Soul_Dance",
+   "name": "Northern Soul Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Northern_Soul_Dance.json",
+     "bytes": 541411,
+     "sha256": "b65caafb370a2b8a28b138796b5dc47e142a685c25efcd7edef478d0a0f04c1a"
+    },
+    "vrm": {
+     "file": "vrm_Northern_Soul_Dance.json",
+     "bytes": 1107627,
+     "sha256": "2187f66cd8476b00ef2357a50568b14e3647cc3d10113658212ecbe7c39f09b6"
+    }
+   }
+  },
+  {
+   "key": "Northern_Soul_Floor_Combo",
+   "name": "Northern Soul Floor Combo",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Northern_Soul_Floor_Combo.json",
+     "bytes": 360288,
+     "sha256": "33309c639031652102e3d04bc1dd3467e32fb277260bd5cbcaf699a4d859786b"
+    },
+    "vrm": {
+     "file": "vrm_Northern_Soul_Floor_Combo.json",
+     "bytes": 727615,
+     "sha256": "8d6035cc8bb91de2401fa276a3e21cd78012bc00167858a6b44d7a78d83608e7"
+    }
+   }
+  },
+  {
+   "key": "Northern_Soul_Spin_Combo",
+   "name": "Northern Soul Spin Combo",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Northern_Soul_Spin_Combo.json",
+     "bytes": 302123,
+     "sha256": "8349d59b2a406a75c3a89df8748c9d147ab8c2444abc0d50c5d7a11d53e8aa44"
+    },
+    "vrm": {
+     "file": "vrm_Northern_Soul_Spin_Combo.json",
+     "bytes": 605549,
+     "sha256": "d41c51845dcc3aa43a32cd3b5e4c668b8207cc4e70b904ad4c1c2e2f7b124af1"
+    }
+   }
+  },
+  {
+   "key": "Robot_Hip_Hop_Dance",
+   "name": "Robot Hip Hop Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Robot_Hip_Hop_Dance.json",
+     "bytes": 526420,
+     "sha256": "f3449fa471b509c74ef19f41211a2e5d5090192d83d0f7b10e28a4d1eda8368c"
+    },
+    "vrm": {
+     "file": "vrm_Robot_Hip_Hop_Dance.json",
+     "bytes": 1061519,
+     "sha256": "59f678eb2a913598c080f100b22de2924bc7b0ebe24e68feab9fd690aee71b16"
+    }
+   }
+  },
+  {
+   "key": "Samba_Dancing",
+   "name": "Samba Dancing",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Samba_Dancing.json",
+     "bytes": 617494,
+     "sha256": "f4f2631e31da041d8fd1a9606c5df2d607172a3db8b12f2a82c546ce96f0316a"
+    },
+    "vrm": {
+     "file": "vrm_Samba_Dancing.json",
+     "bytes": 1249953,
+     "sha256": "3c5b373bf63dbf0dd85c4704206c4cb79501137e678ce6777550cd1e224fcaab"
+    }
+   }
+  },
+  {
+   "key": "Shopping_Cart_Dance",
+   "name": "Shopping Cart Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Shopping_Cart_Dance.json",
+     "bytes": 532501,
+     "sha256": "8d1d9edbe6f92615a1c9db7ee1969921c97e4a403ca80ce5864bcb20c15cb8b7"
+    },
+    "vrm": {
+     "file": "vrm_Shopping_Cart_Dance.json",
+     "bytes": 1092838,
+     "sha256": "60a06ceeb5b7cee5764c0d9de7c0b3ed593429e29dfaf24b0ef89295b4480d0e"
+    }
+   }
+  },
+  {
+   "key": "Shuffling",
+   "name": "Shuffling",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Shuffling.json",
+     "bytes": 256186,
+     "sha256": "a823a0453dcdd105575cb085289d0fb8eecdf23d8903bfa638f72bb707c1d77f"
+    },
+    "vrm": {
+     "file": "vrm_Shuffling.json",
+     "bytes": 515541,
+     "sha256": "1f067fb4e8e0f47135284bac047475bcef47734c157c48d436a0dc25c9e3581c"
+    }
+   }
+  },
+  {
+   "key": "Slide_Hip_Hop_Dance",
+   "name": "Slide Hip Hop Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Slide_Hip_Hop_Dance.json",
+     "bytes": 587673,
+     "sha256": "8a666286e16c9efeaa4db1310cd280108df50b22847aa1089202210f258b6968"
+    },
+    "vrm": {
+     "file": "vrm_Slide_Hip_Hop_Dance.json",
+     "bytes": 1189613,
+     "sha256": "2243c0c40644ce4cda9e7531c5ece8002d714720ef7435dc04044e6b51b6753c"
+    }
+   }
+  },
+  {
+   "key": "Snake_Hip_Hop_Dance",
+   "name": "Snake Hip Hop Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Snake_Hip_Hop_Dance.json",
+     "bytes": 524099,
+     "sha256": "7146a7b6b545664d418ebf905df9136a487e6d725ed51e3887de6f36219f8681"
+    },
+    "vrm": {
+     "file": "vrm_Snake_Hip_Hop_Dance.json",
+     "bytes": 1045107,
+     "sha256": "b1e696f88cf6957736682dbcb513f0fbf9d76253b95bdacff7b3219701fc33da"
+    }
+   }
+  },
+  {
+   "key": "Snake_Hip_Hop_Dance_1",
+   "name": "Snake Hip Hop Dance 1",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Snake_Hip_Hop_Dance_1.json",
+     "bytes": 524099,
+     "sha256": "7146a7b6b545664d418ebf905df9136a487e6d725ed51e3887de6f36219f8681"
+    },
+    "vrm": {
+     "file": "vrm_Snake_Hip_Hop_Dance_1.json",
+     "bytes": 1045107,
+     "sha256": "b1e696f88cf6957736682dbcb513f0fbf9d76253b95bdacff7b3219701fc33da"
+    }
+   }
+  },
+  {
+   "key": "Step_Hip_Hop_Dance",
+   "name": "Step Hip Hop Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Step_Hip_Hop_Dance.json",
+     "bytes": 265504,
+     "sha256": "37d4ca65f6ff2690a3a73964018f827b1d6b9b69cccdd81a8164ab989b591290"
+    },
+    "vrm": {
+     "file": "vrm_Step_Hip_Hop_Dance.json",
+     "bytes": 537101,
+     "sha256": "e24e59f6c7c3a108ad3a26ec9ecf205b0769d39d00bc756497a80dd3edca7fcb"
+    }
+   }
+  },
+  {
+   "key": "Swing_Dancing",
+   "name": "Swing Dancing",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Swing_Dancing.json",
+     "bytes": 709195,
+     "sha256": "34b34e69fb216fb8d108ba9c061aa4362bb1eb85f55360960cd15fbe168cc7d0"
+    },
+    "vrm": {
+     "file": "vrm_Swing_Dancing.json",
+     "bytes": 1439033,
+     "sha256": "934e9f12a6a3319c99f09d7140c920eda8276e636812f587f5d51ccffc78b3be"
+    }
+   }
+  },
+  {
+   "key": "Swing_Dancing_1",
+   "name": "Swing Dancing 1",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Swing_Dancing_1.json",
+     "bytes": 85049,
+     "sha256": "dd7fdb66e924018d9734b30176467014c3ff7e206b49e3849a28411741330899"
+    },
+    "vrm": {
+     "file": "vrm_Swing_Dancing_1.json",
+     "bytes": 171941,
+     "sha256": "5cc84828cfb2806b79b7be9af87d656f7558eed8ea85f77ee97c0dcb35979f05"
+    }
+   }
+  },
+  {
+   "key": "Swing_Dancing_2",
+   "name": "Swing Dancing 2",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Swing_Dancing_2.json",
+     "bytes": 791601,
+     "sha256": "d6db607796018242f99ea6115cc5cd411a7dc95fda775f8b42ccbf2c22e96b42"
+    },
+    "vrm": {
+     "file": "vrm_Swing_Dancing_2.json",
+     "bytes": 1603099,
+     "sha256": "e6dbf9821cae70cd978562870fdb700db94bbf648e7e7d123b2df94807c648f0"
+    }
+   }
+  },
+  {
+   "key": "Swing_Dancing_3",
+   "name": "Swing Dancing 3",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Swing_Dancing_3.json",
+     "bytes": 838576,
+     "sha256": "eab30475fe18a5774fe4891a7186b45526b6c22454098c0760d97862ee69c04e"
+    },
+    "vrm": {
+     "file": "vrm_Swing_Dancing_3.json",
+     "bytes": 1697692,
+     "sha256": "fcae36f71f8ca602d54a748e8d9432278c1cf49af2b71b68d517c7297017f64f"
+    }
+   }
+  },
+  {
+   "key": "Swing_Dancing_4",
+   "name": "Swing Dancing 4",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Swing_Dancing_4.json",
+     "bytes": 177750,
+     "sha256": "e1f2b00765694ca7609814573ba1390aaf1dce33b83d73c9a65857a879090aef"
+    },
+    "vrm": {
+     "file": "vrm_Swing_Dancing_4.json",
+     "bytes": 357137,
+     "sha256": "00822224436b1041921ea01e227049bb179e2f4fa1376b40e502d12f3372b99b"
+    }
+   }
+  },
+  {
+   "key": "Thriller_Part_2",
+   "name": "Thriller Part 2",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Thriller_Part_2.json",
+     "bytes": 633450,
+     "sha256": "f019c3d8963f4741cd456ab9fcf68391e6804239f6731c837d573378c7d293c4"
+    },
+    "vrm": {
+     "file": "vrm_Thriller_Part_2.json",
+     "bytes": 1292179,
+     "sha256": "34a10c256404cc7846e5d4eb49ef086f71443e717af340e08368ce4aa0964e34"
+    }
+   }
+  },
+  {
+   "key": "Thriller_Part_3",
+   "name": "Thriller Part 3",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Thriller_Part_3.json",
+     "bytes": 867527,
+     "sha256": "802ed22912eae90021f993c9ae9d9284aef07ba41b3b237febd0639bbbeedc07"
+    },
+    "vrm": {
+     "file": "vrm_Thriller_Part_3.json",
+     "bytes": 1755495,
+     "sha256": "033076289f949e8d7177170379ff41adb633f6a69af637f80499fab714f45069"
+    }
+   }
+  },
+  {
+   "key": "Thriller_Part_4",
+   "name": "Thriller Part 4",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Thriller_Part_4.json",
+     "bytes": 1250693,
+     "sha256": "9110d8a528acdb55543d0ea667df763583e64814829c7b65c5f261ee2423eb49"
+    },
+    "vrm": {
+     "file": "vrm_Thriller_Part_4.json",
+     "bytes": 2541426,
+     "sha256": "6fe762ff57de2a3f96ccb988984571d0bf7b99c493d364f79e5b77e897533061"
+    }
+   }
+  },
+  {
+   "key": "Tut_Hip_Hop_Dance",
+   "name": "Tut Hip Hop Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Tut_Hip_Hop_Dance.json",
+     "bytes": 578838,
+     "sha256": "bca70088a988b42ad22e377aec7be27dadbce9fc3275ec0ea2c8314539a39593"
+    },
+    "vrm": {
+     "file": "vrm_Tut_Hip_Hop_Dance.json",
+     "bytes": 1164849,
+     "sha256": "33f53bf37d4f22f9de691e05751bf2df29c1c17773d31d90e4f8369039e593cc"
+    }
+   }
+  },
+  {
+   "key": "Tut_Hip_Hop_Dance_1",
+   "name": "Tut Hip Hop Dance 1",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Tut_Hip_Hop_Dance_1.json",
+     "bytes": 413130,
+     "sha256": "7a135e08df0fe77504d5908f386d469525ddda8bda36f45a24b2f787c3bdd4e1"
+    },
+    "vrm": {
+     "file": "vrm_Tut_Hip_Hop_Dance_1.json",
+     "bytes": 833951,
+     "sha256": "7e7bd2c7eef69a98bba96e0282ba6585fb9c9374b76ac07dfb728be9df7d5aa0"
+    }
+   }
+  },
+  {
+   "key": "Twist_Dance",
+   "name": "Twist Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Twist_Dance.json",
+     "bytes": 323230,
+     "sha256": "dbd3ee9ec4bd0ce18b6c13374fae9567fcebad8ad93954d552e17b07184fc4dd"
+    },
+    "vrm": {
+     "file": "vrm_Twist_Dance.json",
+     "bytes": 648273,
+     "sha256": "10ff51916a00148aa0db7b28d4478adf70ed250504bcb48269d58063c66cfbab"
+    }
+   }
+  },
+  {
+   "key": "Wave_Hip_Hop_Dance",
+   "name": "Wave Hip Hop Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Wave_Hip_Hop_Dance.json",
+     "bytes": 545751,
+     "sha256": "e0320aa8d2347e849056144d442b465e4152d1aec23c68fc18085e644f4aec92"
+    },
+    "vrm": {
+     "file": "vrm_Wave_Hip_Hop_Dance.json",
+     "bytes": 1097614,
+     "sha256": "1ecf91bfc014cf14ffd93e93d0036d60d8adc89c7baea46e447f19b5749d1676"
+    }
+   }
+  },
+  {
+   "key": "Wave_Hip_Hop_Dance_1",
+   "name": "Wave Hip Hop Dance 1",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Wave_Hip_Hop_Dance_1.json",
+     "bytes": 545751,
+     "sha256": "e0320aa8d2347e849056144d442b465e4152d1aec23c68fc18085e644f4aec92"
+    },
+    "vrm": {
+     "file": "vrm_Wave_Hip_Hop_Dance_1.json",
+     "bytes": 1097614,
+     "sha256": "1ecf91bfc014cf14ffd93e93d0036d60d8adc89c7baea46e447f19b5749d1676"
+    }
+   }
+  },
+  {
+   "key": "Ymca_Dance",
+   "name": "Ymca Dance",
+   "clips": {
+    "mixamo": {
+     "file": "mocap_Ymca_Dance.json",
+     "bytes": 154779,
+     "sha256": "f05b86cb783c20d02fc7cb143460abaa16d56648f3d74f11da136bcff935c514"
+    },
+    "vrm": {
+     "file": "vrm_Ymca_Dance.json",
+     "bytes": 308221,
+     "sha256": "b5a0cd9dd1bda3527b547e2023a55e56f0dfa71be6dad238a0b03640f46431e1"
+    }
+   }
+  }
+ ],
+ "music": [
+  {
+   "file": "music_anime_dance.mp3",
+   "bytes": 7041024,
+   "sha256": "e8657287ee8fd146729393e519d2af0738f5b7d10438b8660e6fb5fbac68ecf0",
+   "key": "anime_dance",
+   "name": "anime dance"
+  },
+  {
+   "file": "music_delta_works.mp3",
+   "bytes": 7157760,
+   "sha256": "2c1aae2e7d63a25eca6ecdd752776b88fd68141e25937dcc853aef640a9b951d",
+   "key": "delta_works",
+   "name": "delta works"
+  },
+  {
+   "file": "music_sample_beat.m4a",
+   "bytes": 138379,
+   "sha256": "f9cfcc697a36816ca7f1771643993f735e1cdf67576d7f49e5f470793310f80c",
+   "key": "sample_beat",
+   "name": "sample beat"
+  },
+  {
+   "file": "music_sample_chill.m4a",
+   "bytes": 162219,
+   "sha256": "7de4802205b67d601ec0af9aea82956bc568fd6427ecf19aba5a49a24686a6d5",
+   "key": "sample_chill",
+   "name": "sample chill"
+  }
+ ]
+}
