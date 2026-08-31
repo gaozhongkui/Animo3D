@@ -13,7 +13,7 @@ no chance of two assets colliding.
 import argparse, hashlib, json, os, shutil, sys
 from datetime import date
 
-REPO = "gaozhongkui/App-Assets"
+REPO = "gaozhongkui/Animo3D"
 
 def sha256(path):
     h = hashlib.sha256()
