@@ -2,7 +2,13 @@
 //  VideoAudioMixer.swift
 //  Animo3D
 //
-//  Export Work: Mix Video + (Optional) Background Music + (Non-member) "Animo3D" watermark in bottom right corner.
+//  Export work: mix the recorded video with the chosen background music.
+//
+//  The watermark used to be added here through AVVideoCompositionCoreAnimationTool. That drives
+//  CARenderer to allocate an IOSurface per frame, which in the Simulator goes over XPC shared
+//  memory, fails, and takes the process down with an "API Misuse" trap. It is now burned into the
+//  frames by SceneViewRecorder while recording, so this file only ever mixes audio - and when there
+//  is no music to mix, the caller does not need to export at all.
 //
 
 import Foundation
@@ -10,8 +16,9 @@ import AVFoundation
 import UIKit
 
 enum VideoAudioMixer {
-    /// Export final work. No music if audio is nil; add "Animo3D" watermark in the bottom right corner if watermark is true.
-    static func export(video videoURL: URL, audio audioURL: URL?, watermark: Bool) async -> URL? {
+    /// Mix background music into a recorded clip. Returns nil if anything fails, so the caller can
+    /// fall back to the original recording.
+    static func export(video videoURL: URL, audio audioURL: URL?) async -> URL? {
         let comp = AVMutableComposition()
         let videoAsset = AVURLAsset(url: videoURL)
 
@@ -19,7 +26,6 @@ enum VideoAudioMixer {
             guard let vSrc = try await videoAsset.loadTracks(withMediaType: .video).first else { return nil }
             let vDur = try await videoAsset.load(.duration)
             guard vDur.seconds > 0 else { return nil }
-            let naturalSize = try await vSrc.load(.naturalSize)
             let transform = try await vSrc.load(.preferredTransform)
 
             guard let vTrack = comp.addMutableTrack(withMediaType: .video,
@@ -49,13 +55,6 @@ enum VideoAudioMixer {
             export.outputURL = out
             export.outputFileType = .mp4
 
-            // Watermark: Use CoreAnimation layer to overlay product name in bottom right corner
-            if watermark {
-                let renderSize = naturalSize.applying(transform)
-                let size = CGSize(width: abs(renderSize.width), height: abs(renderSize.height))
-                export.videoComposition = watermarkComposition(track: vTrack, size: size, duration: vDur)
-            }
-
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                 var resumed = false
                 export.exportAsynchronously {
@@ -74,39 +73,4 @@ enum VideoAudioMixer {
         }
     }
 
-    private static func watermarkComposition(track: AVCompositionTrack, size: CGSize, duration: CMTime) -> AVMutableVideoComposition {
-        let vc = AVMutableVideoComposition()
-        vc.renderSize = size
-        vc.frameDuration = CMTime(value: 1, timescale: 30)
-
-        let instr = AVMutableVideoCompositionInstruction()
-        instr.timeRange = CMTimeRange(start: .zero, duration: duration)
-        let layerInstr = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
-        layerInstr.setTransform(track.preferredTransform, at: .zero)
-        instr.layerInstructions = [layerInstr]
-        vc.instructions = [instr]
-
-        // Layer tree: Video layer + Watermark text layer
-        let parent = CALayer(); parent.frame = CGRect(origin: .zero, size: size)
-        let videoLayer = CALayer(); videoLayer.frame = parent.frame
-        parent.addSublayer(videoLayer)
-
-        let fontSize = max(18, size.height * 0.028)
-        let text = CATextLayer()
-        text.string = "Livo 3D"
-        text.font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
-        text.fontSize = fontSize
-        text.foregroundColor = UIColor.white.withAlphaComponent(0.85).cgColor
-        text.shadowColor = UIColor.black.cgColor
-        text.shadowOpacity = 0.5; text.shadowRadius = 3; text.shadowOffset = .zero
-        text.alignmentMode = .right
-        text.contentsScale = 2
-        let margin = size.height * 0.02
-        let tw = fontSize * 5.2, th = fontSize * 1.4
-        text.frame = CGRect(x: size.width - tw - margin, y: margin, width: tw, height: th) // Bottom right corner (video coordinate system origin is bottom left)
-        parent.addSublayer(text)
-
-        vc.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer, in: parent)
-        return vc
-    }
 }

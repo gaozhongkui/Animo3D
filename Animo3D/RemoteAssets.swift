@@ -109,6 +109,10 @@ final class RemoteAssets: ObservableObject {
 
     enum Source: String { case none, seed, cache, network }
 
+    /// One figure for a shared progress indicator: the least advanced transfer in flight.
+    /// nil means nothing is downloading, which is the cue to fall back to a plain spinner.
+    var activeDownloadProgress: Double? { progress.values.min() }
+
     private let lock = NSLock()
     private var _baseUrl = RemoteAssets.fallbackBaseUrl
     private var inFlight: [String: Task<URL, Error>] = [:]

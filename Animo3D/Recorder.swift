@@ -102,6 +102,12 @@ final class WorksStore: ObservableObject {
 }
 
 /// System share sheet.
+/// A just-finished recording, so it can drive a `fullScreenCover(item:)`.
+struct FinishedWork: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
     func makeUIViewController(context: Context) -> UIActivityViewController {

@@ -40,6 +40,7 @@ struct VideoDriveView: View {
     @State private var arMode = false
     @State private var shareURL: URL?
     @State private var showShare = false
+    @State private var finished: FinishedWork?      // Completion page after a recording
     @State private var processing = false        // Exporting the recording
     @State private var videoRect: CGRect = .zero
 
@@ -70,6 +71,9 @@ struct VideoDriveView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)   // The wizard ships its own header and back button
         .sheet(isPresented: $showShare) { if let url = shareURL { ShareSheet(items: [url]) } }
+        .fullScreenCover(item: $finished) { work in
+            WorkDetailView(url: work.url, justSaved: true) { finished = nil }
+        }
         .fullScreenCover(item: $zoomChar) { c in
             let idx = remoteAssets.characters.firstIndex { $0.key == c.key } ?? 0
             CharacterPreviewPage(key: c.key, name: c.name, style: idx)
@@ -295,28 +299,19 @@ struct VideoDriveView: View {
         Button {
             if recorder.isRecording {
                 HapticManager.medium()
+                // Same deal as the dance stage: free exports carry the watermark, so the video-drive
+                // path is not a way to get clean exports for free. It is burned in at record time
+                // now, so there is nothing left to export here - this path has no music to mix.
                 recorder.stop { url in
                     guard let url else { return }
-                    // Same deal as the dance stage: free exports carry the watermark. Without this
-                    // the video-drive path was a way to get clean exports for free.
-                    if !ProStore.shared.isPro {
-                        processing = true
-                        Task {
-                            let final = await VideoAudioMixer.export(video: url, audio: nil, watermark: true) ?? url
-                            await MainActor.run {
-                                HapticManager.success()
-                                processing = false
-                                if let saved = WorksStore.shared.add(from: final) { shareURL = saved; showShare = true }
-                            }
-                        }
-                    } else if let saved = WorksStore.shared.add(from: url) {
+                    if let saved = WorksStore.shared.add(from: url) {
                         HapticManager.success()
-                        shareURL = saved; showShare = true
+                        finished = FinishedWork(url: saved)
                     }
                 }
             } else if let v = holder.scnView {
                 HapticManager.medium()
-                recorder.start(view: v)
+                recorder.start(view: v, watermark: ProStore.shared.isPro ? nil : "Livo 3D")
             }
         } label: {
             ZStack {

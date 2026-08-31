@@ -4,17 +4,24 @@
 //
 //  Creation detail page: plays the recorded video full screen, with share and delete.
 //
+//  Also serves as the "finished" screen straight after a recording. Stopping the recorder used to
+//  throw up the raw share sheet with no confirmation, so it was never clear the clip had been kept -
+//  arriving here plays it back and says where it went.
+//
 
 import SwiftUI
 import AVKit
 
 struct WorkDetailView: View {
     let url: URL
+    /// Set when opened right after recording, to confirm the clip was kept.
+    var justSaved = false
     var onClose: () -> Void
 
     @State private var player = AVPlayer()
     @State private var showShare = false
     @State private var showDeleteConfirm = false
+    @State private var showSavedBanner = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -32,6 +39,12 @@ struct WorkDetailView: View {
                     }
                 }
                 .onDisappear { player.pause() }
+                .task {
+                    guard justSaved else { return }
+                    withAnimation(.spring(response: 0.4)) { showSavedBanner = true }
+                    try? await Task.sleep(nanoseconds: 3_500_000_000)
+                    withAnimation(.easeOut(duration: 0.25)) { showSavedBanner = false }
+                }
 
             // Top: close
             HStack {
@@ -39,6 +52,19 @@ struct WorkDetailView: View {
                 Spacer()
             }
             .padding(.horizontal, 16).padding(.top, 8)
+
+            if showSavedBanner {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                    Text("Saved to My Works")
+                }
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18).padding(.vertical, 12)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(.top, 72)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
 
             // Bottom: share / delete
             VStack {

@@ -21,26 +21,76 @@ final class DanceStage: ObservableObject {
     private var player: MocapPlayer?
     private var vroidPlayer: VRoidClipPlayer?
 
+    /// The model parsed ahead of time, keyed by the character it belongs to.
+    ///
+    /// The same file otherwise gets parsed three separate times on the way to the stage - once by
+    /// ThumbRenderer for the dance grid, once by LiveDanceView for the selected card, and once more
+    /// here on "Start Performance" - and `SCNScene(url:)` plus `warmUp` on a 60MB model is seconds
+    /// of work each time. Starting it while the user is still choosing a dance means the button has
+    /// nothing left to wait for.
+    private var prewarmKey = ""
+    private var prewarmTask: Task<SCNScene?, Never>?
+
+    /// Begin parsing a character's model in the background. Cheap to call repeatedly.
+    @MainActor
+    func prewarm(character: String) {
+        guard !character.isEmpty, character != prewarmKey else { return }
+        prewarmKey = character
+        prewarmTask?.cancel()
+        prewarmTask = Task.detached(priority: .utility) {
+            guard let url = try? await RemoteAssets.shared.resolveCharacterModel(character) else { return nil }
+            guard !Task.isCancelled else { return nil }
+            return CharacterSceneController.loadSceneFile(at: url, warmUp: true)
+        }
+    }
+
+    /// Pull down the clip this character will actually need.
+    ///
+    /// The dance grid only ever fetches mixamo data, because its thumbnails are posed through
+    /// PoseRetargeter. A VRoid character performs from the vrm clip instead, so without this the
+    /// 1.2MB file is still missing at the moment the user presses Start.
+    @MainActor
+    func prewarm(dance: String, for character: String) {
+        guard !dance.isEmpty else { return }
+        let rig = RemoteAssets.shared.character(character)?.rig ?? "mixamo"
+        guard let ref = RemoteAssets.shared.dance(dance)?.clip(rig: rig) else { return }
+        Task.detached(priority: .utility) { _ = try? await RemoteAssets.shared.resolve(ref) }
+    }
+
     /// Load character + dance. **All heavy lifting is on background threads**:
     /// Model parsing (10~60MB) and dance data parsing (vr_*.json up to 2.5MB) do not occupy the main thread,
     /// only lightweight tasks like attaching nodes/creating players return to the main thread — this is the solution to "lag when entering the stage page".
+    ///
+    /// Returns false when the stage could not be assembled, so the caller can drop its loading mask
+    /// instead of leaving it up forever.
+    @discardableResult
     @MainActor
-    func load(character: String, dance: String) async {
+    func load(character: String, dance: String) async -> Bool {
         player?.stop(); vroidPlayer?.stop()
         player = nil; vroidPlayer = nil
 
         let file = characterModelFile(character)
 
-        // Bundled built-ins resolve instantly; everything else is fetched once and cached.
-        guard let localModelURL = try? await RemoteAssets.shared.resolveCharacterModel(character) else {
-            NSLog("[DanceStage] failed to download/locate model %@", file)
-            return
+        // Prefer the copy prewarm already parsed; fall back to parsing inline.
+        var loaded: SCNScene?
+        if prewarmKey == character, let task = prewarmTask {
+            loaded = await task.value
         }
-
-        let loaded = await Task.detached(priority: .userInitiated) {
-            CharacterSceneController.loadSceneFile(at: localModelURL, warmUp: true)
-        }.value
-        guard let loaded else { NSLog("[DanceStage] failed to load model %@", file); return }
+        if loaded == nil {
+            // Bundled built-ins resolve instantly; everything else is fetched once and cached.
+            guard let localModelURL = try? await RemoteAssets.shared.resolveCharacterModel(character) else {
+                NSLog("[DanceStage] failed to download/locate model %@", file)
+                return false
+            }
+            loaded = await Task.detached(priority: .userInitiated) {
+                CharacterSceneController.loadSceneFile(at: localModelURL, warmUp: true)
+            }.value
+        }
+        // A parsed scene can only be installed once - install() reparents its root node - so the
+        // cached copy is consumed here rather than left for a second Start.
+        prewarmKey = ""
+        prewarmTask = nil
+        guard let loaded else { NSLog("[DanceStage] failed to load model %@", file); return false }
         controller.install(loaded)   // Reuse scene, change model (.scn/.usdz)
         NSLog("[DanceStage] load char=%@ isVRM=%d dance=%@", character, controller.isVRM ? 1 : 0, dance)
 
@@ -51,10 +101,10 @@ final class DanceStage: ObservableObject {
             guard let ref = RemoteAssets.shared.dance(dance)?.clip(rig: "vrm"),
                   let url = try? await RemoteAssets.shared.resolve(ref) else {
                 NSLog("[DanceStage] no vrm clip for %@", dance)
-                return
+                return false
             }
             let clip = await Task.detached(priority: .userInitiated) { VRoidClip.load(at: url) }.value
-            guard let clip else { return }
+            guard let clip else { return false }
             let p = VRoidClipPlayer(clip: clip, controller: controller)
             vroidPlayer = p
             p.start()
@@ -65,14 +115,15 @@ final class DanceStage: ObservableObject {
             guard let ref = RemoteAssets.shared.dance(dance)?.clip(rig: "mixamo"),
                   let url = try? await RemoteAssets.shared.resolve(ref) else {
                 NSLog("[DanceStage] no mocap clip for %@", dance)
-                return
+                return false
             }
             let clip = await Task.detached(priority: .userInitiated) { MocapClip.load(url) }.value
-            guard let clip else { return }
+            guard let clip else { return false }
             let p = MocapPlayer(frames: clip.frames, retargeter: rt)
             player = p
             p.start()
         }
+        return true
     }
 
     /// Re-sample the static pose after switching between Screen and AR.
@@ -105,9 +156,11 @@ struct DanceStudioView: View {
     @State private var arMode = false
     @State private var shareURL: URL?
     @State private var showShare = false
+    @State private var finished: FinishedWork?      // Completion page after a recording
     @State private var showAudioDoc = false
     @State private var processing = false   // Mixing music
     @State private var loading = false      // Loading character/dance (model + animation parsing in background)
+    @State private var stageWatchdog: Task<Void, Never>?
     @State private var zoomChar: CatalogItem?   // Character zoom preview
     @State private var zoomDance: CatalogItem?  // Dance zoom preview
     @State private var vfx = DanceVFX()         // Stage VFX
@@ -155,6 +208,10 @@ struct DanceStudioView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)   // It ships its own unified back/close button
         .sheet(isPresented: $showShare) { if let url = shareURL { ShareSheet(items: [url]) } }
+        // Recording used to end on a bare share sheet, with nothing saying the clip had been kept.
+        .fullScreenCover(item: $finished) { work in
+            WorkDetailView(url: work.url, justSaved: true) { finished = nil }
+        }
         .sheet(isPresented: $showAudioDoc) {
             AudioDoc { url in
                 if let t = localMusic.importFile(from: url) { select(music: t) }
@@ -165,6 +222,13 @@ struct DanceStudioView: View {
         // to avoid writing music.stop() at every jump point and potentially missing a path.
         .onChange(of: step) { s in
             if s == .character || s == .dance { music.stop() }
+            // Parse the model while the user is still browsing dances and music. By the time they
+            // press Start Performance the scene is already built, so the button has nothing to wait on.
+            if s == .dance || s == .music { stage.prewarm(character: character) }
+        }
+        .onChange(of: dance) { d in
+            // A VRoid character performs from the vrm clip, which the dance grid never fetches.
+            stage.prewarm(dance: d, for: character)
         }
         .onDisappear { music.stop(); vfx.remove(); stage.stop() }
         .fullScreenCover(item: $zoomChar) { c in
@@ -182,8 +246,18 @@ struct DanceStudioView: View {
         ZStack {
             Color.black.opacity(0.45).ignoresSafeArea()
             VStack(spacing: 12) {
-                ProgressView().tint(.white).scaleEffect(1.3)
-                Text("Preparing Stage...").font(.footnote).foregroundStyle(.white.opacity(0.9))
+                // An indeterminate spinner and a 90-second download look identical to the user.
+                if let p = remoteAssets.activeDownloadProgress {
+                    ProgressView(value: p)
+                        .progressViewStyle(.linear)
+                        .tint(.white)
+                        .frame(width: 170)
+                    Text("Downloading assets… \(Int(p * 100))%")
+                        .font(.footnote).foregroundStyle(.white.opacity(0.9))
+                } else {
+                    ProgressView().tint(.white).scaleEffect(1.3)
+                    Text("Preparing Stage...").font(.footnote).foregroundStyle(.white.opacity(0.9))
+                }
             }
             .padding(24)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -423,9 +497,14 @@ struct DanceStudioView: View {
         ZStack {
             Group {
                 if arMode {
-                    ARCharacterView(controller: stage.controller, onAttach: { stage.resetRetarget() }, holder: holder)
+                    ARCharacterView(controller: stage.controller,
+                                    onAttach: { stage.resetRetarget(); stageDidRender() },
+                                    holder: holder)
                 } else {
-                    CharacterSceneView(controller: stage.controller, onAttach: { stage.resetRetarget() }, holder: holder)
+                    CharacterSceneView(controller: stage.controller,
+                                       onAttach: { stage.resetRetarget() },
+                                       onFirstFrame: { stageDidRender() },
+                                       holder: holder)
                 }
             }
             .id(arMode)
@@ -541,27 +620,25 @@ struct DanceStudioView: View {
                 HapticManager.medium()
                 recorder.stop { url in
                     guard let url else { return }
-                    let watermark = !ProStore.shared.isPro
-                    // Has music or needs watermark -> proceed to export; otherwise save directly
-                    if selectedMusic != nil || watermark {
+                    // The watermark is already in the frames, so only music still needs an export pass.
+                    if let audio = selectedMusic?.url {
                         processing = true
                         Task {
-                            let final = await VideoAudioMixer.export(video: url, audio: selectedMusic?.url,
-                                                                     watermark: watermark) ?? url
+                            let final = await VideoAudioMixer.export(video: url, audio: audio) ?? url
                             await MainActor.run {
                                 HapticManager.success()
                                 processing = false
-                                if let saved = WorksStore.shared.add(from: final) { shareURL = saved; showShare = true }
+                                if let saved = WorksStore.shared.add(from: final) { finished = FinishedWork(url: saved) }
                             }
                         }
                     } else if let saved = WorksStore.shared.add(from: url) {
                         HapticManager.success()
-                        shareURL = saved; showShare = true
+                        finished = FinishedWork(url: saved)
                     }
                 }
             } else if let v = holder.scnView {
                 HapticManager.medium()
-                recorder.start(view: v)
+                recorder.start(view: v, watermark: pro.isPro ? nil : "Livo 3D")
             }
         } label: {
             ZStack {
@@ -650,12 +727,30 @@ struct DanceStudioView: View {
         loading = true
         let ch = character, dc = dance
         Task {
-            await stage.load(character: ch, dance: dc)
-            loading = false
+            guard await stage.load(character: ch, dance: dc) else { loading = false; return }
             if let m = selectedMusic { music.play(m) } else { music.stop() }
             step = .perform
             installVFX()
+            // The mask deliberately stays up past this point. Switching to .perform is when the
+            // SCNView is first built - floor, reflection, shadow map, stage rig and particles all
+            // assembled synchronously - and the first frame still has to reach the screen. Dropping
+            // the mask on "parsing finished" is what left the user looking at an empty stage.
+            // CharacterSceneView.onFirstFrame takes it down; the watchdog is there so a stage that
+            // never renders cannot strand the user behind a permanent mask.
+            stageWatchdog?.cancel()
+            stageWatchdog = Task {
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                guard !Task.isCancelled else { return }
+                NSLog("[DanceStage] first frame never arrived; dropping the mask anyway")
+                loading = false
+            }
         }
+    }
+
+    private func stageDidRender() {
+        stageWatchdog?.cancel()
+        stageWatchdog = nil
+        loading = false
     }
 
     /// Install/refresh stage VFX (attach to character screen scene, read music energy pulses).

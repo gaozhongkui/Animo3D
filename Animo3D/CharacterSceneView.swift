@@ -62,13 +62,24 @@ final class CharacterSceneController: ObservableObject {
     /// Only performs disk parsing, doesn't touch any on-screen scenes — can be called on background threads.
     /// Models are often 10~60MB; parsing + texture decoding + creating skinner takes hundreds of ms to seconds on iPhone X,
     /// and is the main reason for "lag when entering the stage page" if on the main thread.
+    /// SceneKit's loader is not safe to run concurrently, and the dance grid asks for several
+    /// parses of the *same* 11-60MB model at once: the selected card's LiveDanceView builds one,
+    /// ThumbRenderer another, and the stage prewarm a third. Overlapping them produced scenes that
+    /// came back empty - the card just never showed a character - so they are serialised here.
+    /// Nothing is lost: they were already contending for the same disk read and GPU upload.
+    private static let parseQueue = DispatchQueue(label: "com.animo3d.scene.parse")
+
+    /// **Never call this on the main thread** - it parses tens of megabytes and now also waits
+    /// behind any other parse in flight.
     static func loadSceneFile(at url: URL, warmUp: Bool = false) -> SCNScene? {
-        guard let loaded = try? SCNScene(url: url, options: [.convertToYUp: false]) else {
-            print("[Character] failed to load model at url: \(url.lastPathComponent)")
-            return nil
+        parseQueue.sync {
+            guard let loaded = try? SCNScene(url: url, options: [.convertToYUp: false]) else {
+                print("[Character] failed to load model at url: \(url.lastPathComponent)")
+                return nil
+            }
+            if warmUp { Self.warmUp(loaded) }
+            return loaded
         }
-        if warmUp { Self.warmUp(loaded) }
-        return loaded
     }
 
     /// Warm up: Pre-upload geometry and textures to the GPU.
@@ -939,18 +950,37 @@ final class CharacterSceneController: ObservableObject {
 struct CharacterSceneView: UIViewRepresentable {
     let controller: CharacterSceneController
     var onAttach: (() -> Void)? = nil
+    /// Called once the stage has rendered its first frame - see Coordinator.
+    var onFirstFrame: (() -> Void)? = nil
     var holder: SceneHolder? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(controller: controller) }
 
     final class Coordinator: NSObject, SCNSceneRendererDelegate {
         var framed = false
+        var onFirstFrame: (() -> Void)?
+        private var firstFrameDelivered = false
         private let controller: CharacterSceneController
 
         init(controller: CharacterSceneController) { self.controller = controller }
 
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
             controller.driveStage()
+        }
+
+        /// Fires once, after SceneKit has actually put a frame on screen.
+        ///
+        /// Building this view is not free - the floor (with its scene-re-rendering reflection),
+        /// the shadow map, the stage rig and the particles are all assembled synchronously in
+        /// `makeUIView`, and the first frame still has to upload geometry and textures. A caller
+        /// that drops its loading mask when *parsing* finishes leaves the user staring at an empty
+        /// stage through all of that; this is the signal to drop it on.
+        func renderer(_ renderer: SCNSceneRenderer, didRenderScene scene: SCNScene, atTime time: TimeInterval) {
+            guard !firstFrameDelivered else { return }
+            firstFrameDelivered = true
+            let cb = onFirstFrame
+            onFirstFrame = nil
+            DispatchQueue.main.async { cb?() }
         }
     }
 
@@ -975,6 +1005,7 @@ struct CharacterSceneView: UIViewRepresentable {
         // Our own light rig lights the scene. autoenablesDefaultLighting would add another
         // full-strength omni on top of it, which is what blew the character out to flat white.
         view.autoenablesDefaultLighting = false
+        context.coordinator.onFirstFrame = onFirstFrame
         view.delegate = context.coordinator          // Feeds the music-driven stage rig each frame
         view.rendersContinuously = true      // Continuous rendering to avoid frozen frames after switching
         view.isPlaying = true
