@@ -452,9 +452,10 @@ final class VideoCharStage: ObservableObject {
     @Published var isLoading = false
 
     init() {
-        // A shadow under the feet, so the character is not just floating in a black void.
-        // Not the full stage floor: this screen is about the motion, not the venue.
-        controller.contactShadowOnly = true
+        // Same stage as the dance studio - LED wall, beams, floor and crowd. This screen used to
+        // enable nothing at all, so the performer stood in an empty black void while the dance
+        // flow got the full venue. Two stages that look nothing alike is just an inconsistency.
+        controller.groundEnabled = true
     }
 
     /// Two-phase load, matching the dance stage: parse off the main thread, mount on it.

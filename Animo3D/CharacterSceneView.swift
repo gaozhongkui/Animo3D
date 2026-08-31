@@ -153,15 +153,22 @@ final class CharacterSceneController: ObservableObject {
         var fog: UIColor
         switch backgroundType {
         case .studio:
-            scene.background.contents = UIColor(red: 0.02, green: 0.02, blue: 0.03, alpha: 1)
             fog = UIColor(red: 0.02, green: 0.02, blue: 0.03, alpha: 1)   // = Background color, seamless at horizon
         case .sky:
-            if let skyImage = UIImage(named: "sky_park") {
-                scene.background.contents = skyImage
-            } else {
-                scene.background.contents = CharacterSceneView.skyBackdrop()
-            }
             fog = UIColor(red: 0.82, green: 0.88, blue: 0.95, alpha: 1)   // = Sky horizon color
+        }
+
+        // Only the full stage paints a background. Thumbnails and the live dance cards draw over a
+        // SwiftUI backdrop, so a scene background here covers that card with a flat slab of colour.
+        if groundEnabled {
+            switch backgroundType {
+            case .studio:
+                scene.background.contents = fog
+            case .sky:
+                scene.background.contents = UIImage(named: "sky_park") ?? CharacterSceneView.skyBackdrop()
+            }
+        } else {
+            scene.background.contents = nil
         }
         // Fog: Ground fades into background in the distance -> Seamless fusion of ground and background, creating depth and grounding (only for large performance view)
         if groundEnabled {
