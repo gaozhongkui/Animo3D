@@ -872,14 +872,28 @@ final class CharacterSceneController: ObservableObject {
             let n = SCNNode(); n.camera = SCNCamera()
             scene.rootNode.addChildNode(n); cameraNode = n; return n
         }()
-        cam.camera?.zNear = Double(height) * 0.01
-        cam.camera?.zFar = Double(height) * 50
-        // Without HDR there is no tone mapping, so anything brighter than 1.0 clips to white -
-        // pale skin and white clothing lose all their shading. Fixed exposure, not adaptive,
-        // so the image does not breathe while the character dances.
-        cam.camera?.wantsHDR = true
-        cam.camera?.wantsExposureAdaptation = false
-        cam.camera?.exposureOffset = -0.1
+
+        // --- Cinematic Quality Upgrade (Refined & Fixed) ---
+        if let camera = cam.camera {
+            camera.zNear = Double(height) * 0.01
+            camera.zFar = Double(height) * 50
+            camera.wantsHDR = true
+
+            // Exposure: High-end uses adaptive for smooth transitions, low-end stays fixed for speed
+            camera.wantsExposureAdaptation = !DeviceTier.isLowEnd
+            camera.exposureOffset = 0.0
+
+            // Bloom: Controlled by intensity. HDR + Intensity > 0 activates bloom automatically.
+            camera.bloomIntensity = DeviceTier.bloomIntensity
+            camera.bloomThreshold = 0.8
+            camera.bloomBlurRadius = 12.0
+
+            // SSAO: Adds realistic occlusion in crevices. Only on High-end.
+            if !DeviceTier.isLowEnd {
+                camera.screenSpaceAmbientOcclusionIntensity = 0.8
+                camera.screenSpaceAmbientOcclusionRadius = 1.0
+            }
+        }
         if groundEnabled {
             // Large performance view: slightly top-down so the floor and shadow stay visible.
             // Aimed above the waist, which lifts the character clear of the controls at the bottom

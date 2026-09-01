@@ -40,6 +40,16 @@ struct ARCharacterView: UIViewRepresentable {
             let config = ARWorldTrackingConfiguration()
             config.planeDetection = detectGround ? [.horizontal] : []
             config.environmentTexturing = .automatic
+
+            // 开启人像遮挡 (People Occlusion)
+            // 需要 A12 芯片及以上机型，iOS 13+ 支持基本遮挡，但 iOS 16+ 的深度信息更精准
+            if ARWorldTrackingConfiguration.supportsFrameSemantics(.personSegmentationWithDepth) {
+                config.frameSemantics.insert(.personSegmentationWithDepth)
+                print("[AR] People Occlusion enabled")
+            } else {
+                print("[AR] People Occlusion not supported on this device")
+            }
+
             arView.session.run(config)
 
             if detectGround {
@@ -59,6 +69,20 @@ struct ARCharacterView: UIViewRepresentable {
                 let tap = UITapGestureRecognizer(target: context.coordinator,
                                                  action: #selector(Coordinator.handleTap(_:)))
                 arView.addGestureRecognizer(tap)
+
+                // --- 新增手势支持 ---
+                // 缩放
+                let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
+                arView.addGestureRecognizer(pinch)
+
+                // 旋转
+                let rotate = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRotate(_:)))
+                arView.addGestureRecognizer(rotate)
+
+                // 拖拽平移
+                let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
+                pan.maximumNumberOfTouches = 1 // 确保不与两指手势冲突
+                arView.addGestureRecognizer(pan)
             }
         }
         holder?.scnView = arView
@@ -266,6 +290,41 @@ struct ARCharacterView: UIViewRepresentable {
                 }}}
             }
             return minY
+        }
+
+        // MARK: Gesture Handlers
+
+        @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
+            guard let container, placed else { return }
+            if g.state == .changed {
+                let s = Float(g.scale)
+                container.simdScale *= s
+                g.scale = 1.0 // 增量缩放
+            }
+        }
+
+        @objc func handleRotate(_ g: UIRotationGestureRecognizer) {
+            guard let container, placed else { return }
+            if g.state == .changed {
+                container.simdEulerAngles.y -= Float(g.rotation)
+                g.rotation = 0 // 增量旋转
+            }
+        }
+
+        @objc func handlePan(_ g: UIPanGestureRecognizer) {
+            guard let arView, let container, placed else { return }
+            let pt = g.location(in: arView)
+
+            // 沿平面滑动移动
+            let query = arView.raycastQuery(from: pt, allowing: .existingPlaneGeometry, alignment: .horizontal)
+                ?? arView.raycastQuery(from: pt, allowing: .estimatedPlane, alignment: .horizontal)
+
+            if let q = query, let hit = arView.session.raycast(q).first {
+                // 平移时不改变旋转和缩放
+                container.simdWorldPosition = simd_float3(hit.worldTransform.columns.3.x,
+                                                         hit.worldTransform.columns.3.y,
+                                                         hit.worldTransform.columns.3.z)
+            }
         }
 
         // MARK: Tap to place -> Create ARAnchor
