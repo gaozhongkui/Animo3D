@@ -61,7 +61,11 @@ struct VFXPreset {
 }
 
 final class DanceVFX {
-    private weak var scene: SCNScene?
+    /// The node the effects hang under. On the screen stage that is the scene root; in AR it is the
+    /// placed character's container, so the particles ride with the anchor and inherit its scale.
+    /// Installing into a *scene* was the bug: in AR the character is moved into ARSCNView's own
+    /// scene, so effects added to the controller's scene were never rendered at all.
+    private weak var parent: SCNNode?
     private let root = SCNNode()
     private var ring: SCNNode?
     private var systems: [SCNParticleSystem] = []   // Main particles (the spiral has several), all driven by the beat
@@ -79,16 +83,16 @@ final class DanceVFX {
     var preset = 0
 
     // MARK: Install / uninstall
-    func install(in scene: SCNScene, feetY: Float, height h: Float, level: @escaping () -> Float) {
+    func install(in parent: SCNNode, feetY: Float, height h: Float, level: @escaping () -> Float) {
         remove()
-        self.scene = scene
+        self.parent = parent
         self.levelProvider = level
         self.height = CGFloat(max(h, 1.2))
         self.radius = CGFloat(max(h * 0.3, 0.28))
         self.cur = VFXPreset.all[preset % VFXPreset.all.count]
 
         root.simdPosition = simd_float3(0, feetY + 0.01, 0)
-        scene.rootNode.addChildNode(root)
+        parent.addChildNode(root)
 
         if cur.groundRing { buildGroundRing() }
         buildMain()
@@ -110,9 +114,9 @@ final class DanceVFX {
     /// Switch to the next preset (wrapping around).
     func next() -> String {
         preset = (preset + 1) % VFXPreset.all.count
-        if let sc = scene, let lv = levelProvider {
+        if let p = parent, let lv = levelProvider {
             let y = root.simdPosition.y - 0.01
-            install(in: sc, feetY: y, height: Float(height), level: lv)
+            install(in: p, feetY: y, height: Float(height), level: lv)
         }
         return VFXPreset.all[preset % VFXPreset.all.count].name
     }

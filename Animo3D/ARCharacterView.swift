@@ -16,12 +16,15 @@ import SceneKit
 struct ARCharacterView: UIViewRepresentable {
     let controller: CharacterSceneController
     var onAttach: (() -> Void)? = nil
+    /// Called with the character's container once it is standing in the world, so the caller can
+    /// hang effects off it and take its placement guidance down.
+    var onPlaced: ((SCNNode) -> Void)? = nil
     var holder: SceneHolder? = nil
     /// true = land on the floor after scanning the ground; false = no ground detection, place directly in front of the camera (for quick validation).
     var detectGround: Bool = true
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(controller: controller, onAttach: onAttach, detectGround: detectGround)
+        Coordinator(controller: controller, onAttach: onAttach, onPlaced: onPlaced, detectGround: detectGround)
     }
 
     func makeUIView(context: Context) -> ARSCNView {
@@ -71,6 +74,7 @@ struct ARCharacterView: UIViewRepresentable {
     final class Coordinator: NSObject, ARSCNViewDelegate {
         private let controller: CharacterSceneController
         private let onAttach: (() -> Void)?
+        private let onPlaced: ((SCNNode) -> Void)?
         private let detectGround: Bool
         private weak var arView: ARSCNView?
         private var container: SCNNode?      // Carries the character: scaling + sole alignment
@@ -78,9 +82,11 @@ struct ARCharacterView: UIViewRepresentable {
         private var planeNodes: [UUID: SCNNode] = [:]
         private(set) var placed = false
 
-        init(controller: CharacterSceneController, onAttach: (() -> Void)?, detectGround: Bool) {
+        init(controller: CharacterSceneController, onAttach: (() -> Void)?,
+             onPlaced: ((SCNNode) -> Void)?, detectGround: Bool) {
             self.controller = controller
             self.onAttach = onAttach
+            self.onPlaced = onPlaced
             self.detectGround = detectGround
         }
 
@@ -114,6 +120,7 @@ struct ARCharacterView: UIViewRepresentable {
                 c.isHidden = false
                 placed = true
                 arView.scene.rootNode.addChildNode(c)
+                onPlaced?(c)
             }
             print("[AR] model ready height=\(h) scale=\(s) groundOffset=\(minY) detectGround=\(detectGround)")
         }
@@ -227,6 +234,7 @@ struct ARCharacterView: UIViewRepresentable {
                 reticle?.isHidden = true
                 // Hide plane grids after placement to avoid obstruction
                 planeNodes.values.forEach { $0.isHidden = true }
+                onPlaced?(container)
             }
         }
 

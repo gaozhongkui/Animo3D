@@ -154,6 +154,10 @@ struct DanceStudioView: View {
     @State private var dance = ""
     @State private var selectedMusic: MusicTrack?
     @State private var arMode = false
+    /// The placed AR container, and whether placement has happened. Effects hang off the container
+    /// and the placement guidance comes down once it exists.
+    @State private var arContainer: SCNNode?
+    @State private var arPlaced = false
     @State private var shareURL: URL?
     @State private var showShare = false
     @State private var finished: FinishedWork?      // Completion page after a recording
@@ -220,6 +224,11 @@ struct DanceStudioView: View {
         .onAppear(perform: setupInitial)
         // Music should only play during "Select Music (audition)" and "Performance": stop it if navigating back to the first two steps,
         // to avoid writing music.stop() at every jump point and potentially missing a path.
+        .onChange(of: arMode) { _ in
+            arContainer = nil
+            arPlaced = false
+            vfx.remove()
+        }
         .onChange(of: step) { s in
             if s == .character || s == .dance { music.stop() }
             // Parse the model while the user is still browsing dances and music. By the time they
@@ -499,6 +508,11 @@ struct DanceStudioView: View {
                 if arMode {
                     ARCharacterView(controller: stage.controller,
                                     onAttach: { stage.resetRetarget(); stageDidRender() },
+                                    onPlaced: { node in
+                                        arContainer = node
+                                        arPlaced = true
+                                        installVFX()      // effects only exist once there is somewhere to put them
+                                    },
                                     holder: holder)
                 } else {
                     CharacterSceneView(controller: stage.controller,
@@ -510,8 +524,9 @@ struct DanceStudioView: View {
             .id(arMode)
             .ignoresSafeArea()
 
-            // AR guidance: when AR mode is on but no plane has been detected or placement made yet, show the guide
-            if arMode {
+            // Placement guidance, up only until the character is standing. The condition used to be
+            // just `arMode`, so this panel sat over the camera feed for the whole session.
+            if arMode && !arPlaced {
                 ARCoachView()
                     .transition(.opacity)
             }
@@ -528,7 +543,7 @@ struct DanceStudioView: View {
                 Spacer()
 
                 VStack(spacing: 14) {
-                    sceneSelectionBar
+                    if !arMode { sceneSelectionBar }   // the real room is the backdrop in AR
                     vfxBar
                     recordButton.padding(.top, 2)
                 }
@@ -759,7 +774,10 @@ struct DanceStudioView: View {
         // confetti all hit on the same beat. Set here because this runs on every VFX change.
         stage.controller.levelProvider = { [weak music] in music?.currentLevel() ?? 0 }
         vfx.remove()
-        let cam = stage.controller.cameraNode?.camera
+        // AR renders through ARKit's own camera and its own scene, so both the bloom target and the
+        // parent node differ from the screen stage. Pointing either at the controller was why the
+        // effect chips changed state but nothing appeared in AR.
+        let cam = arMode ? holder.scnView?.pointOfView?.camera : stage.controller.cameraNode?.camera
         guard vfxOn else { cam?.bloomIntensity = 0; return }
         // Bloom post-processing: Only let ultra-bright glowing particles produce a soft halo (high threshold to avoid overexposing character's white clothes)
         // Disable bloom on low-end devices (DeviceTier) to eliminate lag from fullscreen Gaussian blur.
@@ -769,8 +787,12 @@ struct DanceStudioView: View {
         cam?.bloomThreshold = 1.15
         cam?.bloomBlurRadius = 14
         vfx.preset = vfxPreset
-        vfx.install(in: stage.controller.scene,
-                    feetY: stage.controller.feetY,
+        // In AR the container already sits the character's feet on its own origin, so the effects
+        // start at 0 there and ride the anchor's scale.
+        let parent = arMode ? arContainer : stage.controller.scene.rootNode
+        guard let parent else { return }        // AR, nothing placed yet - installed again on placement
+        vfx.install(in: parent,
+                    feetY: arMode ? 0 : stage.controller.feetY,
                     height: stage.controller.modelHeight,
                     level: { [weak music] in music?.currentLevel() ?? 0 })
     }
