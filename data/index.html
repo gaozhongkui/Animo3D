@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Livo 3D | The Future of AR Dance</title>
+    <style>
+        :root {
+            --bg: #050505;
+            --accent: #ff007a;
+            --accent-glow: rgba(255, 0, 122, 0.3);
+            --glass: rgba(255, 255, 255, 0.03);
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: "Inter", -apple-system, system-ui, sans-serif;
+            background-color: var(--bg);
+            color: #fff;
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+
+        /* Ambient Background Glows */
+        .glow-blob {
+            position: fixed;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            z-index: -1;
+            filter: blur(80px);
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        .blob-1 { top: -200px; right: -200px; }
+        .blob-2 { bottom: -200px; left: -200px; }
+
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 80px 20px;
+            position: relative;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 8px 16px;
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-bottom: 30px;
+            animation: fadeInDown 1s ease-out;
+        }
+
+        h1 {
+            font-size: clamp(3rem, 10vw, 7rem);
+            font-weight: 900;
+            line-height: 0.9;
+            margin-bottom: 20px;
+            background: linear-gradient(to bottom, #fff 40%, rgba(255,255,255,0.4));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -4px;
+        }
+
+        .hero p {
+            font-size: clamp(1.1rem, 2vw, 1.5rem);
+            color: #888;
+            max-width: 600px;
+            margin-bottom: 50px;
+        }
+
+        .main-cta {
+            position: relative;
+            padding: 20px 40px;
+            font-size: 18px;
+            font-weight: 700;
+            color: #fff;
+            text-decoration: none;
+            background: #fff;
+            color: #000;
+            border-radius: 12px;
+            transition: 0.3s;
+            overflow: hidden;
+        }
+
+        .main-cta:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(255,255,255,0.2);
+        }
+
+        /* Floating Showcase */
+        .journey {
+            padding: 150px 0;
+            position: relative;
+        }
+
+        .scroll-container {
+            display: flex;
+            gap: 100px;
+            padding: 50px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        .scroll-container::-webkit-scrollbar { display: none; }
+
+        .step-card {
+            flex: 0 0 400px;
+            position: relative;
+        }
+
+        .mockup-wrapper {
+            position: relative;
+            border-radius: 40px;
+            padding: 15px;
+            background: var(--glass);
+            border: 1px solid var(--border);
+            backdrop-filter: blur(20px);
+            transition: 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+        }
+
+        .step-card:hover .mockup-wrapper {
+            transform: translateY(-20px) rotate(-2deg);
+            border-color: var(--accent);
+            box-shadow: 0 40px 80px rgba(0,0,0,0.8);
+        }
+
+        .mockup-img {
+            width: 100%;
+            border-radius: 28px;
+            display: block;
+        }
+
+        .step-info {
+            margin-top: 30px;
+        }
+
+        .step-number {
+            font-size: 80px;
+            font-weight: 900;
+            position: absolute;
+            top: -40px;
+            left: -20px;
+            color: var(--accent);
+            opacity: 0.2;
+            z-index: -1;
+        }
+
+        .step-info h3 { font-size: 28px; margin-bottom: 10px; }
+        .step-info p { color: #666; font-size: 16px; }
+
+        /* Features Section - Dark & Bold */
+        .features-bento {
+            padding: 100px 5%;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .bento-item {
+            background: var(--glass);
+            border: 1px solid var(--border);
+            padding: 40px;
+            border-radius: 30px;
+            transition: 0.3s;
+        }
+        .bento-item:hover { background: rgba(255, 255, 255, 0.06); }
+        .large { grid-column: span 2; }
+
+        .bento-item h4 { font-size: 24px; margin-bottom: 15px; color: var(--accent); }
+
+        footer {
+            padding: 100px 5%;
+            text-align: center;
+            border-top: 1px solid var(--border);
+        }
+
+        .footer-logo { font-size: 32px; font-weight: 900; margin-bottom: 20px; }
+        .legal { display: flex; justify-content: center; gap: 30px; margin-bottom: 40px; }
+        .legal a { color: #555; text-decoration: none; font-size: 14px; transition: 0.3s; }
+        .legal a:hover { color: var(--accent); }
+
+        /* Animations */
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (max-width: 900px) {
+            .features-bento { grid-template-columns: 1fr; }
+            .large { grid-column: span 1; }
+            .step-card { flex: 0 0 300px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="glow-blob blob-1"></div>
+    <div class="glow-blob blob-2"></div>
+
+    <section class="hero">
+        <div class="badge">Next Generation 3D AI</div>
+        <h1>Livo 3D</h1>
+        <p>Break the boundary between reality and virtuality. The most creative AR avatar studio powered by cutting-edge Pose-AI.</p>
+        <a href="#" class="main-cta">Download Now</a>
+    </section>
+
+    <section class="journey">
+        <div class="scroll-container">
+            <!-- Step 1 -->
+            <div class="step-card">
+                <span class="step-number">01</span>
+                <div class="mockup-wrapper">
+                    <img src="promo/iphone/raw/1_home.png" alt="Discover" class="mockup-img">
+                </div>
+                <div class="step-info">
+                    <h3>Explore</h3>
+                    <p>Dive into a world of limitless motion and curated 3D experiences.</p>
+                </div>
+            </div>
+
+            <!-- Step 2 -->
+            <div class="step-card">
+                <span class="step-number">02</span>
+                <div class="mockup-wrapper">
+                    <img src="promo/iphone/raw/2_characters.png" alt="Characters" class="mockup-img">
+                </div>
+                <div class="step-info">
+                    <h3>Manifest</h3>
+                    <p>Choose your identity from our diverse library of high-fidelity 3D avatars.</p>
+                </div>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="step-card">
+                <span class="step-number">03</span>
+                <div class="mockup-wrapper">
+                    <img src="promo/iphone/raw/3_dances.png" alt="Dances" class="mockup-img">
+                </div>
+                <div class="step-info">
+                    <h3>Sync</h3>
+                    <p>Apply complex motion data or drive characters with your own camera.</p>
+                </div>
+            </div>
+
+            <!-- Step 4 -->
+            <div class="step-card">
+                <span class="step-number">04</span>
+                <div class="mockup-wrapper">
+                    <img src="promo/iphone/raw/4_stage.png" alt="Stage" class="mockup-img">
+                </div>
+                <div class="step-info">
+                    <h3>Reality</h3>
+                    <p>Augment your world. Record stunning performances in your own environment.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="features-bento">
+        <div class="bento-item large">
+            <h4>Real-time AI Tracking</h4>
+            <p>Our custom neural engine processes human movement with zero latency, mapping your soul to the digital avatar.</p>
+        </div>
+        <div class="bento-item">
+            <h4>AR Engine</h4>
+            <p>Built on Apple's ARKit for rock-solid stability in any lighting condition.</p>
+        </div>
+        <div class="bento-item">
+            <h4>Export 4K</h4>
+            <p>Record your performances in high resolution, ready for social sharing.</p>
+        </div>
+        <div class="bento-item large">
+            <h4>Community Library</h4>
+            <p>Access thousands of community-generated poses and dance sequences instantly.</p>
+        </div>
+    </section>
+
+    <footer>
+        <div class="footer-logo">Livo 3D</div>
+        <div class="legal">
+            <a href="https://sites.google.com/view/livo3dtermsofservice" target="_blank">Terms</a>
+            <a href="https://sites.google.com/view/livo3dprivacypolicy" target="_blank">Privacy</a>
+            <a href="mailto:hhyteam@zhongkuitech.cn">Support</a>
+        </div>
+        <p style="color: #333; font-size: 12px;">© 2026 Livo 3D - AR Avatar & Dance Studio. Crafted for creators.</p>
+    </footer>
+
+    <script>
+        // Simple scroll parallax for the cards
+        const container = document.querySelector('.scroll-container');
+        container.addEventListener('wheel', (evt) => {
+            evt.preventDefault();
+            container.scrollLeft += evt.deltaY;
+        });
+    </script>
+</body>
+</html>

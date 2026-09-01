@@ -22,12 +22,12 @@ final class ProStore: ObservableObject {
     static let shared = ProStore()
 
     enum Tier: String, CaseIterable {
-        case yearly, monthly, weekly, lifetime
+        case lifetime
         var productID: String { "com.animar.ar.companion.Animo3D.pro." + rawValue }
     }
 
-    /// Every product that grants Pro. Order is the order the paywall offers them in.
-    static let productIDs: [String] = Tier.allCases.map(\.productID)
+    /// Every product that grants Pro.
+    static let productIDs: [String] = [Tier.lifetime.productID]
 
     @Published private(set) var products: [Product] = []
     @Published private(set) var isPro: Bool

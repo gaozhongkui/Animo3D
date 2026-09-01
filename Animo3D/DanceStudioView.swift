@@ -845,6 +845,12 @@ struct ARCoachView: View {
         .background(
             RadialGradient(colors: [.black.opacity(0.4), .clear], center: .center, startRadius: 0, endRadius: 300)
         )
+        // Nothing here is interactive, and this panel sits dead centre - exactly where the reticle
+        // is and where the user aims to place the character. A SwiftUI background is hit-testable
+        // across its whole rect even where it is fully transparent, so it was swallowing every
+        // placement tap before it could reach the ARSCNView underneath: the character could never
+        // be placed, and the panel it blocked only goes away once the character *is* placed.
+        .allowsHitTesting(false)
         .onAppear { isAnimating = true }
     }
 }

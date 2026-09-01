@@ -69,6 +69,7 @@ struct ARCharacterView: UIViewRepresentable {
 
     static func dismantleUIView(_ uiView: ARSCNView, coordinator: Coordinator) {
         uiView.session.pause()
+        coordinator.restoreCharacter()
     }
 
     final class Coordinator: NSObject, ARSCNViewDelegate {
@@ -81,6 +82,9 @@ struct ARCharacterView: UIViewRepresentable {
         private var reticle: SCNNode?        // Ground reticle
         private var planeNodes: [UUID: SCNNode] = [:]
         private(set) var placed = false
+        /// How far the character was pushed down so its feet sit on the container origin. Kept so
+        /// leaving AR can put it back - the screen stage shares the same node.
+        private var groundOffset: Float = 0
 
         init(controller: CharacterSceneController, onAttach: (() -> Void)?,
              onPlaced: ((SCNNode) -> Void)?, detectGround: Bool) {
@@ -108,8 +112,12 @@ struct ARCharacterView: UIViewRepresentable {
             c.addChildNode(root)
             // The feet land at the container origin (so the feet are on the ground when placed, not buried in the floor)
             let minY = lowestY(of: root, in: c)
-            if minY.isFinite { root.simdPosition.y -= minY }
+            if minY.isFinite {
+                root.simdPosition.y -= minY
+                groundOffset = minY
+            }
             container = c
+            addShadowCatcher(to: c, height: h)
 
             if detectGround {
                 c.isHidden = true          // Display only after placement; don't attach to scene yet, attach to anchor node during placement
@@ -120,7 +128,7 @@ struct ARCharacterView: UIViewRepresentable {
                 c.isHidden = false
                 placed = true
                 arView.scene.rootNode.addChildNode(c)
-                onPlaced?(c)
+                notifyPlaced(c)
             }
             print("[AR] model ready height=\(h) scale=\(s) groundOffset=\(minY) detectGround=\(detectGround)")
         }
@@ -142,7 +150,9 @@ struct ARCharacterView: UIViewRepresentable {
             let l = SCNLight()
             l.type = .directional
             l.intensity = 420
-            l.castsShadow = DeviceTier.dynamicShadows
+            // Always on here, unlike the screen stage: without the contact shadow the character
+            // does not read as standing on the real floor at all.
+            l.castsShadow = true
             l.shadowMode = .deferred
             l.shadowColor = UIColor(white: 0, alpha: 0.4)
             l.shadowRadius = 6
@@ -152,6 +162,69 @@ struct ARCharacterView: UIViewRepresentable {
             holder.addChildNode(sun)
 
             arView.scene.rootNode.addChildNode(holder)
+        }
+
+        /// An invisible disc under the feet that exists only to catch the character's shadow.
+        ///
+        /// The rig already casts one, but after placement the only other geometry in the scene -
+        /// the detected plane visualisations - is hidden, so the shadow fell on nothing and the
+        /// character read as a sticker floating over the camera feed. Writing no colour keeps the
+        /// real floor visible through it while still receiving the shadow.
+        private func addShadowCatcher(to container: SCNNode, height h: Float) {
+            let size = CGFloat(max(h, 0.8) * 1.8)
+            let plane = SCNPlane(width: size, height: size)
+            let m = plane.firstMaterial!
+            m.lightingModel = .constant
+            m.diffuse.contents = UIColor.white
+            m.colorBufferWriteMask = []
+            m.writesToDepthBuffer = false
+            let node = SCNNode(geometry: plane)
+            node.eulerAngles.x = -Float.pi / 2
+            node.castsShadow = false
+            node.renderingOrder = -10
+            container.addChildNode(node)
+        }
+
+        /// Yaw the placement so the character looks at the viewer.
+        ///
+        /// A horizontal raycast returns a transform aligned to the world axes, not to wherever the
+        /// user happens to be standing, so the character was just as likely to be placed with its
+        /// back turned. Only the Y rotation is taken - tilting a dancer would look wrong.
+        private func facingCamera(_ hit: simd_float4x4, from camera: simd_float4x4) -> simd_float4x4 {
+            let target = simd_float3(hit.columns.3.x, hit.columns.3.y, hit.columns.3.z)
+            let eye = simd_float3(camera.columns.3.x, camera.columns.3.y, camera.columns.3.z)
+            var d = eye - target
+            d.y = 0
+            guard simd_length(d) > 1e-4 else { return hit }
+            // The character faces +Z once normalizeOrientation has squared it up, which is why the
+            // screen stage parks its camera on the +Z side.
+            let yaw = atan2(d.x, d.z)
+            var t = matrix_identity_float4x4
+            t.columns.3 = hit.columns.3
+            return t * simd_float4x4(simd_quatf(angle: yaw, axis: simd_float3(0, 1, 0)))
+        }
+
+        /// ARSCNViewDelegate callbacks arrive on SceneKit's renderer thread, so the placement result
+        /// has to be handed back on the main thread. Calling straight through left SwiftUI state set
+        /// off-main: the character was placed, but the view never re-rendered and its placement
+        /// guidance stayed on screen.
+        private func notifyPlaced(_ node: SCNNode) {
+            guard let onPlaced else { return }
+            if Thread.isMainThread { onPlaced(node) }
+            else { DispatchQueue.main.async { onPlaced(node) } }
+        }
+
+        /// Undo the mutations AR made to the shared character node, so the screen stage gets it back
+        /// exactly as it was handed over.
+        func restoreCharacter() {
+            container?.removeFromParentNode()
+            guard let root = controller.characterRoot else { return }
+            if groundOffset != 0 {
+                root.simdPosition.y += groundOffset
+                groundOffset = 0
+            }
+            root.removeFromParentNode()
+            controller.reattachToScreenScene()
         }
 
         // MARK: Reticle
@@ -201,12 +274,22 @@ struct ARCharacterView: UIViewRepresentable {
             let pt = g.location(in: arView)
             let query = arView.raycastQuery(from: pt, allowing: .existingPlaneGeometry, alignment: .horizontal)
                 ?? arView.raycastQuery(from: pt, allowing: .estimatedPlane, alignment: .horizontal)
-            guard let q = query, let hit = arView.session.raycast(q).first else { return }
+            guard let q = query, let hit = arView.session.raycast(q).first else {
+                print("[AR] tap at \(pt) hit no surface - keep scanning")
+                return
+            }
+            guard container != nil else {
+                // setup() ran before the model finished installing, so there is nothing to place.
+                print("[AR] tap ignored: no character container (model was not ready at setup)")
+                return
+            }
+            let camera = arView.session.currentFrame?.camera.transform ?? matrix_identity_float4x4
+            let transform = facingCamera(hit.worldTransform, from: camera)
             // Already placed = move: direct translation; Not yet placed = add anchor
             if placed, let container {
-                container.simdWorldTransform = hit.worldTransform
+                container.simdWorldTransform = transform
             } else {
-                let anchor = ARAnchor(name: "placement", transform: hit.worldTransform)
+                let anchor = ARAnchor(name: "placement", transform: transform)
                 arView.session.add(anchor: anchor)
             }
         }
@@ -234,7 +317,7 @@ struct ARCharacterView: UIViewRepresentable {
                 reticle?.isHidden = true
                 // Hide plane grids after placement to avoid obstruction
                 planeNodes.values.forEach { $0.isHidden = true }
-                onPlaced?(container)
+                notifyPlaced(container)
             }
         }
 
