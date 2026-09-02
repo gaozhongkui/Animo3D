@@ -11,6 +11,7 @@
 
 import SwiftUI
 import AVKit
+import StoreKit
 
 struct WorkDetailView: View {
     let url: URL
@@ -42,6 +43,15 @@ struct WorkDetailView: View {
                 .task {
                     guard justSaved else { return }
                     withAnimation(.spring(response: 0.4)) { showSavedBanner = true }
+
+                    // --- 核心优化：智能好评引导 ---
+                    // 仅在作品保存成功后的 1 秒，当用户正在回看自己满意的作品时弹出
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        if let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
+                            SKStoreReviewController.requestReview(in: scene)
+                        }
+                    }
+
                     try? await Task.sleep(nanoseconds: 3_500_000_000)
                     withAnimation(.easeOut(duration: 0.25)) { showSavedBanner = false }
                 }

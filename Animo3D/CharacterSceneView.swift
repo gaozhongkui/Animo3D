@@ -873,24 +873,26 @@ final class CharacterSceneController: ObservableObject {
             scene.rootNode.addChildNode(n); cameraNode = n; return n
         }()
 
-        // --- Cinematic Quality Upgrade (Refined & Fixed) ---
+        // --- Cinematic Quality Upgrade (Balanced for Exposure) ---
         if let camera = cam.camera {
             camera.zNear = Double(height) * 0.01
             camera.zFar = Double(height) * 50
             camera.wantsHDR = true
 
-            // Exposure: High-end uses adaptive for smooth transitions, low-end stays fixed for speed
+            // 降低基础曝光，防止过曝
             camera.wantsExposureAdaptation = !DeviceTier.isLowEnd
-            camera.exposureOffset = 0.0
+            camera.exposureOffset = -0.4 // 压低整体亮度
+            camera.maximumExposure = 1.2
+            camera.minimumExposure = 0.2
 
-            // Bloom: Controlled by intensity. HDR + Intensity > 0 activates bloom automatically.
-            camera.bloomIntensity = DeviceTier.bloomIntensity
-            camera.bloomThreshold = 0.8
-            camera.bloomBlurRadius = 12.0
+            // 辉光优化：提高阈值，降低强度
+            camera.bloomIntensity = DeviceTier.isLowEnd ? 0 : 0.6
+            camera.bloomThreshold = 0.9 // 只有极亮处才发光
+            camera.bloomBlurRadius = 10.0
 
-            // SSAO: Adds realistic occlusion in crevices. Only on High-end.
+            // SSAO 保持开启以增强立体感
             if !DeviceTier.isLowEnd {
-                camera.screenSpaceAmbientOcclusionIntensity = 0.8
+                camera.screenSpaceAmbientOcclusionIntensity = 0.7
                 camera.screenSpaceAmbientOcclusionRadius = 1.0
             }
         }
@@ -932,14 +934,14 @@ final class CharacterSceneController: ObservableObject {
     private func addLights() {
         let key = SCNNode()
         key.light = SCNLight(); key.light?.type = .omni
-        key.light?.intensity = 620
+        key.light?.intensity = 400
         key.position = SCNVector3(0, 100, 100)
         scene.rootNode.addChildNode(key)
         keyLight = key.light
 
         let ambient = SCNNode()
         ambient.light = SCNLight(); ambient.light?.type = .ambient
-        ambient.light?.intensity = 380
+        ambient.light?.intensity = 250
         scene.rootNode.addChildNode(ambient)
         ambientLight = ambient.light
 
@@ -948,7 +950,7 @@ final class CharacterSceneController: ObservableObject {
         // the contact shadow map under the feet provides enough "grounding" cues.
         let sun = SCNNode()
         let l = SCNLight(); l.type = .directional
-        l.intensity = 700
+        l.intensity = 500
         l.castsShadow = DeviceTier.dynamicShadows
         l.shadowMode = .forward            // Universally reliable (including the Simulator), and the shadow is visible on the floor
         l.shadowColor = UIColor(white: 0, alpha: 0.5)

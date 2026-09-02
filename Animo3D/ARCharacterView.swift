@@ -233,6 +233,21 @@ struct ARCharacterView: UIViewRepresentable {
         /// off-main: the character was placed, but the view never re-rendered and its placement
         /// guidance stayed on screen.
         private func notifyPlaced(_ node: SCNNode) {
+            // --- 触感反馈：角色落地 ---
+            HapticManager.medium()
+
+            // --- 视觉优化：淡入与缩放动画 ---
+            let finalScale = node.simdScale
+            node.simdScale = .zero
+            node.opacity = 0
+
+            SCNTransaction.begin()
+            SCNTransaction.animationDuration = 0.6
+            SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeOut)
+            node.simdScale = finalScale
+            node.opacity = 1.0
+            SCNTransaction.commit()
+
             guard let onPlaced else { return }
             if Thread.isMainThread { onPlaced(node) }
             else { DispatchQueue.main.async { onPlaced(node) } }
@@ -300,6 +315,9 @@ struct ARCharacterView: UIViewRepresentable {
                 let s = Float(g.scale)
                 container.simdScale *= s
                 g.scale = 1.0 // 增量缩放
+
+                // --- 触感反馈：缩放过程中 ---
+                HapticManager.light()
             }
         }
 
@@ -308,6 +326,9 @@ struct ARCharacterView: UIViewRepresentable {
             if g.state == .changed {
                 container.simdEulerAngles.y -= Float(g.rotation)
                 g.rotation = 0 // 增量旋转
+
+                // --- 触感反馈：旋转过程中 ---
+                HapticManager.light()
             }
         }
 
