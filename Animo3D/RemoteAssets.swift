@@ -128,10 +128,13 @@ final class RemoteAssets: ObservableObject {
     private lazy var session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 30
-        c.timeoutIntervalForResource = 600      // a 60MB model on a bad link still needs to finish
+        c.timeoutIntervalForResource = 600
         c.waitsForConnectivity = true
-        return URLSession(configuration: c)
+        // One persistent session for the downloader to use
+        return URLSession(configuration: c, delegate: self.downloader, delegateQueue: nil)
     }()
+
+    private let downloader = Downloader()
 
     private var cacheDir: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -218,21 +221,31 @@ final class RemoteAssets: ObservableObject {
         cacheDir.appendingPathComponent(remoteFile)
     }
 
-    /// A ready-to-use local URL, or nil if the file still has to be fetched.
     func localURL(for remoteFile: String) -> URL? {
-        // ML models stay in the bundle: they are needed before any network is available.
-        if remoteFile.contains("pose_landmarker") {
-            return Bundle.main.url(forResource: remoteFile, withExtension: nil)
-        }
+        // 1. Check bundle first (so bundled assets never trigger a download)
+        if let bundled = bundleURL(for: remoteFile) { return bundled }
+
+        // 2. Check cache
         let local = localCacheURL(for: remoteFile)
         return FileManager.default.fileExists(atPath: local.path) ? local : nil
     }
 
-    /// The bundled copy of an asset, if it ships inside the app (Res/builtin, or a dev drop-in).
+    /// The bundled copy of an asset. Searches root and common subdirectories.
     func bundleURL(for file: String) -> URL? {
         let name = (file as NSString).deletingPathExtension
         let ext = (file as NSString).pathExtension
-        return Bundle.main.url(forResource: name, withExtension: ext.isEmpty ? nil : ext)
+        let e = ext.isEmpty ? nil : ext
+
+        // Check root
+        if let url = Bundle.main.url(forResource: name, withExtension: e) { return url }
+
+        // Check common subdirectories where assets are known to live in this project
+        for dir in ["Res", "Res/builtin", "Res/ml", "Res/thumbs"] {
+            if let url = Bundle.main.url(forResource: name, withExtension: e, subdirectory: dir) {
+                return url
+            }
+        }
+        return nil
     }
 
     /// Resolve an asset to a local URL: a bundled copy wins, otherwise download and verify.
@@ -283,7 +296,8 @@ final class RemoteAssets: ObservableObject {
         guard let url = URL(string: baseUrl + remoteFile) else { throw AssetError.badURL(remoteFile) }
 
         await MainActor.run { self.progress[remoteFile] = 0 }
-        let (tmp, response) = try await Downloader.download(session: session, url: url, onProgress: { [weak self] done, total in
+
+        let (tmp, response) = try await downloader.download(url: url, session: session, onProgress: { [weak self] done, total in
             guard let self, total > 0 else { return }
             let p = min(1, Double(done) / Double(total))
             Task { @MainActor in self.progress[remoteFile] = p }
@@ -349,42 +363,38 @@ enum BuiltInAssets {
 
 // MARK: - Download with progress
 
-/// `URLSession.download(from:)` reports no progress, and `AsyncBytes` iterates one byte at a time
-/// (unusably slow for a 60MB model). A delegate is the only route that reports bytes as they land.
+/// One shared delegate for all asset downloads.
 private final class Downloader: NSObject, URLSessionDownloadDelegate {
-    typealias ProgressHandler = (Int64, Int64) -> Void
-
-    private var continuation: CheckedContinuation<(URL, URLResponse), Error>?
-    private let onProgress: ProgressHandler
-    private let fallbackTotal: () -> Int64
-    private var kept: Downloader?          // keeps self alive for the lifetime of the transfer
-
-    private init(onProgress: @escaping ProgressHandler, fallbackTotal: @escaping () -> Int64) {
-        self.onProgress = onProgress
-        self.fallbackTotal = fallbackTotal
+    private struct State {
+        let continuation: CheckedContinuation<(URL, URLResponse), Error>
+        let onProgress: (Int64, Int64) -> Void
+        let fallbackTotal: () -> Int64
     }
 
-    /// Downloads to a temporary file the caller owns: URLSession deletes the delegate's file as soon
-    /// as the callback returns, so it is moved aside first.
-    static func download(session: URLSession,
-                         url: URL,
-                         onProgress: @escaping ProgressHandler,
-                         fallbackTotal: @escaping () -> Int64) async throws -> (URL, URLResponse) {
-        let d = Downloader(onProgress: onProgress, fallbackTotal: fallbackTotal)
-        d.kept = d
-        let delegateSession = URLSession(configuration: session.configuration, delegate: d, delegateQueue: nil)
-        defer { delegateSession.finishTasksAndInvalidate() }
+    private let lock = NSLock()
+    private var tasks: [Int: State] = [:]
+
+    func download(url: URL, session: URLSession,
+                  onProgress: @escaping (Int64, Int64) -> Void,
+                  fallbackTotal: @escaping () -> Int64) async throws -> (URL, URLResponse) {
         return try await withCheckedThrowingContinuation { c in
-            d.continuation = c
-            delegateSession.downloadTask(with: url).resume()
+            let task = session.downloadTask(with: url)
+            lock.lock()
+            tasks[task.taskIdentifier] = State(continuation: c, onProgress: onProgress, fallbackTotal: fallbackTotal)
+            lock.unlock()
+            task.resume()
         }
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
                     totalBytesExpectedToWrite: Int64) {
-        let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : fallbackTotal()
-        onProgress(totalBytesWritten, total)
+        lock.lock()
+        let state = tasks[downloadTask.taskIdentifier]
+        lock.unlock()
+
+        let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : (state?.fallbackTotal() ?? -1)
+        state?.onProgress(totalBytesWritten, total)
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
@@ -392,22 +402,36 @@ private final class Downloader: NSObject, URLSessionDownloadDelegate {
         let response = downloadTask.response ?? URLResponse()
         let dest = FileManager.default.temporaryDirectory
             .appendingPathComponent("dl-" + UUID().uuidString)
+
+        lock.lock()
+        let state = tasks.removeValue(forKey: downloadTask.taskIdentifier)
+        lock.unlock()
+
+        guard let s = state else {
+            NSLog("[Downloader] orphaned download finished: id=%d", downloadTask.taskIdentifier)
+            return
+        }
+
         do {
             try FileManager.default.moveItem(at: location, to: dest)
-            finish(.success((dest, response)))
+            s.continuation.resume(returning: (dest, response))
         } catch {
-            finish(.failure(error))
+            s.continuation.resume(throwing: error)
         }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error { finish(.failure(error)) }
-    }
+        lock.lock()
+        let state = tasks.removeValue(forKey: task.taskIdentifier)
+        lock.unlock()
 
-    private func finish(_ result: Result<(URL, URLResponse), Error>) {
-        guard let c = continuation else { return }
-        continuation = nil
-        kept = nil
-        c.resume(with: result)
+        if let s = state {
+            if let error = error {
+                s.continuation.resume(throwing: error)
+            } else {
+                // didFinishDownloadingTo already resumed if success.
+                // If we get here with no error and no previous resume, it's a bug in our flow.
+            }
+        }
     }
 }

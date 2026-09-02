@@ -250,29 +250,86 @@ struct DanceStudioView: View {
         }
     }
 
-    /// Mask when loading character/dance (model is dozens of MBs, background parsing takes a while, without feedback it might seem stuck).
+    /// 创意加载 HUD：采用全屏流光效果和磨砂玻璃质感
     private var loadingHUD: some View {
         ZStack {
-            Color.black.opacity(0.45).ignoresSafeArea()
-            VStack(spacing: 12) {
-                // An indeterminate spinner and a 90-second download look identical to the user.
-                if let p = remoteAssets.activeDownloadProgress {
-                    ProgressView(value: p)
-                        .progressViewStyle(.linear)
-                        .tint(.white)
-                        .frame(width: 170)
-                    Text("Downloading assets… \(Int(p * 100))%")
-                        .font(.footnote).foregroundStyle(.white.opacity(0.9))
-                } else {
-                    ProgressView().tint(.white).scaleEffect(1.3)
-                    Text("Preparing Stage...").font(.footnote).foregroundStyle(.white.opacity(0.9))
+            // 背景层：全屏模糊氛围
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea()
+
+            // 动态流光背景点缀
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.15))
+                    .frame(width: 300, height: 300)
+                    .blur(radius: 50)
+                    .offset(x: -100, y: -150)
+
+                Circle()
+                    .fill(Color.purple.opacity(0.15))
+                    .frame(width: 300, height: 300)
+                    .blur(radius: 50)
+                    .offset(x: 100, y: 150)
+            }
+            .onAppear { /* 可在此处添加背景动画 */ }
+
+            VStack(spacing: 28) {
+                // 核心动画：旋转的星火标志
+                ZStack {
+                    Circle()
+                        .stroke(Color.white.opacity(0.1), lineWidth: 4)
+                        .frame(width: 80, height: 80)
+
+                    Circle()
+                        .trim(from: 0, to: 0.3)
+                        .stroke(
+                            LinearGradient(colors: [Color.accentColor, .purple], startPoint: .leading, endPoint: .trailing),
+                            style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                        )
+                        .frame(width: 80, height: 80)
+                        .rotationEffect(.degrees(animateItems ? 360 : 0))
+                        .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: animateItems)
+
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundStyle(LinearGradient(colors: [Color.accentColor, .white], startPoint: .top, endPoint: .bottom))
+                }
+
+                VStack(spacing: 12) {
+                    if let p = remoteAssets.activeDownloadProgress {
+                        // 下载模式
+                        Text("Downloading Assets")
+                            .font(.system(size: 20, weight: .black, design: .rounded))
+                            .tracking(1)
+
+                        ProgressView(value: p)
+                            .progressViewStyle(.linear)
+                            .tint(Color.accentColor)
+                            .frame(width: 200)
+                            .scaleEffect(x: 1, y: 1.5, anchor: .center)
+
+                        Text("\(Int(p * 100))%")
+                            .font(.system(size: 14, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        // 准备模式（本地模型走这里）
+                        Text("Preparing Stage")
+                            .font(.system(size: 20, weight: .black, design: .rounded))
+                            .tracking(1)
+
+                        Text("Optimizing 3D Render Engine...")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
-            .padding(24)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        .transition(.opacity)
+        .onAppear { animateItems = true }
+        .transition(.opacity.combined(with: .scale(scale: 1.1)))
     }
+
+    @State private var animateItems = false
 
     // MARK: Step header (progress)
     private var stepHeader: some View {

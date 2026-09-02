@@ -464,6 +464,7 @@ final class CharacterSceneController: ObservableObject {
         let followLen = h * 2.2
         let follow = SCNNode()
         follow.simdPosition = simd_float3(center.x, feetY + h * 1.75 - Float(followLen) / 2 + h * 0.9, center.z)
+        follow.eulerAngles.y = Float.pi / 4 // 旋转45度，防止在正视图下侧面成线
         for turn in [Float(0), Float.pi / 2] {
             let quad = SCNPlane(width: CGFloat(h * 0.9), height: CGFloat(followLen))
             let m = SCNMaterial()
@@ -873,27 +874,26 @@ final class CharacterSceneController: ObservableObject {
             scene.rootNode.addChildNode(n); cameraNode = n; return n
         }()
 
-        // --- Cinematic Quality Upgrade (Balanced for Exposure) ---
+        // --- Cinematic Quality Upgrade (Stable & Balanced) ---
         if let camera = cam.camera {
             camera.zNear = Double(height) * 0.01
             camera.zFar = Double(height) * 50
             camera.wantsHDR = true
 
-            // 降低基础曝光，防止过曝
-            camera.wantsExposureAdaptation = !DeviceTier.isLowEnd
-            camera.exposureOffset = -0.4 // 压低整体亮度
-            camera.maximumExposure = 1.2
-            camera.minimumExposure = 0.2
+            // 关闭不稳定的自动曝光，改用固定偏移
+            camera.wantsExposureAdaptation = false
+            camera.exposureOffset = -0.2 // 固定稍微压暗，保留细节
 
-            // 辉光优化：提高阈值，降低强度
-            camera.bloomIntensity = DeviceTier.isLowEnd ? 0 : 0.6
-            camera.bloomThreshold = 0.9 // 只有极亮处才发光
+            // 辉光优化
+            camera.bloomIntensity = DeviceTier.isLowEnd ? 0 : 0.5
+            camera.bloomThreshold = 0.9
             camera.bloomBlurRadius = 10.0
 
-            // SSAO 保持开启以增强立体感
+            // SSAO 优化参数
             if !DeviceTier.isLowEnd {
-                camera.screenSpaceAmbientOcclusionIntensity = 0.7
-                camera.screenSpaceAmbientOcclusionRadius = 1.0
+                camera.screenSpaceAmbientOcclusionIntensity = 0.6
+                camera.screenSpaceAmbientOcclusionRadius = 0.8
+                camera.screenSpaceAmbientOcclusionBias = 0.03
             }
         }
         if groundEnabled {

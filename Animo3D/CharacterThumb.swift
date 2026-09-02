@@ -14,10 +14,11 @@ import SwiftUI
 /// A copy inside the bundle still wins, so a locally dropped-in model can be tested without the network.
 func characterModelFile(_ key: String) -> String {
     if let file = RemoteAssets.shared.character(key)?.file { return file }
-    // Catalog not loaded (it is seeded from the bundle, so this is unexpected), or a model dropped
-    // in locally under its bare key for testing.
+
+    // Fallback: search bundle for common naming patterns
     for ext in ["scn", "usdz"] {
         if Bundle.main.url(forResource: key, withExtension: ext) != nil { return "\(key).\(ext)" }
+        if Bundle.main.url(forResource: "char_\(key)", withExtension: ext) != nil { return "char_\(key).\(ext)" }
     }
     return "char_\(key).scn"
 }
