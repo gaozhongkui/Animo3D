@@ -591,17 +591,24 @@ struct DanceStudioView: View {
             VStack(spacing: 0) {
                 HStack {
                     circleButton("chevron.left") { back() }
+                        .opacity(recorder.isRecording ? 0 : 1) // 录制时隐藏返回键
                     Spacer()
                     Picker("", selection: $arMode) { Text("Screen").tag(false); Text("AR").tag(true) }
                         .pickerStyle(.segmented).frame(width: 120)
+                        .opacity(recorder.isRecording ? 0 : 1) // 录制时隐藏模式切换
                 }
                 .padding(.horizontal, 12).padding(.top, 6)
 
                 Spacer()
 
                 VStack(spacing: 14) {
-                    if !arMode { sceneSelectionBar }   // the real room is the backdrop in AR
+                    if !arMode {
+                        sceneSelectionBar
+                            .opacity(recorder.isRecording ? 0 : 1)
+                    }
                     vfxBar
+                        .opacity(recorder.isRecording ? 0 : 1) // 录制时隐藏特效选择
+
                     recordButton.padding(.top, 2)
                 }
                 .padding(.top, 26).padding(.bottom, 26)
@@ -728,6 +735,14 @@ struct DanceStudioView: View {
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: recorder.isRecording)
         }
         .disabled(processing)
+        .onChange(of: recorder.isRecording) { recording in
+            // 当录制状态改变时，通知 SCNView 开启或关闭自动运镜
+            if recording {
+                stage.controller.startAutoOrbit()
+            } else {
+                stage.controller.stopAutoOrbit()
+            }
+        }
     }
 
     // MARK: Bottom primary button
