@@ -461,29 +461,21 @@ final class CharacterSceneController: ObservableObject {
         }
 
         // MARK: Follow spot straight overhead
-        let followLen = h * 2.2
         let follow = SCNNode()
-        follow.simdPosition = simd_float3(center.x, feetY + h * 1.75 - Float(followLen) / 2 + h * 0.9, center.z)
-        follow.eulerAngles.y = Float.pi / 4 // 旋转45度，防止在正视图下侧面成线
-        for turn in [Float(0), Float.pi / 2] {
-            let quad = SCNPlane(width: CGFloat(h * 0.9), height: CGFloat(followLen))
-            let m = SCNMaterial()
-            m.lightingModel = .constant
-            m.diffuse.contents = Self.beamTexture
-            m.multiply.contents = UIColor(red: 1.0, green: 0.95, blue: 0.85, alpha: 1)
-            m.blendMode = .add
-            m.writesToDepthBuffer = false
-            m.isDoubleSided = true
-            quad.materials = [m]
-            let card = SCNNode(geometry: quad)
-            card.eulerAngles = SCNVector3(0, turn, 0)
-            follow.addChildNode(card)
-        }
-        follow.opacity = 0.45
-        let fdim = SCNAction.fadeOpacity(to: 0.32, duration: 2.6)
-        let fup = SCNAction.fadeOpacity(to: 0.52, duration: 3.4)
-        fdim.timingMode = .easeInEaseOut; fup.timingMode = .easeInEaseOut
-        follow.runAction(.repeatForever(.sequence([fdim, fup])))
+        let l = SCNLight()
+        l.type = .spot
+        l.spotInnerAngle = 15 // 变宽
+        l.spotOuterAngle = 60 // 变宽，边缘更柔和
+        l.color = UIColor(white: 1.0, alpha: 1.0)
+        l.intensity = 350 // 强度大幅降低
+        l.attenuationStartDistance = CGFloat(h * 1.5)
+        l.attenuationEndDistance = CGFloat(h * 5.0)
+        follow.light = l
+
+        // 彻底移除之前那个会产生“中轴线”的交叉平面几何体
+        // 现在的射灯只提供纯物理光照和地面的光圈，不干预相机视野
+        follow.simdPosition = simd_float3(center.x, feetY + h * 4.0, center.z)
+        follow.look(at: SCNVector3(center.x, feetY, center.z))
         rig.addChildNode(follow)
 
         // MARK: Lights that actually shade the performer
@@ -517,11 +509,10 @@ final class CharacterSceneController: ObservableObject {
         // Front fill: without it the face falls into shadow against a bright LED wall.
         rig.addChildNode(spot( 0.0, 1.35, 1.9, UIColor(red: 1.0, green: 0.98, blue: 0.96, alpha: 1), 540 * k, 26, 62))
 
-        // Image-based light. SceneKit's physically based materials expect an environment to sit in;
-        // with analytic lights alone they need punishing intensities to read at all, which is what
-        // pushed them into clipping. Lambert (the VRM path) ignores this, so it costs nothing there.
+        // Image-based light.
+        // 允许 VRM 角色也接收 25% 的环境光，使其色彩不再死板，更好地融入舞台
         scene.lightingEnvironment.contents = CharacterSceneView.studioEnvironment
-        scene.lightingEnvironment.intensity = isVRM ? 0.0 : 1.9
+        scene.lightingEnvironment.intensity = isVRM ? 0.35 : 1.0 // 非 VRM 降至 1.0
 
         // MARK: Crowd
         // Silhouettes give the stage a depth cue nothing else provides: something sits in front of
@@ -790,12 +781,14 @@ final class CharacterSceneController: ObservableObject {
     /// physically based materials, and under stage lighting a pale anime face immediately clips to
     /// flat white - the eyes and brows disappear. Lambert with no specular keeps the authored
     /// colours, still responds to the coloured stage lights, and cannot blow out the same way.
+    /// 电影级卡通着色器：让角色皮肤通透、光影平滑，且具有环境色彩感
     private func applyToonShading(_ root: SCNNode) {
         root.enumerateHierarchy { node, _ in
             guard let g = node.geometry else { return }
             for m in g.materials {
                 m.lightingModel = .lambert
                 m.specular.contents = UIColor.black
+                // 允许二次元角色接收微弱的环境光，使其不再“出戏”
                 m.shaderModifiers = [
                     .lightingModel: Self.toonRampModifier,
                     .fragment: Self.rimLightModifier,
@@ -804,29 +797,35 @@ final class CharacterSceneController: ObservableObject {
         }
     }
 
-    /// Two-band cel shading. Instead of a smooth falloff, every light resolves to either "lit" or
-    /// "shadow" across a narrow terminator, which is what gives anime characters their readable
-    /// shapes. The shadow band is lifted rather than black - MToon does the same - so the face keeps
-    /// its features when a stage light is behind her.
     private static let toonRampModifier = """
     #pragma body
-    float ndl  = dot(normalize(_surface.normal), normalize(_light.direction));
-    float band = smoothstep(0.18, 0.32, ndl);          // soft terminator, avoids a jagged edge
-    float ramp = mix(0.55, 1.0, band);
+    // 计算光照强度
+    float ndl = dot(normalize(_surface.normal), normalize(_light.direction));
+
+    // 极其平滑的卡通阴影过渡
+    float band = smoothstep(0.0, 0.6, ndl);
+
+    // 大幅提升阴影区亮度 (Ambient Lift)，实现通透肤色
+    // 从 0.65 提升至 0.78，阴影几乎不可见，只有淡淡的轮廓
+    float ramp = mix(0.78, 1.0, band);
+
     _lightingContribution.diffuse = _light.intensity.rgb * ramp;
     """
 
-    /// Rim light: the character picks up a cool edge where she turns away from the camera, which
-    /// separates her from the backdrop. A true outline would mean an inverted-hull copy of the mesh,
-    /// and cloning a skinned node collapses these VRoid skeletons on iOS 16 - so the silhouette is
-    /// drawn with fresnel instead. Scaled by alpha so transparent hair cards do not glow.
     private static let rimLightModifier = """
     #pragma body
     float3 n = normalize(_surface.normal);
     float3 v = normalize(_surface.view);
+
+    // 电影级边缘光 (Rim Light / Fresnel)
     float rim = 1.0 - saturate(dot(n, v));
-    rim = pow(rim, 3.0) * 0.42;
-    _output.color.rgb += rim * float3(0.62, 0.70, 1.0) * _output.color.a;
+    rim = pow(rim, 4.0); // 增加指数，让光线只聚集在最边缘
+
+    // 根据角色位置和透明度进行混合，防止过曝
+    float rimIntensity = 0.55 * _output.color.a;
+    float3 rimColor = float3(0.7, 0.8, 1.0); // 淡淡的冰蓝色，提升高级感
+
+    _output.color.rgb += rim * rimColor * rimIntensity;
     """
 
     private func applyPortraitPose() {
@@ -874,26 +873,25 @@ final class CharacterSceneController: ObservableObject {
             scene.rootNode.addChildNode(n); cameraNode = n; return n
         }()
 
-        // --- Cinematic Quality Upgrade (Stable & Balanced) ---
+        // --- Cinematic Quality Upgrade (Natural & Soft) ---
         if let camera = cam.camera {
             camera.zNear = Double(height) * 0.01
             camera.zFar = Double(height) * 50
             camera.wantsHDR = true
 
-            // 关闭不稳定的自动曝光，改用固定偏移
+            // 恢复自然曝光，不再强制压黑
             camera.wantsExposureAdaptation = false
-            camera.exposureOffset = -0.2 // 固定稍微压暗，保留细节
+            camera.exposureOffset = groundEnabled ? -0.1 : 0.0 // 舞台微降，预览不降
 
-            // 辉光优化
+            // 辉光优化：适度的柔光感
             camera.bloomIntensity = DeviceTier.isLowEnd ? 0 : 0.5
-            camera.bloomThreshold = 0.9
-            camera.bloomBlurRadius = 10.0
+            camera.bloomThreshold = 1.0 // 只有纯白才会溢出
+            camera.bloomBlurRadius = 12.0
 
-            // SSAO 优化参数
             if !DeviceTier.isLowEnd {
-                camera.screenSpaceAmbientOcclusionIntensity = 0.6
-                camera.screenSpaceAmbientOcclusionRadius = 0.8
-                camera.screenSpaceAmbientOcclusionBias = 0.03
+                // 降低阴影遮蔽强度，让画面更通透
+                camera.screenSpaceAmbientOcclusionIntensity = groundEnabled ? 0.4 : 0.2
+                camera.screenSpaceAmbientOcclusionRadius = 1.0
             }
         }
         if groundEnabled {
@@ -934,23 +932,21 @@ final class CharacterSceneController: ObservableObject {
     private func addLights() {
         let key = SCNNode()
         key.light = SCNLight(); key.light?.type = .omni
-        key.light?.intensity = 400
+        key.light?.intensity = 350 // 调回中等亮度
         key.position = SCNVector3(0, 100, 100)
         scene.rootNode.addChildNode(key)
         keyLight = key.light
 
         let ambient = SCNNode()
         ambient.light = SCNLight(); ambient.light?.type = .ambient
-        ambient.light?.intensity = 250
+        ambient.light?.intensity = 400 // 大幅提升环境光，消除面部死黑
         scene.rootNode.addChildNode(ambient)
         ambientLight = ambient.light
 
-        // Directional light from the front-top, casting realistic soft shadows that change with movement.
-        // forward soft shadows are expensive (one shadow pass per frame + multiple samples), disabled on low-end devices —
-        // the contact shadow map under the feet provides enough "grounding" cues.
+        // Directional light from the front-top
         let sun = SCNNode()
         let l = SCNLight(); l.type = .directional
-        l.intensity = 500
+        l.intensity = 450 // 阳光感
         l.castsShadow = DeviceTier.dynamicShadows
         l.shadowMode = .forward            // Universally reliable (including the Simulator), and the shadow is visible on the floor
         l.shadowColor = UIColor(white: 0, alpha: 0.5)
@@ -1063,9 +1059,10 @@ struct CharacterSceneView: UIViewRepresentable {
                 let j = (i + 1) % stops.count
                 let f = p - floor(p)
                 let a = stops[i], b = stops[j]
-                // Bright bars sweeping through, also on a whole number of cycles
-                let bar = pow(0.5 + 0.5 * sin(t * .pi * 4), 3)
-                let level = 0.30 + 0.70 * bar
+
+                // 优化扫视光条：让它更宽、更暗，避免产生背景亮线
+                let bar = pow(0.5 + 0.5 * sin(t * .pi * 2), 4) // 周期减半，强度衰减更快
+                let level = 0.20 + 0.35 * bar // 整体亮度大幅下调
                 c.setFillColor(UIColor(red: (a.0 + (b.0 - a.0) * f) * level,
                                        green: (a.1 + (b.1 - a.1) * f) * level,
                                        blue: (a.2 + (b.2 - a.2) * f) * level, alpha: 1).cgColor)
