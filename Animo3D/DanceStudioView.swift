@@ -623,11 +623,12 @@ struct DanceStudioView: View {
         }
     }
 
-    // Scene selection bar: Studio vs Sky
+    // Scene selection bar: Studio vs Sky vs Green
     private var sceneSelectionBar: some View {
         HStack(spacing: 12) {
             sceneChip(type: .studio, title: "Studio", icon: "house.fill")
             sceneChip(type: .sky, title: "Sky", icon: "cloud.sun.fill")
+            sceneChip(type: .green, title: "Green", icon: "rectangle.fill.on.rectangle.fill")
         }
         .padding(.bottom, 10)
     }

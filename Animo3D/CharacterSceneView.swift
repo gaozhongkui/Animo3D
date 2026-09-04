@@ -13,7 +13,7 @@ import Combine
 final class CharacterSceneController: ObservableObject {
 
     enum BackgroundType: String, CaseIterable {
-        case studio, sky
+        case studio, sky, green
     }
 
     let scene = SCNScene()
@@ -124,6 +124,8 @@ final class CharacterSceneController: ObservableObject {
         scheme = (boneNodes["J_Bip_C_Hips"] != nil) ? .vrm : .mixamo
         print("[Character] bone scheme: \(boneNodes["J_Bip_C_Hips"] != nil ? "VRM" : "Mixamo")")
         if boneNodes["J_Bip_C_Hips"] != nil { applyToonShading(root) }
+        else { sanitizeMaterials(root) }
+
         if portraitMode { applyPortraitPose() }
         normalizeOrientation(root)
         setupFrontCamera()
@@ -148,9 +150,13 @@ final class CharacterSceneController: ObservableObject {
         var fog: UIColor
         switch backgroundType {
         case .studio:
-            fog = UIColor(red: 0.02, green: 0.02, blue: 0.03, alpha: 1)   // = Background color, seamless at horizon
+            // 调整背景色：从纯黑改为深蓝灰色，增加柔和感
+            fog = UIColor(red: 0.04, green: 0.04, blue: 0.06, alpha: 1)
         case .sky:
-            fog = UIColor(red: 0.82, green: 0.88, blue: 0.95, alpha: 1)   // = Sky horizon color
+            fog = UIColor(red: 0.82, green: 0.88, blue: 0.95, alpha: 1)
+        case .green:
+            // 纯正绿幕
+            fog = UIColor(red: 0, green: 1.0, blue: 0, alpha: 1.0)
         }
 
         // Only the full stage paints a background. Thumbnails and the live dance cards draw over a
@@ -161,6 +167,8 @@ final class CharacterSceneController: ObservableObject {
                 scene.background.contents = fog
             case .sky:
                 scene.background.contents = UIImage(named: "sky_park") ?? CharacterSceneView.skyBackdrop()
+            case .green:
+                scene.background.contents = fog
             }
         } else {
             scene.background.contents = nil
@@ -221,6 +229,13 @@ final class CharacterSceneController: ObservableObject {
     private weak var keyLight: SCNLight?
     private weak var sunLight: SCNLight?
     private(set) var feetY: Float = 0   // World Y of feet (for VFX ground positioning)
+
+    // --- 自动运镜变量 ---
+    var isAutoOrbiting = false
+    var orbitAngle: Float = 0
+
+    func startAutoOrbit() { isAutoOrbiting = true }
+    func stopAutoOrbit() { isAutoOrbiting = false }
 
     /// Ground: Visible floor (with slight reflection) + a soft contact shadow always visible under feet to eliminate "floating" sensation.
     private func setupGround(_ root: SCNNode) {
@@ -287,7 +302,7 @@ final class CharacterSceneController: ObservableObject {
         let floor = SCNFloor()
         // Glossy near-black dance floor. Unlit on purpose: SCNFloor is infinite, so letting the
         // stage spots hit it turns the whole frame into a wash; the visible light is the additive
-        // pool instead. The reflection is what sells the club stage, so it stays - gated by
+        // pool instead. The reflection是 what sells the club stage, so it stays - gated by
         // DeviceTier, since a reflection re-renders the entire scene.
         floor.reflectivity = DeviceTier.floorReflectivity > 0 ? 0.35 : 0
         floor.reflectionFalloffEnd = CGFloat(max(modelHeight, 0.1) * 1.4)
@@ -512,7 +527,7 @@ final class CharacterSceneController: ObservableObject {
         // Image-based light.
         // 允许 VRM 角色也接收 25% 的环境光，使其色彩不再死板，更好地融入舞台
         scene.lightingEnvironment.contents = CharacterSceneView.studioEnvironment
-        scene.lightingEnvironment.intensity = isVRM ? 0.35 : 1.0 // 非 VRM 降至 1.0
+        scene.lightingEnvironment.intensity = isVRM ? 0.35 : 0.3 // 从 0.85 降至 0.3
 
         // MARK: Crowd
         // Silhouettes give the stage a depth cue nothing else provides: something sits in front of
@@ -828,6 +843,32 @@ final class CharacterSceneController: ObservableObject {
     _output.color.rgb += rim * rimColor * rimIntensity;
     """
 
+    private func sanitizeMaterials(_ root: SCNNode) {
+        root.enumerateHierarchy { node, _ in
+            guard let geometry = node.geometry else { return }
+            for material in geometry.materials {
+                material.lightingModel = .physicallyBased
+
+                // 细节校准：彻底关掉自发光，这是 Erika 脸部爆白的元凶
+                material.emission.contents = UIColor.black
+                material.emission.intensity = 0
+                material.selfIllumination.contents = UIColor.black
+                material.selfIllumination.intensity = 0
+
+                // 降低漫反射强度，防止白衣服/浅色皮肤过曝
+                material.diffuse.intensity = 0.8
+
+                material.metalness.intensity = 0.5
+                material.roughness.intensity = 0.7
+
+                // 叠加柔和的边缘光
+                material.shaderModifiers = [
+                    .fragment: Self.rimLightModifier
+                ]
+            }
+        }
+    }
+
     private func applyPortraitPose() {
         guard boneNodes["J_Bip_C_Hips"] != nil else { return }   // VRM only
         rotateBone(scheme.leftArm,  angle:  1.0, axis: simd_float3(0, 0, 1))
@@ -879,14 +920,29 @@ final class CharacterSceneController: ObservableObject {
             camera.zFar = Double(height) * 50
             camera.wantsHDR = true
 
-            // 恢复自然曝光，不再强制压黑
+            // 区分模型类型的曝光策略
             camera.wantsExposureAdaptation = false
-            camera.exposureOffset = groundEnabled ? -0.1 : 0.0 // 舞台微降，预览不降
+            if isVRM {
+                // 二次元：高曝光，保持明亮粉嫩
+                camera.exposureOffset = 0.2
+                camera.bloomIntensity = DeviceTier.isLowEnd ? 0 : 0.5
+                camera.bloomThreshold = 1.0
+            } else {
+                // 写实类：极其严苛的曝光限制，彻底解决爆白问题
+                camera.exposureOffset = -1.2 // 强制压低亮度
+                camera.bloomIntensity = 0 // 关闭写实模型的辉光，防止脸部发光
+                camera.bloomThreshold = 2.0
+            }
 
-            // 辉光优化：适度的柔光感
-            camera.bloomIntensity = DeviceTier.isLowEnd ? 0 : 0.5
-            camera.bloomThreshold = 1.0 // 只有纯白才会溢出
             camera.bloomBlurRadius = 12.0
+
+            // --- 电影级虚化：散景效果 ---
+            if !DeviceTier.isLowEnd {
+                camera.wantsDepthOfField = true
+                camera.fStop = 1.4 // 大光圈效果
+                camera.focusDistance = 2.5 // 聚焦在角色身上
+                camera.focalBlurSampleCount = 8
+            }
 
             if !DeviceTier.isLowEnd {
                 // 降低阴影遮蔽强度，让画面更通透
@@ -930,32 +986,62 @@ final class CharacterSceneController: ObservableObject {
     }
 
     private func addLights() {
+        // --- 动态模型自适应布光系统 (专业级调校) ---
+        let isAnime = isVRM
+
+        // 1. 主灯 (Key Light)
         let key = SCNNode()
-        key.light = SCNLight(); key.light?.type = .omni
-        key.light?.intensity = 350 // 调回中等亮度
-        key.position = SCNVector3(0, 100, 100)
+        let kl = SCNLight(); kl.type = .spot
+        // 核心差异：二次元追求亮度 (1200)，写实追求质感 (380)
+        kl.intensity = isAnime ? 1200 : 380
+        kl.spotInnerAngle = 35; kl.spotOuterAngle = 75
+        kl.color = UIColor(red: 1.0, green: 0.98, blue: 0.96, alpha: 1.0)
+        kl.attenuationStartDistance = 5; kl.attenuationEndDistance = 25
+        key.light = kl
+        key.position = SCNVector3(-3, 6, 6)
+        key.look(at: SCNVector3(0, 1, 0))
         scene.rootNode.addChildNode(key)
-        keyLight = key.light
+        keyLight = kl
 
-        let ambient = SCNNode()
-        ambient.light = SCNLight(); ambient.light?.type = .ambient
-        ambient.light?.intensity = 400 // 大幅提升环境光，消除面部死黑
-        scene.rootNode.addChildNode(ambient)
-        ambientLight = ambient.light
+        // 2. 补灯 (Fill Light)
+        let fill = SCNNode()
+        let fl = SCNLight(); fl.type = .omni
+        // 二次元补光极大 (600)，确保脸部通透
+        fl.intensity = isAnime ? 600 : 150
+        fl.color = UIColor(red: 0.9, green: 0.95, blue: 1.0, alpha: 1.0)
+        fill.light = fl
+        fill.position = SCNVector3(5, 2, 4)
+        scene.rootNode.addChildNode(fill)
 
-        // Directional light from the front-top
+        // 3. 轮廓灯 (Rim Light)：强制背光，勾勒角色边缘
+        let rim = SCNNode()
+        let rl = SCNLight(); rl.type = .spot
+        rl.intensity = isAnime ? 800 : 300
+        rl.color = UIColor.white
+        rl.spotInnerAngle = 45; rl.spotOuterAngle = 90
+        rim.light = rl
+        rim.position = SCNVector3(0, 5, -8)
+        rim.look(at: SCNVector3(0, 1, 0))
+        scene.rootNode.addChildNode(rim)
+
+        // 4. 环境阴影灯 (Sun Light)
         let sun = SCNNode()
         let l = SCNLight(); l.type = .directional
-        l.intensity = 450 // 阳光感
+        l.intensity = isAnime ? 450 : 180
         l.castsShadow = DeviceTier.dynamicShadows
-        l.shadowMode = .forward            // Universally reliable (including the Simulator), and the shadow is visible on the floor
-        l.shadowColor = UIColor(white: 0, alpha: 0.5)
-        l.shadowRadius = 6
+        l.shadowMode = .forward
+        l.shadowColor = UIColor(white: 0, alpha: isAnime ? 0.2 : 0.45)
+        l.shadowRadius = 8
         l.shadowSampleCount = DeviceTier.shadowSampleCount
         sun.light = l
         sunLight = l
-        sun.eulerAngles = SCNVector3(-Float.pi / 2.2, Float.pi / 12, 0)  // Closer to straight above -> shadows gather under feet
+        sun.eulerAngles = SCNVector3(-Float.pi / 3, Float.pi / 10, 0)
         scene.rootNode.addChildNode(sun)
+
+        // --- 核心改动：根据模型类型动态调节 IBL 强度 ---
+        scene.lightingEnvironment.contents = CharacterSceneView.studioEnvironment
+        // 写实模型 IBL 极低 (0.25) 防止爆白，二次元 IBL 较高 (0.6) 增加明亮感
+        scene.lightingEnvironment.intensity = isAnime ? 0.6 : 0.25
     }
 }
 
@@ -978,6 +1064,22 @@ struct CharacterSceneView: UIViewRepresentable {
 
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
             controller.driveStage()
+
+            // --- 电影级自动运镜：在录制时缓慢旋转镜头 ---
+            if controller.isAutoOrbiting, let cam = controller.cameraNode {
+                controller.orbitAngle += 0.008 // 每帧微小旋转
+                let radius: Float = controller.groundEnabled ? (controller.modelHeight * 2.25) : (controller.modelHeight * 1.9)
+                let px = sin(controller.orbitAngle) * radius
+                let pz = cos(controller.orbitAngle) * radius
+
+                // 平滑更新摄像机位置，保持注视角色
+                SCNTransaction.begin()
+                SCNTransaction.animationDuration = 0
+                cam.simdPosition.x = px
+                cam.simdPosition.z = pz
+                cam.look(at: SCNVector3(0, controller.feetY + controller.modelHeight * 0.48, 0))
+                SCNTransaction.commit()
+            }
         }
 
         /// Fires once, after SceneKit has actually put a frame on screen.
@@ -1176,18 +1278,33 @@ struct CharacterSceneView: UIViewRepresentable {
 
     static let crowdTextures: (bodies: UIImage, glow: UIImage) = makeCrowd()
 
-    /// Environment map for the studio: cool stage light from above, warm bounce from the floor.
-    /// Small on purpose - it is only ever used as a low-frequency light source, never seen directly.
+    /// 专业摄影棚环境贴图：模拟多灯箱布光，提供高级的高光反射
     static let studioEnvironment: UIImage = {
-        let size = CGSize(width: 128, height: 64)
+        let size = CGSize(width: 512, height: 256)
         return UIGraphicsImageRenderer(size: size).image { ctx in
-            let cols = [UIColor(red: 0.42, green: 0.40, blue: 0.62, alpha: 1).cgColor,
-                        UIColor(red: 0.20, green: 0.18, blue: 0.28, alpha: 1).cgColor,
-                        UIColor(red: 0.16, green: 0.13, blue: 0.14, alpha: 1).cgColor]
-            ctx.cgContext.drawLinearGradient(
-                CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: cols as CFArray,
-                           locations: [0, 0.6, 1])!,
-                start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+            let c = ctx.cgContext
+            // 1. 基础深色背景
+            c.setFillColor(UIColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 1).cgColor)
+            c.fill(CGRect(origin: .zero, size: size))
+
+            // 2. 模拟顶部大灯箱
+            let topGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                    colors: [UIColor.white.withAlphaComponent(0.3).cgColor, UIColor.clear.cgColor] as CFArray,
+                                    locations: [0, 1])!
+            c.drawLinearGradient(topGrad, start: .zero, end: CGPoint(x: 0, y: size.height * 0.4), options: [])
+
+            // 3. 模拟左右两侧的专业长条灯（Softbox）
+            // 这能在写实模型（如盔甲、眼神）上产生非常漂亮的反射条
+            c.setShadow(offset: .zero, blur: 20, color: UIColor.white.cgColor)
+            c.setFillColor(UIColor.white.withAlphaComponent(0.8).cgColor)
+            c.fill(CGRect(x: 40, y: 40, width: 20, height: 180)) // 左侧灯管
+            c.fill(CGRect(x: 450, y: 40, width: 20, height: 180)) // 右侧灯管
+
+            // 4. 底部微弱回光
+            let bottomGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                       colors: [UIColor(red: 0.2, green: 0.15, blue: 0.3, alpha: 1).cgColor, UIColor.clear.cgColor] as CFArray,
+                                       locations: [0, 1])!
+            c.drawLinearGradient(bottomGrad, start: CGPoint(x: 0, y: size.height), end: CGPoint(x: 0, y: size.height * 0.7), options: [])
         }
     }()
 

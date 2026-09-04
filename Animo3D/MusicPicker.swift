@@ -34,13 +34,18 @@ struct MusicTrack: Identifiable, Hashable {
         for m in RemoteAssets.shared.music {
             guard let ref = m.asset else { continue }
             seen.insert(ref.file)
-            out.append(MusicTrack(id: "remote_" + m.key,
-                                  name: friendly(m.name),
+            // 内部 ID 使用小驼峰 (camelCase)
+            let camelID = m.key.lowercased().split(separator: "_").enumerated().map { i, word in
+                i == 0 ? String(word) : word.capitalized
+            }.joined()
+
+            out.append(MusicTrack(id: "remote" + camelID.capitalized,
+                                  name: friendly(m.key), // 改为使用 key 匹配，确保 100% 成功
                                   url: RemoteAssets.shared.localURL(for: ref.file),
                                   asset: ref))
         }
 
-        // Anything shipped inside the app that the catalog does not already cover.
+        // 扫面本地打包文件
         for ext in ["m4a", "mp3"] {
             for url in Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: nil) ?? [] {
                 let file = url.lastPathComponent
@@ -53,13 +58,16 @@ struct MusicTrack: Identifiable, Hashable {
         return out.sorted { $0.name < $1.name }
     }
 
-    private static func friendly(_ raw: String) -> String {
-        switch raw {
-        case "sample_beat":  return "Sample · Beat"
-        case "sample_chill": return "Sample · Chill"
-        case "anime_dance":  return "Upbeat · Anime"
-        case "delta_works":  return "Electronic · Delta"
-        default:             return raw.replacingOccurrences(of: "_", with: " ")
+    private static func friendly(_ key: String) -> String {
+        // 使用 key 进行精确匹配，返回优雅的标题
+        switch key.lowercased() {
+        case "sample_beat", "samplebeat":    return "Midnight Pulse"
+        case "sample_chill", "samplechill":  return "Azure Horizon"
+        case "anime_dance", "animedance":    return "Neon Sakura"
+        case "delta_works", "deltaworks":    return "Digital Odyssey"
+        default:
+            // 兜底逻辑：转为首字母大写的 Title Case
+            return key.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 }
