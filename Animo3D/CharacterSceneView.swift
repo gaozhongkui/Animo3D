@@ -178,10 +178,10 @@ final class CharacterSceneController: ObservableObject {
         let onStudioStage = groundEnabled && backgroundType == .studio
         if isVRM {
             return onStudioStage
-                ? LightLevels(key: 300, fill: 150, rim: 260, sun: 130, ibl: 0.35, shadowAlpha: 0.20,
-                              stageSpot: 1.0, followSpot: 350, rimShader: 0.55)
+                ? LightLevels(key: 300, fill: 150, rim: 180, sun: 110, ibl: 0.30, shadowAlpha: 0.20,
+                              stageSpot: 0.8, followSpot: 260, rimShader: 0.12)
                 : LightLevels(key: 1200, fill: 600, rim: 800, sun: 450, ibl: 0.60, shadowAlpha: 0.20,
-                              stageSpot: 1.0, followSpot: 350, rimShader: 0.55)
+                              stageSpot: 0.8, followSpot: 260, rimShader: 0.12)
         }
         // Physically based characters take a fraction of the VRM levels. The numbers below were not
         // guessed: each source was rendered on its own offline and measured, and the stage rig
@@ -849,37 +849,28 @@ final class CharacterSceneController: ObservableObject {
     /// physically based materials, and under stage lighting a pale anime face immediately clips to
     /// flat white - the eyes and brows disappear. Lambert with no specular keeps the authored
     /// colours, still responds to the coloured stage lights, and cannot blow out the same way.
-    /// 电影级卡通着色器：让角色皮肤通透、光影平滑，且具有环境色彩感
+    ///
+    /// There used to be a cel ramp on the `.lightingModel` entry point here as well. It had to go:
+    /// measured light by light, a VRM character lit by that modifier responded to the key and to
+    /// nothing else - the fill, the back rim, all three club spots and the follow spot each
+    /// contributed exactly zero. The whole stage rig was passing straight through these characters,
+    /// which left them dark, flat, and tinted by whatever colour that one surviving light happened
+    /// to be (the warm key turned VRoid skin a muddy khaki). It is also why the two rigs drifted in
+    /// opposite directions: the physically based path stacked every light and went too bright,
+    /// while this one saw one light and went too dark. Clipping, the reason the ramp existed, is
+    /// handled by whitePoint on the camera now, and measures lower than the neutral reference the
+    /// thumbnails are rendered with.
     private func applyToonShading(_ root: SCNNode) {
         root.enumerateHierarchy { node, _ in
             guard let g = node.geometry else { return }
             for m in g.materials {
                 m.lightingModel = .lambert
                 m.specular.contents = UIColor.black
-                // 允许二次元角色接收微弱的环境光，使其不再“出戏”
-                m.shaderModifiers = [
-                    .lightingModel: Self.toonRampModifier,
-                    .fragment: Self.rimLightModifier,
-                ]
+                m.shaderModifiers = [.fragment: Self.rimLightModifier]
                 m.setValue(lightLevels.rimShader, forKey: "rimStrength")
             }
         }
     }
-
-    private static let toonRampModifier = """
-    #pragma body
-    // 计算光照强度
-    float ndl = dot(normalize(_surface.normal), normalize(_light.direction));
-
-    // 极其平滑的卡通阴影过渡
-    float band = smoothstep(0.0, 0.6, ndl);
-
-    // 大幅提升阴影区亮度 (Ambient Lift)，实现通透肤色
-    // 从 0.65 提升至 0.78，阴影几乎不可见，只有淡淡的轮廓
-    float ramp = mix(0.78, 1.0, band);
-
-    _lightingContribution.diffuse = _light.intensity.rgb * ramp;
-    """
 
     /// Additive fresnel rim that lifts the silhouette off a dark stage. Its strength is a uniform
     /// rather than a constant: the cel-shaded VRM path can carry a strong one, while on pale cloth
@@ -999,9 +990,9 @@ final class CharacterSceneController: ObservableObject {
             // on the top of the range only, so the body keeps its midtones while the face - the
             // palest, most forward-facing surface, and the one that catches both the key and the
             // follow spot - stops flattening out.
-            camera.whitePoint = isVRM ? 1.0 : 2.3
+            camera.whitePoint = isVRM ? 1.3 : 2.3
             camera.averageGray = 0.18
-            camera.contrast = isVRM ? 0.0 : 0.30
+            camera.contrast = isVRM ? 0.05 : 0.30
 
             // The vignette the ACES modifier tried to draw by hand, done by the renderer.
             camera.vignettingIntensity = DeviceTier.isLowEnd ? 0 : 0.4
