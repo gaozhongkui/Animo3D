@@ -96,6 +96,7 @@ final class RemoteAssets: ObservableObject {
     private var inFlight: [String: Task<URL, Error>] = [:]
     private var charById: [String: CatalogItem] = [:]
     private var danceById: [String: CatalogItem] = [:]
+    private var musicById: [String: CatalogItem] = [:]
 
     private lazy var session: URLSession = {
         let c = URLSessionConfiguration.default

@@ -183,17 +183,22 @@ final class CharacterSceneController: ObservableObject {
                 : LightLevels(key: 1200, fill: 600, rim: 800, sun: 450, ibl: 0.60, shadowAlpha: 0.20,
                               stageSpot: 1.0, followSpot: 350, rimShader: 0.55)
         }
-        // Physically based characters take a fraction of the VRM levels, because most of them wear
-        // pale cloth: the stage spots land on a white tunic and the chest fuses into one flat patch
-        // long before the scene as a whole looks bright. What stops that is the ratio rather than
-        // the absolute level - a key well above the fill gives the body shape, and shape is what
-        // reads as "lit" instead of "bright". Flattening everything down instead just made the
-        // characters look like grey clay.
+        // Physically based characters take a fraction of the VRM levels. The numbers below were not
+        // guessed: each source was rendered on its own offline and measured, and the stage rig
+        // turned out to be upside down. The three club spots alone were producing a mean luma of
+        // 0.42 and peaking at pure white - four times the key light - with the 90-degree back rim
+        // also reaching 1.0 and wrapping right around the arms and face. The key, the light that is
+        // supposed to shape the body, was the fifth-largest contributor.
+        //
+        // So the spots and the back rim are accents now and the key carries the image. The target
+        // is the neutral rig the thumbnails are rendered with (mean 0.22, median 0.17): anything
+        // above that and Erika's dark olive tunic starts rendering as pale grey, which is what made
+        // every character look washed out and flat no matter how far the exposure was pulled down.
         return onStudioStage
-            ? LightLevels(key: 130, fill: 22, rim: 90, sun: 55, ibl: 0.10, shadowAlpha: 0.45,
-                          stageSpot: 0.30, followSpot: 200, rimShader: 0.20)
+            ? LightLevels(key: 170, fill: 10, rim: 16, sun: 30, ibl: 0.04, shadowAlpha: 0.45,
+                          stageSpot: 0.07, followSpot: 25, rimShader: 0.04)
             : LightLevels(key: 380, fill: 150, rim: 300, sun: 180, ibl: 0.25, shadowAlpha: 0.45,
-                          stageSpot: 0.30, followSpot: 200, rimShader: 0.20)
+                          stageSpot: 0.07, followSpot: 25, rimShader: 0.04)
     }
 
     /// Push the current levels into the rig. Safe to call at any time; it only touches intensities.
@@ -920,10 +925,9 @@ final class CharacterSceneController: ObservableObject {
                 // end of the range is clamped away, since that is where the stage lamps punch a
                 // white specular hole through a face.
                 if let authored = material.roughness.contents as? NSNumber {
-                    material.roughness.contents = NSNumber(value: max(authored.doubleValue, 0.35))
+                    material.roughness.contents = NSNumber(value: max(authored.doubleValue, 0.45))
                 }
                 material.roughness.intensity = 1
-                material.diffuse.intensity = 0.95
 
                 material.shaderModifiers = [
                     .fragment: Self.rimLightModifier
@@ -991,17 +995,20 @@ final class CharacterSceneController: ObservableObject {
 
             // whitePoint is the luminance that maps to pure white. Raising it above 1 pulls the
             // highlights back off the clip point, which is what stops light skin and white
-            // clothing on the physically based characters from fusing into one flat patch.
-            camera.whitePoint = isVRM ? 1.0 : 1.8
+            // clothing on the physically based characters from fusing into one flat patch. It acts
+            // on the top of the range only, so the body keeps its midtones while the face - the
+            // palest, most forward-facing surface, and the one that catches both the key and the
+            // follow spot - stops flattening out.
+            camera.whitePoint = isVRM ? 1.0 : 2.3
             camera.averageGray = 0.18
-            camera.contrast = isVRM ? 0.0 : 0.18
+            camera.contrast = isVRM ? 0.0 : 0.30
 
             // The vignette the ACES modifier tried to draw by hand, done by the renderer.
             camera.vignettingIntensity = DeviceTier.isLowEnd ? 0 : 0.4
             camera.vignettingPower = DeviceTier.isLowEnd ? 0 : 1.2
 
-            camera.bloomIntensity = DeviceTier.isLowEnd ? 0 : (isVRM ? 0.4 : 0.15)
-            camera.bloomThreshold = isVRM ? 1.1 : 1.4
+            camera.bloomIntensity = DeviceTier.isLowEnd ? 0 : (isVRM ? 0.4 : 0.12)
+            camera.bloomThreshold = isVRM ? 1.1 : 1.6
             camera.bloomBlurRadius = 15.0
 
             if !DeviceTier.isLowEnd {

@@ -98,8 +98,8 @@ final class ThumbRenderer {
 
         // Rendering needs the model and one pose. Only mixamo data works here: the pose is applied
         // through PoseRetargeter, which reads world-space joint positions.
-        guard let modelURL = try? await RemoteAssets.shared.resolve(file: model) else { return nil }
-        let clipRef = item?.pose ?? item?.clips?["mixamo"] ?? AssetRef(file: "mocap_\(dance).json")
+        guard let modelURL = try? await RemoteAssets.shared.resolve(url: model) else { return nil }
+        let clipRef = item?.pose ?? item?.clip(rig: "mixamo") ?? AssetRef(url: "mocap_\(dance).json")
         let clipURL = try? await RemoteAssets.shared.resolve(clipRef)
 
         return await rendered(key: dk, file: dirs.dance.appendingPathComponent(dk + ".png")) { [weak self] in

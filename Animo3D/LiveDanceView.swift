@@ -38,9 +38,9 @@ struct LiveDanceView: UIViewRepresentable {
         // files that were no longer in it and silently showed nothing.
         let modelFile = model, danceKey = dance
         Task.detached(priority: .userInitiated) {
-            guard let modelURL = try? await RemoteAssets.shared.resolve(file: modelFile) else { return }
+            guard let modelURL = try? await RemoteAssets.shared.resolve(url: modelFile) else { return }
             // Mixamo clip regardless of rig: playback here goes through PoseRetargeter (world-space joints).
-            let ref = RemoteAssets.shared.dance(danceKey)?.clip(rig: "mixamo") ?? AssetRef(file: "mocap_\(danceKey).json")
+            let ref = RemoteAssets.shared.dance(danceKey)?.clip(rig: "mixamo") ?? AssetRef(url: "mocap_\(danceKey).json")
             let clipURL = try? await RemoteAssets.shared.resolve(ref)
             let scene = CharacterSceneController.loadSceneFile(at: modelURL, warmUp: true)
             let clip = clipURL.flatMap { MocapClip.load($0) }

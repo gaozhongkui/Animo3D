@@ -63,7 +63,7 @@ final class PreviewStage: ObservableObject {
         loaded = true
         if dance == nil { controller.portraitMode = true }   // Static character detail: strike an A-pose
 
-        guard let localModelURL = try? await RemoteAssets.shared.resolve(file: model) else {
+        guard let localModelURL = try? await RemoteAssets.shared.resolve(url: model) else {
             NSLog("[PreviewStage] failed to download/locate model %@", model)
             return
         }
@@ -80,7 +80,7 @@ final class PreviewStage: ObservableObject {
         // Always the mixamo clip here, whatever the rig: this page drives the character through
         // PoseRetargeter, which reads world-space joint positions. A vrm clip holds bone quaternions
         // and MocapClip cannot parse it, so asking for one left every VRoid preview frozen.
-        let ref = RemoteAssets.shared.dance(dance)?.clip(rig: "mixamo") ?? AssetRef(file: "mocap_\(dance).json")
+        let ref = RemoteAssets.shared.dance(dance)?.clip(rig: "mixamo") ?? AssetRef(url: "mocap_\(dance).json")
         let clipURL = try? await RemoteAssets.shared.resolve(ref)
         let clip = await Task.detached(priority: .userInitiated) { () -> MocapClip? in
             guard let clipURL else { return nil }

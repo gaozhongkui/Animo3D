@@ -7,13 +7,15 @@
 
 import SwiftUI
 
-/// The asset file name for a character.
+/// Where to get a character's model from.
 ///
-/// The catalog is authoritative - it states the real file (`char_vroid_4.usdz` vs `char_Remy.scn`).
-/// Guessing it from the key (`key.contains("vroid")`) breaks the moment a non-VRoid usdz is added.
-/// A copy inside the bundle still wins, so a locally dropped-in model can be tested without the network.
+/// The catalog is authoritative - it states the real asset (`char_vroid_4.usdz` vs `char_Remy.scn`),
+/// now as an absolute URL. Guessing it from the key (`key.contains("vroid")`) breaks the moment a
+/// non-VRoid usdz is added. A copy inside the bundle still wins: resolve(url:) looks the last path
+/// component up in the bundle before it downloads anything, so a locally dropped-in model can still
+/// be tested without the network.
 func characterModelFile(_ key: String) -> String {
-    if let file = RemoteAssets.shared.character(key)?.file { return file }
+    if let url = RemoteAssets.shared.character(key)?.url { return url }
 
     // Fallback: search bundle for common naming patterns
     for ext in ["scn", "usdz"] {
