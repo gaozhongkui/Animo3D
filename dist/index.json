@@ -1,7 +1,35 @@
 {
-  "schema": 1,
-  "catalog": "catalogs/2026-08-31.json",
-  "baseUrl": "https://github.com/gaozhongkui/Animo3D/releases/download/assets-v1/",
-  "minAppVersion": "1.0.0",
-  "notice": null
+  "version": "1.0",
+  "characters": [
+    {
+      "id": "vroid_4",
+      "name": "Girl C",
+      "rig": "vrm",
+      "url": "https://[YOUR_SUPABASE_URL]/char_vroid_4.usdz",
+      "thumb_url": "https://[YOUR_SUPABASE_URL]/thumb_vroid_4.png"
+    },
+    {
+      "id": "Erika_Archer",
+      "name": "Erika Archer",
+      "rig": "mixamo",
+      "url": "https://[YOUR_SUPABASE_URL]/char_Erika_Archer.scn",
+      "thumb_url": "https://[YOUR_SUPABASE_URL]/thumb_Erika_Archer.png"
+    }
+  ],
+  "dances": [
+    {
+      "id": "Arms_Hip_Hop_Dance",
+      "name": "Arms Hip Hop Dance",
+      "url": "https://[YOUR_SUPABASE_URL]/mocap_Arms_Hip_Hop_Dance.json",
+      "vrm_url": "https://[YOUR_SUPABASE_URL]/vrm_Arms_Hip_Hop_Dance.json",
+      "pose_url": "https://[YOUR_SUPABASE_URL]/pose_Arms_Hip_Hop_Dance.json"
+    },
+    {
+      "id": "Belly_Dance",
+      "name": "Belly Dance",
+      "url": "https://[YOUR_SUPABASE_URL]/mocap_Belly_Dance.json",
+      "vrm_url": "https://[YOUR_SUPABASE_URL]/vrm_Belly_Dance.json",
+      "pose_url": "https://[YOUR_SUPABASE_URL]/pose_Belly_Dance.json"
+    }
+  ]
 }

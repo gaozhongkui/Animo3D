@@ -35,12 +35,12 @@ struct MusicTrack: Identifiable, Hashable {
             guard let ref = m.asset else { continue }
             seen.insert(ref.file)
             // 内部 ID 使用小驼峰 (camelCase)
-            let camelID = m.key.lowercased().split(separator: "_").enumerated().map { i, word in
+            let camelID = m.id.lowercased().split(separator: "_").enumerated().map { i, word in
                 i == 0 ? String(word) : word.capitalized
             }.joined()
 
             out.append(MusicTrack(id: "remote" + camelID.capitalized,
-                                  name: friendly(m.key), // 改为使用 key 匹配，确保 100% 成功
+                                  name: friendly(m.id), // 改为使用 key 匹配，确保 100% 成功
                                   url: RemoteAssets.shared.localURL(for: ref.file),
                                   asset: ref))
         }

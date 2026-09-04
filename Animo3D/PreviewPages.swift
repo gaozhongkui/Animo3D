@@ -161,7 +161,7 @@ struct DancePreviewPage: View {
     let dance: String
     let name: String
     var style: Int = 0
-    var model: String = characterModelFile(BuiltInAssets.characterKey)
+    var model: String = characterModelFile(BuiltInAssets.characterId)
     var body: some View {
         PreviewShell(name: name, style: style, model: model, dance: dance)
     }

@@ -85,9 +85,9 @@ struct MyCharactersView: View {
                     ForEach(Array(remoteAssets.characters.enumerated()), id: \.element.id) { i, c in
                         Button {
                             HapticManager.light()
-                            picked = PickedCharacter(id: c.key, name: c.name)
+                            picked = PickedCharacter(id: c.id, name: c.name)
                         } label: {
-                            characterCard(c.name, key: c.key, tint: tints[i % tints.count])
+                            characterCard(c.name, key: c.id, tint: tints[i % tints.count])
                         }
                         .buttonStyle(CardButtonStyle())
                     }

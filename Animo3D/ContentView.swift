@@ -75,8 +75,8 @@ struct VideoDriveView: View {
             WorkDetailView(url: work.url, justSaved: true) { finished = nil }
         }
         .fullScreenCover(item: $zoomChar) { c in
-            let idx = remoteAssets.characters.firstIndex { $0.key == c.key } ?? 0
-            CharacterPreviewPage(key: c.key, name: c.name, style: idx)
+            let idx = remoteAssets.characters.firstIndex { $0.id == c.id } ?? 0
+            CharacterPreviewPage(key: c.id, name: c.name, style: idx)
         }
         .onChange(of: pickerItem) { item in
             guard let item else { return }
@@ -173,10 +173,10 @@ struct VideoDriveView: View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
                 ForEach(Array(remoteAssets.characters.enumerated()), id: \.element.id) { i, c in
-                    let isSelected = character == c.key
+                    let isSelected = character == c.id
                     VStack(alignment: .leading, spacing: 10) {
                         ZStack(alignment: .bottomLeading) {
-                            CharacterThumbView(characterKey: c.key, tint: tints[i % tints.count])
+                            CharacterThumbView(characterKey: c.id, tint: tints[i % tints.count])
                                 .aspectRatio(3.0 / 4.0, contentMode: .fill)
                                 .background(Color(.secondarySystemBackground))
                                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -202,7 +202,7 @@ struct VideoDriveView: View {
                     }
                     .onTapGesture {
                         HapticManager.light()
-                        character = c.key
+                        character = c.id
                     }
                     .overlay(alignment: .topTrailing) {
                         ZoomButton { zoomChar = c }
@@ -381,7 +381,7 @@ struct VideoDriveView: View {
         switch step {
         case .video:
             previewPlayer?.pause()
-            if character.isEmpty { character = remoteAssets.characters.first?.key ?? "Y_Bot" }
+            if character.isEmpty { character = remoteAssets.characters.first?.id ?? "Y_Bot" }
             step = .character
         case .character:
             startPerform()

@@ -241,12 +241,12 @@ struct DanceStudioView: View {
         }
         .onDisappear { music.stop(); vfx.remove(); stage.stop() }
         .fullScreenCover(item: $zoomChar) { c in
-            let idx = remoteAssets.characters.firstIndex { $0.key == c.key } ?? 0
-            CharacterPreviewPage(key: c.key, name: c.name, style: idx)
+            let idx = remoteAssets.characters.firstIndex { $0.id == c.id } ?? 0
+            CharacterPreviewPage(key: c.id, name: c.name, style: idx)
         }
         .fullScreenCover(item: $zoomDance) { d in
-            let idx = remoteAssets.dances.firstIndex { $0.key == d.key } ?? 0
-            DancePreviewPage(dance: d.key, name: d.name, style: idx)
+            let idx = remoteAssets.dances.firstIndex { $0.id == d.id } ?? 0
+            DancePreviewPage(dance: d.id, name: d.name, style: idx)
         }
     }
 
@@ -383,10 +383,10 @@ struct DanceStudioView: View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
                 ForEach(Array(remoteAssets.characters.enumerated()), id: \.element.id) { i, c in
-                    let isSelected = character == c.key
+                    let isSelected = character == c.id
                     VStack(alignment: .leading, spacing: 10) {
                         ZStack(alignment: .bottomLeading) {
-                            CharacterThumbView(characterKey: c.key, tint: tints[i % tints.count])
+                            CharacterThumbView(characterKey: c.id, tint: tints[i % tints.count])
                                 .aspectRatio(3.0/4.0, contentMode: .fill)
                                 .background(Color(.secondarySystemBackground))
                                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -415,7 +415,7 @@ struct DanceStudioView: View {
                     }
                     .onTapGesture {
                         HapticManager.light()
-                        character = c.key
+                        character = c.id
                     }
                     .overlay(alignment: .topTrailing) {
                         ZoomButton { zoomChar = c }
@@ -430,7 +430,7 @@ struct DanceStudioView: View {
 
     // Action selection preview: Use currently selected character (fallback model if none selected)
     private var previewModel: String {
-        character.isEmpty ? characterModelFile(BuiltInAssets.characterKey) : characterModelFile(character)
+        character.isEmpty ? characterModelFile(BuiltInAssets.characterId) : characterModelFile(character)
     }
 
     /// Subtitle for each dance (BPM · style), deterministically generated from the name, just for atmosphere.
@@ -446,15 +446,15 @@ struct DanceStudioView: View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
                 ForEach(Array(remoteAssets.dances.enumerated()), id: \.element.id) { i, d in
-                    let isSelected = dance == d.key
+                    let isSelected = dance == d.id
                     VStack(alignment: .leading, spacing: 10) {
                         ZStack(alignment: .bottomLeading) {
                             Group {
                                 if isSelected && DeviceTier.allowsLiveDanceCards {
                                     CardBackdrop(style: i)
-                                        .overlay(LiveDanceView(model: previewModel, dance: d.key))
+                                        .overlay(LiveDanceView(model: previewModel, dance: d.id))
                                 } else {
-                                    DanceThumbView(model: previewModel, dance: d.key, style: i)
+                                    DanceThumbView(model: previewModel, dance: d.id, style: i)
                                         .aspectRatio(3.0/4.0, contentMode: .fill)
                                 }
                             }
@@ -472,14 +472,14 @@ struct DanceStudioView: View {
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(d.name).font(.system(size: 15, weight: .bold)).foregroundStyle(.white).lineLimit(1)
-                                Text(danceMeta(d.key)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.85))
+                                Text(danceMeta(d.id)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.85))
                             }
                             .padding(12)
                         }
                     }
                     .onTapGesture {
                         HapticManager.light()
-                        dance = d.key
+                        dance = d.id
                     }
                     .overlay(alignment: .topTrailing) {
                         ZoomButton { zoomDance = d }
@@ -623,12 +623,11 @@ struct DanceStudioView: View {
         }
     }
 
-    // Scene selection bar: Studio vs Sky vs Green
+    // Scene selection bar: Studio vs Sky
     private var sceneSelectionBar: some View {
         HStack(spacing: 12) {
             sceneChip(type: .studio, title: "Studio", icon: "house.fill")
             sceneChip(type: .sky, title: "Sky", icon: "cloud.sun.fill")
-            sceneChip(type: .green, title: "Green", icon: "rectangle.fill.on.rectangle.fill")
         }
         .padding(.bottom, 10)
     }
@@ -786,8 +785,8 @@ struct DanceStudioView: View {
 
     // MARK: Logic
     private func setupInitial() {
-        if let ic = initialCharacter, remoteAssets.characters.contains(where: { $0.key == ic }) { character = ic }
-        if let id = initialDance, remoteAssets.dances.contains(where: { $0.key == id }) { dance = id }
+        if let ic = initialCharacter, remoteAssets.characters.contains(where: { $0.id == ic }) { character = ic }
+        if let id = initialDance, remoteAssets.dances.contains(where: { $0.id == id }) { dance = id }
         // Brought in a character from the library -> go directly to dance selection, and select the first dance by default
         if !character.isEmpty && initialCharacter != nil { step = .dance; ensureDefaultDance() }
     }
@@ -796,8 +795,8 @@ struct DanceStudioView: View {
     private func ensureDefaultDance() {
         guard dance.isEmpty else { return }
         // Prefer the bundled dance: it plays with no network at all.
-        dance = remoteAssets.dances.first { $0.key == BuiltInAssets.danceKey }?.key
-            ?? remoteAssets.dances.first?.key ?? ""
+        dance = remoteAssets.dances.first { $0.id == BuiltInAssets.danceId }?.id
+            ?? remoteAssets.dances.first?.id ?? ""
     }
 
     private func next() {

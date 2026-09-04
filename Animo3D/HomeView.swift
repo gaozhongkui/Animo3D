@@ -26,7 +26,7 @@ struct StudioLaunch: Identifiable {
 /// A file-scope constant rather than a member of HomeView: referencing a property of `self` from
 /// inside that (very large) body crashes the Swift 6.2 type checker while solving the result
 /// builder. A plain global needs no capture and sidesteps it.
-private let builtInShowcaseModel: String = characterModelFile(BuiltInAssets.characterKey)
+private let builtInShowcaseModel: String = characterModelFile(BuiltInAssets.characterId)
 
 struct HomeView: View {
     @ObservedObject private var remoteAssets = RemoteAssets.shared
@@ -47,9 +47,9 @@ struct HomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(Array(remoteAssets.characters.enumerated()), id: \.element.id) { i, c in
-                        Button { launch = StudioLaunch(character: c.key) } label: {
+                        Button { launch = StudioLaunch(character: c.id) } label: {
                             posterCard(title: c.name, subtitle: "Ready to Dance") {
-                                CharacterThumbView(characterKey: c.key, tint: tints[i % tints.count])
+                                CharacterThumbView(characterKey: c.id, tint: tints[i % tints.count])
                             }
                         }.buttonStyle(.plain)
                     }
@@ -67,13 +67,13 @@ struct HomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(Array(remoteAssets.dances.prefix(12).enumerated()), id: \.element.id) { i, d in
-                        Button { launch = StudioLaunch(dance: d.key) } label: {
+                        Button { launch = StudioLaunch(dance: d.id) } label: {
                             posterCard(title: d.name, subtitle: "Hot Trend") {
                                 if i == 0 {
                                     CardBackdrop(style: 0)
-                                        .overlay(LiveDanceView(model: builtInShowcaseModel, dance: d.key))
+                                        .overlay(LiveDanceView(model: builtInShowcaseModel, dance: d.id))
                                 } else {
-                                    DanceThumbView(model: builtInShowcaseModel, dance: d.key, style: i)
+                                    DanceThumbView(model: builtInShowcaseModel, dance: d.id, style: i)
                                 }
                             }
                         }.buttonStyle(.plain)

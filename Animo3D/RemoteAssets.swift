@@ -2,90 +2,76 @@
 //  RemoteAssets.swift
 //  Animo3D
 //
-//  Remote asset catalog + download cache.
-//
-//  The app ships without characters, dances or music: those live in a GitHub Release and are
-//  pulled on demand into Caches/RemoteAssets. This file owns two things:
-//    - the catalog (what exists, which file each entry maps to, how big it is, its sha256)
-//    - the downloader (fetch one file, once, verified, with progress)
-//
-//  Design notes:
-//  - `baseUrl` starts from a compiled-in constant and is only *refreshed* by index.json. Downloads
-//    therefore never wait on a network round trip to start, and a failed index fetch degrades to
-//    "assets still work", not "nothing works".
-//  - The catalog is seeded from `seed_catalog.json` in the bundle, then overridden by the last
-//    successful network catalog cached on disk. A cold, offline launch still shows a full list.
-//  - Every download is deduplicated by remote filename and verified against the catalog's sha256:
-//    a truncated file used to land in the cache permanently, clearable only by deleting the app.
+//  Remote asset catalog + download cache (Supabase Edition).
 //
 
 import Foundation
 import Combine
-import CryptoKit
 
 // MARK: - Catalog models
 
 /// One downloadable file as described by the catalog.
 struct AssetRef: Decodable, Hashable {
-    let file: String
-    let bytes: Int?
-    let sha256: String?
+    let url: String
 
-    init(file: String, bytes: Int? = nil, sha256: String? = nil) {
-        self.file = file
-        self.bytes = bytes
-        self.sha256 = sha256
+    var file: String { (url as NSString).lastPathComponent }
+
+    init(url: String) {
+        self.url = url
     }
 }
 
-/// A character, dance or music entry. All three share one shape; the optional fields say which is which.
-///
-/// Everything the catalog knows is decoded here on purpose. Keeping only `key`/`name` forced the
-/// client to *guess* filenames (`key.contains("vroid") ? .usdz : .scn`, trying `.mp3` then `.m4a`,
-/// hand-assembling `vrm_`/`mocap_` prefixes). The server already states all of it.
+/// A character or dance entry. Simplified flat structure.
 struct CatalogItem: Identifiable, Decodable {
-    let key: String
+    let id: String
     let name: String
 
-    // characters and music: the asset itself
-    let file: String?
-    let bytes: Int?
-    let sha256: String?
-    let rig: String?                     // characters only: "vrm" | "mixamo"
+    // Primary asset (model for characters, mixamo clip for dances)
+    let url: String?
 
-    // dances: one clip per rig
-    let clips: [String: AssetRef]?
+    // Characters only
+    let rig: String?                     // "vrm" | "mixamo"
+    let thumb_url: String?
 
-    // optional pre-rendered card image (emitted by tools/make_catalog.py)
-    let thumb: AssetRef?
-    // dances: a single-frame extract of the mixamo clip, purely so a card can strike the pose.
-    // ~2KB instead of the ~750KB full clip - a 44-card grid costs 88KB rather than 21MB.
-    let pose: AssetRef?
+    // Dances only
+    let vrm_url: String?
+    let pose_url: String?
+    let duration: Double?
 
-    var id: String { key }
     var isVRM: Bool { rig == "vrm" }
 
-    /// The file to download for this entry (characters and music).
+    /// The primary asset reference.
     var asset: AssetRef? {
-        guard let file else { return nil }
-        return AssetRef(file: file, bytes: bytes, sha256: sha256)
+        guard let url else { return nil }
+        return AssetRef(url: url)
     }
 
-    /// The clip for a rig. Mixamo clips are world-space joint positions, so PoseRetargeter can drive
-    /// any skeleton with them - they are the correct fallback when a rig-specific clip is missing.
-    func clip(rig: String) -> AssetRef? { clips?[rig] ?? clips?["mixamo"] }
-}
+    /// The pre-rendered thumbnail reference.
+    var thumb: AssetRef? {
+        guard let thumb_url else { return nil }
+        return AssetRef(url: thumb_url)
+    }
 
-struct RemoteIndex: Decodable {
-    let catalog: String
-    let baseUrl: String
+    /// The single-frame pose reference.
+    var pose: AssetRef? {
+        guard let pose_url else { return nil }
+        return AssetRef(url: pose_url)
+    }
+
+    /// The clip for a rig.
+    func clip(rig: String) -> AssetRef? {
+        if rig == "vrm", let vurl = vrm_url {
+            return AssetRef(url: vurl)
+        }
+        return asset
+    }
 }
 
 struct RemoteCatalog: Decodable {
     let version: String?
     let characters: [CatalogItem]
     let dances: [CatalogItem]
-    let music: [CatalogItem]
+    let music: [CatalogItem]?
 }
 
 // MARK: - RemoteAssets
@@ -93,44 +79,28 @@ struct RemoteCatalog: Decodable {
 final class RemoteAssets: ObservableObject {
     static let shared = RemoteAssets()
 
-    /// Where the index lives. The index only *moves* the asset host; it is not required to use it.
-    private let indexURL = URL(string: "https://raw.githubusercontent.com/gaozhongkui/Animo3D/main/dist/index.json")!
-
-    /// Compiled-in asset host, used until index.json says otherwise (and whenever it cannot be reached).
-    private static let fallbackBaseUrl = "https://github.com/gaozhongkui/Animo3D/releases/download/assets-v1/"
+    /// Where the unified index lives.
+    private let indexURL = URL(string: "https://dekbcnbakegjgbjxflxe.supabase.co/storage/v1/object/sign/models/index.json?token=eyJraWQiOiIxZTQ5YjE5Ni01ZjlhLTRiNmUtYjdlYS0yODAzODY2ZTEyYzMiLCJhbGciOiJIUzUxMiJ9.eyJ1cmwiOiJtb2RlbHMvaW5kZXguanNvbiIsInNjb3BlIjoiZG93bmxvYWQiLCJpYXQiOjE3ODg1MTk3MTgsImV4cCI6MTgyMDA1NTcxOH0.8kTqWITC1kygqpDVdG8Rik59ql8Rcfek8GIfMsnZ2ITY6O-yRRitXQcsTwU8ln1IpKh7AQiw5rrVZflTGsMp8g")!
 
     @Published private(set) var characters: [CatalogItem] = []
     @Published private(set) var dances: [CatalogItem] = []
     @Published private(set) var music: [CatalogItem] = []
-    /// Catalog origin, for diagnostics and for deciding whether to show a "refreshing" hint.
     @Published private(set) var catalogSource: Source = .none
-    /// remote filename -> 0...1 while a download is in flight.
     @Published private(set) var progress: [String: Double] = [:]
 
     enum Source: String { case none, seed, cache, network }
 
-    /// One figure for a shared progress indicator: the least advanced transfer in flight.
-    /// nil means nothing is downloading, which is the cue to fall back to a plain spinner.
     var activeDownloadProgress: Double? { progress.values.min() }
 
     private let lock = NSLock()
-    private var _baseUrl = RemoteAssets.fallbackBaseUrl
     private var inFlight: [String: Task<URL, Error>] = [:]
-    private var charByKey: [String: CatalogItem] = [:]
-    private var danceByKey: [String: CatalogItem] = [:]
-    private var musicByKey: [String: CatalogItem] = [:]
-
-    private var baseUrl: String {
-        get { lock.lock(); defer { lock.unlock() }; return _baseUrl }
-        set { lock.lock(); _baseUrl = newValue; lock.unlock() }
-    }
+    private var charById: [String: CatalogItem] = [:]
+    private var danceById: [String: CatalogItem] = [:]
 
     private lazy var session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 30
-        c.timeoutIntervalForResource = 600
         c.waitsForConnectivity = true
-        // One persistent session for the downloader to use
         return URLSession(configuration: c, delegate: self.downloader, delegateQueue: nil)
     }()
 
@@ -141,40 +111,23 @@ final class RemoteAssets: ObservableObject {
             .appendingPathComponent("RemoteAssets")
     }
     private var catalogCacheURL: URL { cacheDir.appendingPathComponent("_catalog.json") }
-    private var baseUrlCacheURL: URL { cacheDir.appendingPathComponent("_baseurl.txt") }
 
     private init() {
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-        // Publish something usable before any network call: cached catalog first, bundled seed otherwise.
         if let cached = try? Data(contentsOf: catalogCacheURL),
            let cat = try? JSONDecoder().decode(RemoteCatalog.self, from: cached) {
             apply(cat, source: .cache)
-        } else if let seedURL = Bundle.main.url(forResource: "seed_catalog", withExtension: "json"),
-                  let data = try? Data(contentsOf: seedURL),
-                  let cat = try? JSONDecoder().decode(RemoteCatalog.self, from: data) {
-            apply(cat, source: .seed)
-        }
-        if let saved = try? String(contentsOf: baseUrlCacheURL, encoding: .utf8) {
-            let trimmed = saved.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { baseUrl = trimmed }
         }
         Task { await refresh() }
     }
 
     // MARK: - Catalog
 
-    /// Fetch index + catalog. Failure is non-fatal: whatever was seeded or cached stays in place.
     func refresh() async {
         do {
             let (data, _) = try await session.data(from: indexURL)
-            let index = try JSONDecoder().decode(RemoteIndex.self, from: data)
-            baseUrl = index.baseUrl
-            try? index.baseUrl.write(to: baseUrlCacheURL, atomically: true, encoding: .utf8)
-
-            let catalogURL = indexURL.deletingLastPathComponent().appendingPathComponent(index.catalog)
-            let (catData, _) = try await session.data(from: catalogURL)
-            let cat = try JSONDecoder().decode(RemoteCatalog.self, from: catData)
-            try? catData.write(to: catalogCacheURL, options: .atomic)
+            let cat = try JSONDecoder().decode(RemoteCatalog.self, from: data)
+            try? data.write(to: catalogCacheURL, options: .atomic)
             apply(cat, source: .network)
         } catch {
             NSLog("[RemoteAssets] catalog refresh failed (still using %@): %@",
@@ -182,36 +135,31 @@ final class RemoteAssets: ObservableObject {
         }
     }
 
-    /// Lookup tables live behind the lock: they are read from background threads (thumbnail render
-    /// queue, detached parse tasks) while the published arrays are only touched on the main thread.
     private func apply(_ cat: RemoteCatalog, source: Source) {
         lock.lock()
-        charByKey = Dictionary(cat.characters.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
-        danceByKey = Dictionary(cat.dances.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
-        musicByKey = Dictionary(cat.music.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        charById = Dictionary(cat.characters.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        danceById = Dictionary(cat.dances.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let musicItems = cat.music ?? []
+        musicById = Dictionary(musicItems.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         lock.unlock()
 
         let publish = { [weak self] in
             guard let self else { return }
             self.characters = cat.characters
             self.dances = cat.dances
-            self.music = cat.music
+            self.music = musicItems
             self.catalogSource = source
         }
         if Thread.isMainThread { publish() } else { DispatchQueue.main.async(execute: publish) }
-
-        NSLog("[RemoteAssets] catalog(%@) characters=%d dances=%d music=%d",
-              source.rawValue, cat.characters.count, cat.dances.count, cat.music.count)
     }
 
-    func character(_ key: String) -> CatalogItem? { lock.lock(); defer { lock.unlock() }; return charByKey[key] }
-    func dance(_ key: String) -> CatalogItem? { lock.lock(); defer { lock.unlock() }; return danceByKey[key] }
-    func musicItem(_ key: String) -> CatalogItem? { lock.lock(); defer { lock.unlock() }; return musicByKey[key] }
+    func character(_ id: String) -> CatalogItem? { lock.lock(); defer { lock.unlock() }; return charById[id] }
+    func dance(_ id: String) -> CatalogItem? { lock.lock(); defer { lock.unlock() }; return danceById[id] }
+    func musicItem(_ id: String) -> CatalogItem? { lock.lock(); defer { lock.unlock() }; return musicById[id] }
 
-    /// The clip a given character needs for a given dance, resolved through the catalog.
-    func clip(dance danceKey: String, forCharacter characterKey: String) -> AssetRef? {
-        guard let d = dance(danceKey) else { return nil }
-        let rig = character(characterKey)?.rig ?? "mixamo"
+    func clip(dance danceId: String, forCharacter characterId: String) -> AssetRef? {
+        guard let d = dance(danceId) else { return nil }
+        let rig = character(characterId)?.rig ?? "mixamo"
         return d.clip(rig: rig)
     }
 
@@ -222,25 +170,17 @@ final class RemoteAssets: ObservableObject {
     }
 
     func localURL(for remoteFile: String) -> URL? {
-        // 1. Check bundle first (so bundled assets never trigger a download)
         if let bundled = bundleURL(for: remoteFile) { return bundled }
-
-        // 2. Check cache
         let local = localCacheURL(for: remoteFile)
         return FileManager.default.fileExists(atPath: local.path) ? local : nil
     }
 
-    /// The bundled copy of an asset. Searches root and common subdirectories.
     func bundleURL(for file: String) -> URL? {
         let name = (file as NSString).deletingPathExtension
         let ext = (file as NSString).pathExtension
         let e = ext.isEmpty ? nil : ext
-
-        // Check root
         if let url = Bundle.main.url(forResource: name, withExtension: e) { return url }
-
-        // Check common subdirectories where assets are known to live in this project
-        for dir in ["Res", "Res/builtin", "Res/ml", "Res/thumbs"] {
+        for dir in ["Res", "Res/builtin", "Res/thumbs"] {
             if let url = Bundle.main.url(forResource: name, withExtension: e, subdirectory: dir) {
                 return url
             }
@@ -248,52 +188,51 @@ final class RemoteAssets: ObservableObject {
         return nil
     }
 
-    /// Resolve an asset to a local URL: a bundled copy wins, otherwise download and verify.
     func resolve(_ ref: AssetRef) async throws -> URL {
-        try await resolve(file: ref.file, sha256: ref.sha256, bytes: ref.bytes)
+        try await resolve(url: ref.url)
     }
 
-    func resolve(file: String, sha256: String? = nil, bytes: Int? = nil) async throws -> URL {
+    func resolve(url: String) async throws -> URL {
+        let file = (url as NSString).lastPathComponent
         if let bundled = bundleURL(for: file) { return bundled }
-        return try await ensureDownloaded(remoteFile: file, sha256: sha256, expectedBytes: bytes)
+        return try await ensureDownloaded(remoteUrl: url)
     }
 
-    /// Resolve a character's model, taking size and checksum from the catalog when it knows them.
-    func resolveCharacterModel(_ key: String) async throws -> URL {
-        if let ref = character(key)?.asset { return try await resolve(ref) }
-        return try await resolve(file: characterModelFile(key))
+    func resolveCharacterModel(_ id: String) async throws -> URL {
+        if let ref = character(id)?.asset { return try await resolve(ref) }
+        return try await resolve(url: "char_\(id).scn") // Basic fallback
     }
 
     func ensureDownloaded(_ ref: AssetRef) async throws -> URL {
-        try await ensureDownloaded(remoteFile: ref.file, sha256: ref.sha256, expectedBytes: ref.bytes)
+        try await ensureDownloaded(remoteUrl: ref.url)
     }
 
-    /// Download once and cache. Concurrent callers for the same file share a single transfer.
-    func ensureDownloaded(remoteFile: String, sha256: String? = nil, expectedBytes: Int? = nil) async throws -> URL {
-        if let local = localURL(for: remoteFile) { return local }
+    func ensureDownloaded(remoteUrl: String) async throws -> URL {
+        let file = (remoteUrl as NSString).lastPathComponent
+        if let local = localURL(for: file) { return local }
 
         let task: Task<URL, Error> = {
             lock.lock()
             defer { lock.unlock() }
-            if let existing = inFlight[remoteFile] { return existing }
+            if let existing = inFlight[file] { return existing }
             let t = Task<URL, Error> { [weak self] in
                 guard let self else { throw AssetError.cancelled }
                 defer {
-                    self.lock.lock(); self.inFlight[remoteFile] = nil; self.lock.unlock()
-                    Task { @MainActor in self.progress[remoteFile] = nil }
+                    self.lock.lock(); self.inFlight[file] = nil; self.lock.unlock()
+                    Task { @MainActor in self.progress[file] = nil }
                 }
-                return try await self.download(remoteFile, sha256: sha256, expectedBytes: expectedBytes)
+                return try await self.download(remoteUrl)
             }
-            inFlight[remoteFile] = t
+            inFlight[file] = t
             return t
         }()
         return try await task.value
     }
 
-    private func download(_ remoteFile: String, sha256 expected: String?, expectedBytes: Int?) async throws -> URL {
-        // Another task may have finished this file while we were queued.
+    private func download(_ remoteUrl: String) async throws -> URL {
+        let remoteFile = (remoteUrl as NSString).lastPathComponent
         if let local = localURL(for: remoteFile) { return local }
-        guard let url = URL(string: baseUrl + remoteFile) else { throw AssetError.badURL(remoteFile) }
+        guard let url = URL(string: remoteUrl) else { throw AssetError.badURL(remoteUrl) }
 
         await MainActor.run { self.progress[remoteFile] = 0 }
 
@@ -301,19 +240,11 @@ final class RemoteAssets: ObservableObject {
             guard let self, total > 0 else { return }
             let p = min(1, Double(done) / Double(total))
             Task { @MainActor in self.progress[remoteFile] = p }
-        }, fallbackTotal: { expectedBytes.map(Int64.init) ?? -1 })
+        }, fallbackTotal: { -1 })
 
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             try? FileManager.default.removeItem(at: tmp)
-            throw AssetError.http((response as? HTTPURLResponse)?.statusCode ?? -1, remoteFile)
-        }
-        if let expected {
-            let actual = try Self.sha256Hex(of: tmp)
-            guard actual == expected else {
-                try? FileManager.default.removeItem(at: tmp)
-                NSLog("[RemoteAssets] checksum mismatch %@ want=%@ got=%@", remoteFile, expected, actual)
-                throw AssetError.checksum(remoteFile)
-            }
+            throw AssetError.http((response as? HTTPURLResponse)?.statusCode ?? -1, remoteUrl)
         }
 
         let local = localCacheURL(for: remoteFile)
@@ -324,46 +255,29 @@ final class RemoteAssets: ObservableObject {
         return local
     }
 
-    private static func sha256Hex(of url: URL) throws -> String {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        var hasher = SHA256()
-        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
-            hasher.update(data: chunk)
-        }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
-    }
-
     enum AssetError: LocalizedError {
-        case badURL(String), http(Int, String), checksum(String), cancelled
-
+        case badURL(String), http(Int, String), cancelled
         var errorDescription: String? {
             switch self {
-            case .badURL(let f):      return "Bad asset URL for \(f)"
+            case .badURL(let f): return "Bad asset URL: \(f)"
             case .http(let c, let f): return "HTTP \(c) for \(f)"
-            case .checksum(let f):    return "Checksum mismatch for \(f)"
-            case .cancelled:          return "Cancelled"
+            case .cancelled: return "Cancelled"
             }
         }
     }
 }
 
-/// Assets that ship inside the app so it works with no network at all.
-///
-/// Without these, a cold launch on a bad connection leaves every card on a spinner and nothing can
-/// be played. One character and one dance are ~5MB and make the whole flow usable offline; they
-/// resolve from the bundle through `RemoteAssets.resolve`, exactly like a cached download would.
+/// Assets that ship inside the app.
 enum BuiltInAssets {
-    static let characterKey = "vroid_4"
-    static let danceKey = "Hip_Hop_Dancing"
+    static let characterId = "vroid_4"
+    static let danceId = "Arms_Hip_Hop_Dance"
 
-    static func isBuiltIn(character key: String) -> Bool { key == characterKey }
-    static func isBuiltIn(dance key: String) -> Bool { key == danceKey }
+    static func isBuiltIn(character id: String) -> Bool { id == characterId }
+    static func isBuiltIn(dance id: String) -> Bool { id == danceId }
 }
 
 // MARK: - Download with progress
 
-/// One shared delegate for all asset downloads.
 private final class Downloader: NSObject, URLSessionDownloadDelegate {
     private struct State {
         let continuation: CheckedContinuation<(URL, URLResponse), Error>
@@ -392,7 +306,6 @@ private final class Downloader: NSObject, URLSessionDownloadDelegate {
         lock.lock()
         let state = tasks[downloadTask.taskIdentifier]
         lock.unlock()
-
         let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : (state?.fallbackTotal() ?? -1)
         state?.onProgress(totalBytesWritten, total)
     }
@@ -402,16 +315,10 @@ private final class Downloader: NSObject, URLSessionDownloadDelegate {
         let response = downloadTask.response ?? URLResponse()
         let dest = FileManager.default.temporaryDirectory
             .appendingPathComponent("dl-" + UUID().uuidString)
-
         lock.lock()
         let state = tasks.removeValue(forKey: downloadTask.taskIdentifier)
         lock.unlock()
-
-        guard let s = state else {
-            NSLog("[Downloader] orphaned download finished: id=%d", downloadTask.taskIdentifier)
-            return
-        }
-
+        guard let s = state else { return }
         do {
             try FileManager.default.moveItem(at: location, to: dest)
             s.continuation.resume(returning: (dest, response))
@@ -424,14 +331,8 @@ private final class Downloader: NSObject, URLSessionDownloadDelegate {
         lock.lock()
         let state = tasks.removeValue(forKey: task.taskIdentifier)
         lock.unlock()
-
-        if let s = state {
-            if let error = error {
-                s.continuation.resume(throwing: error)
-            } else {
-                // didFinishDownloadingTo already resumed if success.
-                // If we get here with no error and no previous resume, it's a bug in our flow.
-            }
+        if let s = state, let error = error {
+            s.continuation.resume(throwing: error)
         }
     }
 }
