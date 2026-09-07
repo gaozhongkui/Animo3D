@@ -2,15 +2,20 @@
 //  DanceThumb.swift
 //  Animo3D
 //
-//  Renders one thumbnail per dance, showing the character striking that dance's signature pose.
-//  The actual rendering and caching live in ThumbRenderer (globally serial + model reuse + three-tier cache).
+//  One card per dance, showing the chosen character striking that dance's signature pose. Rendered
+//  on device by ThumbRenderer: memory -> disk -> one global serial offscreen render, against a
+//  single reused model.
+//
+//  The heavy lifting this replaced: every card used to build its own controller in `Task.detached`
+//  and parse the model again, so fast scrolling had a dozen 4-60MB parses in flight and `.task`
+//  cancellation never reached them. What makes it affordable now is that the models are texture
+//  compressed (largest 7.6MB) and the dance step already prewarms the one the stage will need.
 //
 
 import SwiftUI
 
-/// Dance pose thumbnail view.
-struct DanceThumbView: View {
-    let model: String   // Includes the extension
+struct DanceCardView: View {
+    let character: String
     let dance: String
     var style: Int = 0
     @State private var image: UIImage?
@@ -21,16 +26,17 @@ struct DanceThumbView: View {
             if let image {
                 Image(uiImage: image).resizable().scaledToFit()
             } else {
-                ProgressView().tint(.white).scaleEffect(1.2)   // Loading while rendering
+                ProgressView().tint(.white).scaleEffect(1.2)
             }
         }
-        .task(id: model + "|" + dance) {   // Re-render whenever the character (model) or the dance changes
-            // On a memory-cache hit, display synchronously: no loading flash and no disk access (this path matters most while the list scrolls)
-            if let m = ThumbRenderer.shared.memoryCached(model: model, dance: dance) {
+        .task(id: character + "|" + dance) {
+            // A memory hit displays synchronously: no loading flash and no disk access, which is
+            // the path that matters while the list scrolls.
+            if let m = ThumbRenderer.shared.memoryCached(character: character, dance: dance) {
                 image = m; return
             }
             image = nil
-            let img = await ThumbRenderer.shared.danceImage(model: model, dance: dance)
+            let img = await ThumbRenderer.shared.danceCard(character: character, dance: dance)
             guard !Task.isCancelled else { return }
             image = img
         }

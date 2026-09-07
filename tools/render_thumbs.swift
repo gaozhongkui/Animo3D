@@ -2,19 +2,26 @@
 //  render_thumbs.swift
 //  Animo3D / tools
 //
-//  Offline character thumbnail renderer (macOS command line).
+//  Offline card art renderer (macOS command line): one PNG per character, one per dance.
 //
-//  Why: on device the card thumbnails were produced by loading the full 3D model and rendering it
-//  offscreen. Once models moved to the CDN that meant downloading 191MB just to fill a grid of nine
-//  small pictures - the home screen sat on a spinner for minutes. These PNGs are ~50KB each, so the
-//  grid paints instantly and the model is only fetched when the character is actually used.
+//  Why: both grids used to be rendered on device from the full 3D model. Once models moved to the
+//  CDN that meant downloading 191MB to fill nine small pictures, and 26MB of dance clips to fill
+//  forty-four. These PNGs are ~50KB each, so a grid paints instantly and a model is fetched only
+//  when the character is actually performed.
 //
-//  The framing here mirrors CharacterSceneController (normalizeOrientation + the thumbnail branch of
-//  setupFrontCamera) so the offline images match what the app renders on device.
+//  Character cards ship in the index and are the reason that grid paints instantly.
+//
+//  The `dances` mode is not part of the asset pipeline - the app renders dance cards itself, from
+//  the built-in character plus the clip. It is here to check offline what a card will look like
+//  (and that a newly sampled take poses correctly) without building and installing the app. Pose
+//  maths is not reimplemented for it: this compiles the app's own PoseRetargeter, so what it shows
+//  is exactly what the device will draw.
 //
 //  Build & run:
-//      swiftc -O tools/render_thumbs.swift -o /tmp/render_thumbs
-//      /tmp/render_thumbs <out-dir> <model.scn> [more models...]
+//      swiftc -O tools/render_thumbs.swift Animo3D/PoseRetargeter.swift Animo3D/MixamoBoneMap.swift \
+//          -o /tmp/render_thumbs
+//      /tmp/render_thumbs characters <out-dir> <model.scn> [more models...]
+//      /tmp/render_thumbs dances <out-dir> <showcase.scn> <clip.json> [more clips...]
 //
 
 import Foundation
@@ -23,39 +30,27 @@ import AppKit
 
 let thumbSize = CGSize(width: 360, height: 460)
 
-// MARK: - Bone naming (mirrors BoneScheme in MixamoBoneMap.swift)
+// MARK: - Bone rig shim
+//
+// PoseRetargeter only needs these three members; the protocol exists so this file can hand it a
+// plain skeleton holder instead of the app's SwiftUI controller.
 
-struct Scheme {
-    let hips, head, leftShoulder, rightShoulder, leftFoot, spine, leftArm, rightArm: String
-
-    static let mixamo = Scheme(hips: "mixamorig_Hips", head: "mixamorig_Head",
-                               leftShoulder: "mixamorig_LeftShoulder", rightShoulder: "mixamorig_RightShoulder",
-                               leftFoot: "mixamorig_LeftFoot", spine: "mixamorig_Spine",
-                               leftArm: "mixamorig_LeftArm", rightArm: "mixamorig_RightArm")
-
-    static let vrm = Scheme(hips: "J_Bip_C_Hips", head: "J_Bip_C_Head",
-                            leftShoulder: "J_Bip_L_Shoulder", rightShoulder: "J_Bip_R_Shoulder",
-                            leftFoot: "J_Bip_L_Foot", spine: "J_Bip_C_Spine",
-                            leftArm: "J_Bip_L_UpperArm", rightArm: "J_Bip_R_UpperArm")
+final class Rig: BoneRig {
+    let scheme = BoneScheme.mixamo
+    var boneNodes: [String: SCNNode] = [:]
+    var isLoaded = false
 }
 
-// Two-band cel shading, copied verbatim from CharacterSceneController.toonRampModifier.
-let toonRamp = """
-#pragma body
-float ndl  = dot(normalize(_surface.normal), normalize(_light.direction));
-float band = smoothstep(0.18, 0.32, ndl);
-float ramp = mix(0.55, 1.0, band);
-_lightingContribution.diffuse = _light.intensity.rgb * ramp;
-"""
+/// The frame a dance card poses on, matching ThumbRenderer.signatureFrame.
+let signatureFrame = 0.45
 
-let rimLight = """
-#pragma body
-float3 n = normalize(_surface.normal);
-float3 v = normalize(_surface.view);
-float rim = 1.0 - saturate(dot(n, v));
-rim = pow(rim, 3.0) * 0.42;
-_output.color.rgb += rim * float3(0.62, 0.70, 1.0) * _output.color.a;
-"""
+/// One mocap take. The format is `{fps, frames: [[[x,y,z], ...33]]}`.
+func loadFrames(_ url: URL) -> [[simd_float3]] {
+    guard let data = try? Data(contentsOf: url),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let raw = obj["frames"] as? [[[Double]]] else { return [] }
+    return raw.map { $0.map { simd_float3(Float($0[0]), Float($0[1]), Float($0[2])) } }
+}
 
 // MARK: - Rendering
 
@@ -67,33 +62,9 @@ func collectBones(_ root: SCNNode) -> [String: SCNNode] {
     return out
 }
 
-func applyToonShading(_ root: SCNNode) {
-    root.enumerateHierarchy { node, _ in
-        guard let g = node.geometry else { return }
-        for m in g.materials {
-            m.lightingModel = .lambert
-            m.specular.contents = NSColor.black
-            m.shaderModifiers = [.lightingModel: toonRamp, .fragment: rimLight]
-        }
-    }
-}
-
-/// VRM skeletons collapse in SceneKit's T bind pose; the app puts them in an A-pose for any static
-/// shot, and the thumbnail has to match.
-func applyPortraitPose(_ bones: [String: SCNNode], _ s: Scheme) {
-    func rotate(_ name: String, _ angle: Float, _ axis: simd_float3) {
-        guard let b = bones[name] else { return }
-        b.simdOrientation = simd_mul(b.simdOrientation, simd_quatf(angle: angle, axis: axis))
-    }
-    rotate(s.leftArm,  1.0, simd_float3(0, 0, 1))
-    rotate(s.rightArm, -1.0, simd_float3(0, 0, 1))
-    rotate(s.spine,   0.03, simd_float3(1, 0, 0))
-    rotate(s.head,    0.03, simd_float3(1, 0, 0))
-}
-
 /// Bind poses come in arbitrarily oriented (VRoid exports are commonly Z-up); rotate the model
 /// upright from its own bone positions rather than trusting the file's axes.
-func normalizeOrientation(_ root: SCNNode, _ bones: [String: SCNNode], _ s: Scheme) {
+func normalizeOrientation(_ root: SCNNode, _ bones: [String: SCNNode], _ s: BoneScheme) {
     guard let hips = bones[s.hips]?.simdWorldPosition,
           let head = bones[s.head]?.simdWorldPosition,
           let lsh = bones[s.leftShoulder]?.simdWorldPosition,
@@ -123,7 +94,7 @@ func addLights(_ scene: SCNScene) {
     scene.rootNode.addChildNode(sun)
 }
 
-func render(model url: URL) -> NSImage? {
+func render(model url: URL, pose: [simd_float3]? = nil) -> NSImage? {
     guard let loaded = try? SCNScene(url: url, options: [.convertToYUp: false]) else {
         FileHandle.standardError.write("  ! cannot open \(url.lastPathComponent)\n".data(using: .utf8)!)
         return nil
@@ -135,13 +106,19 @@ func render(model url: URL) -> NSImage? {
     scene.rootNode.addChildNode(root)
 
     let bones = collectBones(root)
-    let isVRM = bones["J_Bip_C_Hips"] != nil
-    let s: Scheme = isVRM ? .vrm : .mixamo
-    if isVRM {
-        applyToonShading(root)
-        applyPortraitPose(bones, s)
-    }
+    let s = BoneScheme.mixamo
     normalizeOrientation(root, bones, s)
+
+    if let pose {
+        // The retargeter smooths over time, so the same frame is applied until it converges - the
+        // app's ThumbRenderer does exactly this.
+        let rig = Rig()
+        rig.boneNodes = bones
+        rig.isLoaded = true
+        let rt = PoseRetargeter(controller: rig)
+        rt.resetCapture()
+        for _ in 0..<12 { rt.apply(world: pose) }
+    }
 
     guard let hips = bones[s.hips]?.simdWorldPosition,
           let head = bones[s.head]?.simdWorldPosition,
@@ -186,22 +163,53 @@ func writePNG(_ image: NSImage, to url: URL) -> Int {
 }
 
 // MARK: - main
+//
+// Wrapped in a @main type rather than written at the top level: this file is compiled together with
+// the app's PoseRetargeter.swift, and Swift only allows top-level statements in main.swift.
 
-let args = CommandLine.arguments
-guard args.count >= 3 else {
-    print("usage: render_thumbs <out-dir> <model> [model...]")
-    exit(2)
-}
-let outDir = URL(fileURLWithPath: args[1])
-try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+@main
+struct Tool {
+    static func main() {
+        let args = CommandLine.arguments
+        guard args.count >= 4, args[1] == "characters" || args[1] == "dances" else {
+            print("""
+            usage: render_thumbs characters <out-dir> <model.scn> [model...]
+                   render_thumbs dances     <out-dir> <showcase.scn> <clip.json> [clip...]
+            """)
+            exit(2)
+        }
+        let outDir = URL(fileURLWithPath: args[2])
+        try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
 
-var failures = 0
-for path in args.dropFirst(2) {
-    let url = URL(fileURLWithPath: path)
-    let key = url.deletingPathExtension().lastPathComponent
-    guard let img = render(model: url) else { failures += 1; continue }
-    let out = outDir.appendingPathComponent("thumb_\(key).png")
-    let n = writePNG(img, to: out)
-    print(String(format: "  %-34s %6.1f KB", (key as NSString).utf8String!, Double(n) / 1024))
+        var failures = 0
+
+        func emit(_ img: NSImage, prefix: String, key: String) {
+            let n = writePNG(img, to: outDir.appendingPathComponent("\(prefix)_\(key).png"))
+            print(String(format: "  %-36s %6.1f KB", (key as NSString).utf8String!, Double(n) / 1024))
+        }
+
+        if args[1] == "characters" {
+            for path in args.dropFirst(3) {
+                let url = URL(fileURLWithPath: path)
+                guard let img = render(model: url) else { failures += 1; continue }
+                emit(img, prefix: "thumb", key: url.deletingPathExtension().lastPathComponent)
+            }
+        } else {
+            let showcase = URL(fileURLWithPath: args[3])
+            print("showcase: \(showcase.lastPathComponent)")
+            for path in args.dropFirst(4) {
+                let url = URL(fileURLWithPath: path)
+                let key = url.deletingPathExtension().lastPathComponent
+                let frames = loadFrames(url)
+                guard !frames.isEmpty else {
+                    FileHandle.standardError.write("  ! no frames in \(url.lastPathComponent)\n".data(using: .utf8)!)
+                    failures += 1; continue
+                }
+                let idx = min(Int(Double(frames.count) * signatureFrame), frames.count - 1)
+                guard let img = render(model: showcase, pose: frames[idx]) else { failures += 1; continue }
+                emit(img, prefix: "card", key: key)
+            }
+        }
+        exit(failures > 0 ? 1 : 0)
+    }
 }
-exit(failures > 0 ? 1 : 0)

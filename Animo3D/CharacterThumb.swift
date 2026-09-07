@@ -7,24 +7,6 @@
 
 import SwiftUI
 
-/// Where to get a character's model from.
-///
-/// The catalog is authoritative - it states the real asset (`char_vroid_4.usdz` vs `char_Remy.scn`),
-/// now as an absolute URL. Guessing it from the key (`key.contains("vroid")`) breaks the moment a
-/// non-VRoid usdz is added. A copy inside the bundle still wins: resolve(url:) looks the last path
-/// component up in the bundle before it downloads anything, so a locally dropped-in model can still
-/// be tested without the network.
-func characterModelFile(_ key: String) -> String {
-    if let url = RemoteAssets.shared.character(key)?.url { return url }
-
-    // Fallback: search bundle for common naming patterns
-    for ext in ["scn", "usdz"] {
-        if Bundle.main.url(forResource: key, withExtension: ext) != nil { return "\(key).\(ext)" }
-        if Bundle.main.url(forResource: "char_\(key)", withExtension: ext) != nil { return "char_\(key).\(ext)" }
-    }
-    return "char_\(key).scn"
-}
-
 /// Character thumbnail view: prefers the cache, and renders in the background when there is no hit.
 struct CharacterThumbView: View {
     let characterKey: String

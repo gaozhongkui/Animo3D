@@ -20,13 +20,10 @@ struct StudioLaunch: Identifiable {
     var dance: String? = nil
 }
 
-/// The showcase model for the trend cards. It ships in the bundle, so those cards render and dance
-/// on a cold, offline launch instead of sitting on a spinner.
-///
-/// A file-scope constant rather than a member of HomeView: referencing a property of `self` from
-/// inside that (very large) body crashes the Swift 6.2 type checker while solving the result
-/// builder. A plain global needs no capture and sidesteps it.
-private let builtInShowcaseModel: String = characterModelFile(BuiltInAssets.characterId)
+/// The showcase character for the trend cards: the built-in one, so the live card needs no
+/// download. Read through a function rather than stored, because the built-in id now comes from the
+/// index rather than a compile-time constant.
+private var showcaseCharacter: String { BuiltInAssets.characterId }
 
 struct HomeView: View {
     @ObservedObject private var remoteAssets = RemoteAssets.shared
@@ -71,9 +68,9 @@ struct HomeView: View {
                             posterCard(title: d.name, subtitle: "Hot Trend") {
                                 if i == 0 {
                                     CardBackdrop(style: 0)
-                                        .overlay(LiveDanceView(model: builtInShowcaseModel, dance: d.id))
+                                        .overlay(LiveDanceView(character: showcaseCharacter, dance: d.id))
                                 } else {
-                                    DanceThumbView(model: builtInShowcaseModel, dance: d.id, style: i)
+                                    DanceCardView(character: showcaseCharacter, dance: d.id, style: i)
                                 }
                             }
                         }.buttonStyle(.plain)
@@ -134,6 +131,35 @@ struct HomeView: View {
             .fullScreenCover(isPresented: $showVideo) {
                 studioCover(VideoDriveView())
             }
+            // index.json is the only source for both carousels, so until it lands there is nothing
+            // to show. The fetch starts at app launch and keeps retrying; this covers the wait
+            // rather than leaving two empty rows on screen.
+            .overlay { if remoteAssets.characters.isEmpty { catalogWait } }
+        }
+    }
+
+    /// Shown while the catalog is still on its way, and after `RemoteAssets.launchGrace` seconds
+    /// with an explicit retry - a silent empty home screen reads as a broken app.
+    private var catalogWait: some View {
+        ZStack {
+            Color(.systemGroupedBackground).ignoresSafeArea()
+            VStack(spacing: 16) {
+                ProgressView().scaleEffect(1.3)
+                if remoteAssets.state == .unavailable {
+                    Text("Couldn't reach the content library")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Check your connection - this keeps retrying on its own.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("Try Again") { remoteAssets.retry() }
+                        .buttonStyle(.borderedProminent)
+                        .padding(.top, 4)
+                } else {
+                    Text("Loading your studio...")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+            .padding(32)
         }
     }
 

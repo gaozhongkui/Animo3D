@@ -47,62 +47,14 @@ struct SceneOrbitView: UIViewRepresentable {
     }
 }
 
-/// Holds one character controller for previewing, optionally driven by a dance; shared by 3D and AR so switching does not reload.
-final class PreviewStage: ObservableObject {
-    let controller = CharacterSceneController()
-    @Published private(set) var ready = false
-    private var retargeter: PoseRetargeter?
-    private var player: MocapPlayer?
-    private var loaded = false
-    var animated: Bool { player != nil }
-
-    /// Both the model and the dance data are parsed in the background and the main thread only mounts nodes - otherwise opening the enlarged preview visibly stutters.
-    @MainActor
-    func ensure(model: String, dance: String?) async {
-        guard !loaded else { return }
-        loaded = true
-        if dance == nil { controller.portraitMode = true }   // Static character detail: strike an A-pose
-
-        guard let localModelURL = try? await RemoteAssets.shared.resolve(url: model) else {
-            NSLog("[PreviewStage] failed to download/locate model %@", model)
-            return
-        }
-
-        let scene = await Task.detached(priority: .userInitiated) {
-            CharacterSceneController.loadSceneFile(at: localModelURL, warmUp: true)
-        }.value
-        guard let scene else { return }
-        controller.install(scene)
-        ready = true
-        guard let dance else { return }
-        let rt = PoseRetargeter(controller: controller); retargeter = rt
-
-        // Always the mixamo clip here, whatever the rig: this page drives the character through
-        // PoseRetargeter, which reads world-space joint positions. A vrm clip holds bone quaternions
-        // and MocapClip cannot parse it, so asking for one left every VRoid preview frozen.
-        let ref = RemoteAssets.shared.dance(dance)?.clip(rig: "mixamo") ?? AssetRef(url: "mocap_\(dance).json")
-        let clipURL = try? await RemoteAssets.shared.resolve(ref)
-        let clip = await Task.detached(priority: .userInitiated) { () -> MocapClip? in
-            guard let clipURL else { return nil }
-            return MocapClip.load(clipURL)
-        }.value
-        if let clip {
-            let p = MocapPlayer(frames: clip.frames, retargeter: rt)
-            player = p; p.start()
-        }
-    }
-    func resetRetarget() { retargeter?.resetCapture() }
-    func stop() { player?.stop() }
-}
-
 /// Shared shell for the preview pages: 3D/AR switch + close + title.
 private struct PreviewShell: View {
     let name: String
     let style: Int
-    let model: String
+    let character: String
     let dance: String?
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var stage = PreviewStage()
+    @StateObject private var stage = DancePerformer(owner: "PreviewShell")
     @State private var arMode = false
 
     var body: some View {
@@ -113,7 +65,7 @@ private struct PreviewShell: View {
                 if arMode {
                     ARCharacterView(controller: stage.controller, onAttach: { stage.resetRetarget() })
                 } else {
-                    SceneOrbitView(controller: stage.controller, animated: dance != nil)
+                    SceneOrbitView(controller: stage.controller, animated: stage.isAnimating)
                 }
             }
             .id(arMode)
@@ -137,11 +89,11 @@ private struct PreviewShell: View {
             }.frame(maxWidth: .infinity)
         }
         .overlay {
-            if !stage.ready {
+            if !stage.isReady {
                 ProgressView().tint(.white).scaleEffect(1.3)
             }
         }
-        .task { await stage.ensure(model: model, dance: dance) }
+        .task { await stage.load(character: character, dance: dance) }
         .onDisappear { stage.stop() }
     }
 }
@@ -152,7 +104,7 @@ struct CharacterPreviewPage: View {
     let name: String
     var style: Int = 0
     var body: some View {
-        PreviewShell(name: name, style: style, model: characterModelFile(key), dance: nil)
+        PreviewShell(name: name, style: style, character: key, dance: nil)
     }
 }
 
@@ -161,8 +113,11 @@ struct DancePreviewPage: View {
     let dance: String
     let name: String
     var style: Int = 0
-    var model: String = characterModelFile(BuiltInAssets.characterId)
+    /// Who performs it. Defaults to the built-in character, which needs no download.
+    var character: String = ""
     var body: some View {
-        PreviewShell(name: name, style: style, model: model, dance: dance)
+        PreviewShell(name: name, style: style,
+                     character: character.isEmpty ? BuiltInAssets.characterId : character,
+                     dance: dance)
     }
 }

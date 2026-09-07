@@ -19,6 +19,7 @@ struct VideoDriveView: View {
 
     enum Step: Int, CaseIterable { case video, character, perform }
     @State private var step: Step = .video
+    @State private var loadingStage = false
 
     // Step 1 - source clip
     @State private var pickerItem: PhotosPickerItem?
@@ -30,11 +31,11 @@ struct VideoDriveView: View {
 
     // Step 2 - performer
     @State private var character = ""
-    @State private var zoomChar: CatalogItem?
+    @State private var zoomChar: CharacterItem?
 
     // Step 3 - result
     @StateObject private var vm = VideoPoseViewModel()
-    @StateObject private var stage = VideoCharStage()
+    @StateObject private var stage = DancePerformer(owner: "VideoDrive", groundEnabled: true)
     @StateObject private var recorder = SceneViewRecorder()
     @StateObject private var holder = SceneHolder()
     @State private var arMode = false
@@ -67,7 +68,7 @@ struct VideoDriveView: View {
             }
         }
         .animation(.default, value: step)
-        .overlay { if stage.isLoading { loadingHUD } }
+        .overlay { if loadingStage { StageLoadingHUD(progress: RemoteAssets.shared.activeDownloadProgress) } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)   // The wizard ships its own header and back button
         .sheet(isPresented: $showShare) { if let url = shareURL { ShareSheet(items: [url]) } }
@@ -359,21 +360,6 @@ struct VideoDriveView: View {
         }
     }
 
-    /// Mask while the model is parsed. The character files run to tens of megabytes, so without
-    /// feedback the jump into the result page looks like the app has hung.
-    private var loadingHUD: some View {
-        ZStack {
-            Color.black.opacity(0.45).ignoresSafeArea()
-            VStack(spacing: 12) {
-                ProgressView().tint(.white).scaleEffect(1.3)
-                Text("Preparing character…").font(.footnote).foregroundStyle(.white.opacity(0.9))
-            }
-            .padding(24)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .transition(.opacity)
-    }
-
     // MARK: Logic
 
     private func next() {
@@ -406,11 +392,13 @@ struct VideoDriveView: View {
     }
 
     private func startPerform() {
-        guard let url = videoURL, !stage.isLoading else { return }
+        guard let url = videoURL, !loadingStage else { return }
         previewPlayer?.pause()
         vm.onWorld = { [weak stage] world in stage?.drive(world) }
         Task {
-            await stage.load(character: character)
+            loadingStage = true
+            defer { loadingStage = false }
+            guard await stage.load(character: character) else { return }
             vm.load(url: url)     // Detection only starts once there is something to drive
             step = .perform
         }
@@ -438,44 +426,6 @@ struct VideoDriveView: View {
         previewPlayer = player
         player.play()
     }
-}
-
-/// Manages the character under video drive (the character can be swapped). vm always forwards motion to stage, and stage always drives the current character.
-final class VideoCharStage: ObservableObject {
-    let controller = CharacterSceneController()   // A single instance, models are swapped in place
-    private var retargeter: PoseRetargeter?
-    @Published var isLoading = false
-
-    init() {
-        // Same stage as the dance studio - LED wall, beams, floor and crowd. This screen used to
-        // enable nothing at all, so the performer stood in an empty black void while the dance
-        // flow got the full venue. Two stages that look nothing alike is just an inconsistency.
-        controller.groundEnabled = true
-    }
-
-    /// Two-phase load, matching the dance stage: parse off the main thread, mount on it.
-    /// This used to call loadModel directly, which parses tens of megabytes synchronously and
-    /// froze the screen on entry and on every character switch.
-    @MainActor
-    func load(character: String) async {
-        isLoading = true
-        defer { isLoading = false }
-        // Characters ship as .scn or .usdz. The old code assumed .scn, so every VRoid character -
-        // including the first one in the catalog - silently failed to load and left a black screen.
-        let file = characterModelFile(character)
-        guard let url = try? await RemoteAssets.shared.resolveCharacterModel(character) else {
-            NSLog("[VideoDrive] failed to download/locate model %@", file); return
-        }
-        let loaded = await Task.detached(priority: .userInitiated) {
-            CharacterSceneController.loadSceneFile(at: url, warmUp: true)
-        }.value
-        guard let loaded else { NSLog("[VideoDrive] failed to load model %@", file); return }
-        _ = controller.install(loaded)
-        retargeter = PoseRetargeter(controller: controller)
-    }
-
-    func drive(_ world: [simd_float3]) { retargeter?.apply(world: world) }
-    func resetRetarget() { retargeter?.resetCapture() }
 }
 
 #Preview {

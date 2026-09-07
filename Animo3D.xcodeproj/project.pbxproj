@@ -99,7 +99,6 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				05D3E53E303BE70E00B8E85A /* data */,
 				05E2C0C83025ACE200A42B38 /* Animo3D */,
 			);
 			name = Animo3D;

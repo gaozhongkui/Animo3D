@@ -14,59 +14,31 @@ import Combine
 struct MusicTrack: Identifiable, Hashable {
     let id: String
     let name: String
-    /// nil for a catalog track that has not been fetched yet - it is resolved when played.
-    let url: URL?
-    let asset: AssetRef?
+    let url: URL
 
-    init(id: String, name: String, url: URL?, asset: AssetRef? = nil) {
-        self.id = id
-        self.name = name
-        self.url = url
-        self.asset = asset
-    }
-
-    /// Catalog tracks plus anything bundled. The catalog states each track's real filename, so there
-    /// is no need to try `.mp3` and then `.m4a` and eat a failed round trip on the wrong guess.
+    /// The bundled tracks. Music is not in the index and never downloads: four fixed files, 14MB,
+    /// and the bundled copy won the catalog lookup anyway - listing them remotely only added upload
+    /// nobody would ever pull.
     static var presets: [MusicTrack] {
         var out: [MusicTrack] = []
-        var seen = Set<String>()
-
-        for m in RemoteAssets.shared.music {
-            guard let ref = m.asset else { continue }
-            seen.insert(ref.file)
-            // 内部 ID 使用小驼峰 (camelCase)
-            let camelID = m.id.lowercased().split(separator: "_").enumerated().map { i, word in
-                i == 0 ? String(word) : word.capitalized
-            }.joined()
-
-            out.append(MusicTrack(id: "remote" + camelID.capitalized,
-                                  name: friendly(m.id), // 改为使用 key 匹配，确保 100% 成功
-                                  url: RemoteAssets.shared.localURL(for: ref.file),
-                                  asset: ref))
-        }
-
-        // 扫面本地打包文件
         for ext in ["m4a", "mp3"] {
             for url in Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: nil) ?? [] {
-                let file = url.lastPathComponent
-                guard !seen.contains(file) else { continue }
                 let base = url.deletingPathExtension().lastPathComponent
-                out.append(MusicTrack(id: file, name: friendly(base), url: url))
+                out.append(MusicTrack(id: url.lastPathComponent, name: friendly(base), url: url))
             }
         }
-
         return out.sorted { $0.name < $1.name }
     }
 
     private static func friendly(_ key: String) -> String {
-        // 使用 key 进行精确匹配，返回优雅的标题
+        // Exact key match first, so these keep their intended titles.
         switch key.lowercased() {
         case "sample_beat", "samplebeat":    return "Midnight Pulse"
         case "sample_chill", "samplechill":  return "Azure Horizon"
         case "anime_dance", "animedance":    return "Neon Sakura"
         case "delta_works", "deltaworks":    return "Digital Odyssey"
         default:
-            // 兜底逻辑：转为首字母大写的 Title Case
+            // Fallback: title-case the key.
             return key.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -79,21 +51,7 @@ final class MusicController: ObservableObject {
 
     func play(_ track: MusicTrack) {
         stop()
-        if let url = track.url {
-            startPlayback(at: url, track: track)
-            return
-        }
-        guard let asset = track.asset else {
-            print("[Music] no source for \(track.name)")
-            return
-        }
-        Task { @MainActor in
-            guard let url = try? await RemoteAssets.shared.resolve(asset) else {
-                print("[Music] download failed for \(asset.file)")
-                return
-            }
-            self.startPlayback(at: url, track: track)
-        }
+        startPlayback(at: track.url, track: track)
     }
 
     private func startPlayback(at url: URL, track: MusicTrack) {
@@ -159,12 +117,11 @@ final class LocalMusicStore: ObservableObject {
             print("[Music] import failed: \(error.localizedDescription)"); return nil
         }
         reload()
-        return tracks.first { $0.url?.lastPathComponent == dst.lastPathComponent }
+        return tracks.first { $0.url.lastPathComponent == dst.lastPathComponent }
     }
 
     func delete(_ track: MusicTrack) {
-        guard let url = track.url else { return }   // catalog tracks are not part of the local library
-        try? FileManager.default.removeItem(at: url)
+        try? FileManager.default.removeItem(at: track.url)
         reload()
     }
 }

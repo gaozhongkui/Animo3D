@@ -2,7 +2,33 @@
 //  RemoteAssets.swift
 //  Animo3D
 //
-//  Remote asset catalog + download cache (Supabase Edition).
+//  The asset catalog and the download cache behind it.
+//
+//  index.json (schema 2) is the only asset config in the project, and it covers exactly what has to
+//  travel: character models, dance clips, and the character card art. Dance cards are not in here -
+//  they are rendered on device from the built-in character plus the dance's own clip. Everything
+//  bundled is bundled because it is fixed and small: the four music tracks, plus the one character
+//  and one dance that let a first launch perform with no download.
+//
+//  How it got here, so none of it comes back:
+//
+//  - **`baseUrl` + a bucket-relative path per file.** Every entry used to carry its own absolute
+//    URL, and the index that actually shipped had `[YOUR_SUPABASE_URL]` in all of them. One host in
+//    one place, and the paths mirror the bucket's own folders.
+//  - **No signed URLs.** A token in the URL expires and a shipped build cannot recover when it
+//    does. The bucket is public; none of these files are secret.
+//  - **Bundle and cache are keyed by the bare file name**, never a URL or a path. A file can move
+//    between folders in the bucket without invalidating one cached download, and a bundled copy
+//    always wins the lookup - which is the whole mechanism behind `Res/builtin`.
+//  - **`schema` is enforced and `revision` orders catalogs.** An index this build does not
+//    understand is rejected rather than decoded into a shape where every field is nil.
+//  - **No music, no sizes, no digests.** Music ships in `Res/music`, where the bundled copy won the
+//    lookup anyway, so listing it only added 14MB of pointless upload. A declared size duplicated
+//    Content-Length. Instead of a digest to keep in sync, a file that fails to parse is evicted and
+//    fetched again - which is what actually recovers a truncated body or a stored error page.
+//
+//  Per-kind item types rather than one item with everything optional: a character without a model,
+//  or a dance without a clip, is a broken catalog and should fail to decode.
 //
 
 import Foundation
@@ -10,68 +36,50 @@ import Combine
 
 // MARK: - Catalog models
 
-/// One downloadable file as described by the catalog.
-struct AssetRef: Decodable, Hashable {
-    let url: String
+/// A bucket-relative path, e.g. "dances/mocap_Hip_Hop_Dancing.json". Its URL is `baseUrl + path`.
+typealias AssetPath = String
 
-    var file: String { (url as NSString).lastPathComponent }
-
-    init(url: String) {
-        self.url = url
-    }
+extension String {
+    /// The name the bundle and the disk cache use for this asset.
+    var assetName: String { (self as NSString).lastPathComponent }
 }
 
-/// A character or dance entry. Simplified flat structure.
-struct CatalogItem: Identifiable, Decodable {
+struct CharacterItem: Identifiable, Decodable, Hashable {
     let id: String
     let name: String
+    let model: AssetPath
+    let thumb: AssetPath?
+}
 
-    // Primary asset (model for characters, mixamo clip for dances)
-    let url: String?
-
-    // Characters only
-    let rig: String?                     // "vrm" | "mixamo"
-    let thumb_url: String?
-
-    // Dances only
-    let vrm_url: String?
-    let pose_url: String?
+struct DanceItem: Identifiable, Decodable, Hashable {
+    let id: String
+    let name: String
+    let clip: AssetPath
     let duration: Double?
+}
 
-    var isVRM: Bool { rig == "vrm" }
-
-    /// The primary asset reference.
-    var asset: AssetRef? {
-        guard let url else { return nil }
-        return AssetRef(url: url)
-    }
-
-    /// The pre-rendered thumbnail reference.
-    var thumb: AssetRef? {
-        guard let thumb_url else { return nil }
-        return AssetRef(url: thumb_url)
-    }
-
-    /// The single-frame pose reference.
-    var pose: AssetRef? {
-        guard let pose_url else { return nil }
-        return AssetRef(url: pose_url)
-    }
-
-    /// The clip for a rig.
-    func clip(rig: String) -> AssetRef? {
-        if rig == "vrm", let vurl = vrm_url {
-            return AssetRef(url: vurl)
-        }
-        return asset
-    }
+/// Which character and dance are expected to ship inside the app. Declared by the index and checked
+/// against the bundle on load, rather than hand-written in Swift: the two constants that used to
+/// live here had drifted from the files on disk, so the "built-in" default downloaded every time.
+struct BuiltInSet: Decodable, Hashable {
+    let character: String
+    let dance: String
 }
 
 struct RemoteCatalog: Decodable {
-    let version: String?
-    let characters: [CatalogItem]
-    let dances: [CatalogItem]
-    let music: [CatalogItem]?
+    static let supportedSchema = 2
+
+    let schema: Int
+    /// Monotonic content version. A catalog is only replaced by one with a higher revision.
+    let revision: Int
+    let generated: String?
+    let minAppVersion: String?
+    /// Directory holding every path in this catalog. Must end in "/".
+    let baseUrl: String
+    let notice: String?
+    let builtin: BuiltInSet?
+    let characters: [CharacterItem]
+    let dances: [DanceItem]
 }
 
 // MARK: - RemoteAssets
@@ -79,24 +87,50 @@ struct RemoteCatalog: Decodable {
 final class RemoteAssets: ObservableObject {
     static let shared = RemoteAssets()
 
-    /// Where the unified index lives.
-    private let indexURL = URL(string: "https://dekbcnbakegjgbjxflxe.supabase.co/storage/v1/object/sign/models/index.json?token=eyJraWQiOiIxZTQ5YjE5Ni01ZjlhLTRiNmUtYjdlYS0yODAzODY2ZTEyYzMiLCJhbGciOiJIUzUxMiJ9.eyJ1cmwiOiJtb2RlbHMvaW5kZXguanNvbiIsInNjb3BlIjoiZG93bmxvYWQiLCJpYXQiOjE3ODg1MTk3MTgsImV4cCI6MTgyMDA1NTcxOH0.8kTqWITC1kygqpDVdG8Rik59ql8Rcfek8GIfMsnZ2ITY6O-yRRitXQcsTwU8ln1IpKh7AQiw5rrVZflTGsMp8g")!
+    /// A plain public-bucket URL: no token, so nothing here expires.
+    private static let indexBase = "https://dekbcnbakegjgbjxflxe.supabase.co/storage/v1/object/public/models/index.json"
 
-    @Published private(set) var characters: [CatalogItem] = []
-    @Published private(set) var dances: [CatalogItem] = []
-    @Published private(set) var music: [CatalogItem] = []
+    /// The index URL with a cache-buster, bucketed to five minutes.
+    ///
+    /// Supabase serves public objects through its CDN with `cache-control: max-age=3600`, so
+    /// re-uploading index.json leaves clients on the previous catalog for up to an hour with no way
+    /// to ask for the new one - measured: a fresh upload still answered with the old revision and
+    /// `cf-cache-status: HIT`. Bucketing rather than using a raw timestamp keeps the request
+    /// cacheable for everyone inside the same five minutes; the file is 7KB, so the trade is cheap.
+    /// Asset objects keep the full hour: they are large and their contents are stable.
+    private var indexURL: URL {
+        let bucket = Int(Date().timeIntervalSince1970) / 300
+        return URL(string: "\(Self.indexBase)?v=\(bucket)")!
+    }
+
+    @Published private(set) var characters: [CharacterItem] = []
+    @Published private(set) var dances: [DanceItem] = []
     @Published private(set) var catalogSource: Source = .none
+    @Published private(set) var state: State = .loading
+    @Published private(set) var notice: String?
     @Published private(set) var progress: [String: Double] = [:]
 
-    enum Source: String { case none, seed, cache, network }
+    enum Source: String { case none, cache, network }
+
+    /// What the UI should show. `.loading` covers the launch fetch; after `launchGrace` without a
+    /// usable index it becomes `.unavailable`, so the home screen can say so instead of showing
+    /// empty grids forever. Retries continue in the background either way.
+    enum State: String { case loading, ready, unavailable }
+
+    /// How long the launch fetch gets before the home screen shows its own loading state.
+    static let launchGrace: TimeInterval = 20
 
     var activeDownloadProgress: Double? { progress.values.min() }
 
+    /// The pair the index says is bundled; checked against the bundle in `apply`.
+    private(set) var builtIn: BuiltInSet?
+
     private let lock = NSLock()
     private var inFlight: [String: Task<URL, Error>] = [:]
-    private var charById: [String: CatalogItem] = [:]
-    private var danceById: [String: CatalogItem] = [:]
-    private var musicById: [String: CatalogItem] = [:]
+    private var loadTask: Task<Void, Never>?
+    private var catalog: RemoteCatalog?
+    private var charById: [String: CharacterItem] = [:]
+    private var danceById: [String: DanceItem] = [:]
 
     private lazy var session: URLSession = {
         let c = URLSessionConfiguration.default
@@ -111,170 +145,254 @@ final class RemoteAssets: ObservableObject {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("RemoteAssets")
     }
-    private var catalogCacheURL: URL { cacheDir.appendingPathComponent("_catalog.json") }
+    private var catalogCacheURL: URL { cacheDir.appendingPathComponent("_index.json") }
 
     private init() {
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-        if let cached = try? Data(contentsOf: catalogCacheURL),
-           let cat = try? JSONDecoder().decode(RemoteCatalog.self, from: cached) {
+        // The last index answers instantly, so a returning user is never blocked on the network. The
+        // launch fetch still runs and replaces it when the revision is newer.
+        if let cat = decodeCatalog(try? Data(contentsOf: catalogCacheURL), from: "cache") {
             apply(cat, source: .cache)
         }
-        Task { await refresh() }
     }
 
     // MARK: - Catalog
 
-    func refresh() async {
+    /// Kick off the launch fetch. Called once from the app entry point, so the index is in flight
+    /// before the first screen is on display.
+    func start() {
+        guard loadTask == nil else { return }
+        let deadline = Date().addingTimeInterval(Self.launchGrace)
+        loadTask = Task { [weak self] in
+            guard let self else { return }
+            var attempt = 0
+            while !Task.isCancelled {
+                if await self.refresh() { return }
+                attempt += 1
+                if Date() >= deadline {
+                    await MainActor.run { if self.catalog == nil { self.state = .unavailable } }
+                }
+                // Back off but keep trying, so it recovers on its own when connectivity returns.
+                let delay = min(30, pow(2, Double(min(attempt, 5))))
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
+        }
+    }
+
+    /// Force another attempt (the home screen's retry button).
+    func retry() {
+        loadTask?.cancel()
+        loadTask = nil
+        if catalog == nil { state = .loading }
+        start()
+    }
+
+    /// Fetch the index. Returns true once a usable catalog is in place.
+    @discardableResult
+    func refresh() async -> Bool {
         do {
-            let (data, _) = try await session.data(from: indexURL)
-            let cat = try JSONDecoder().decode(RemoteCatalog.self, from: data)
+            var request = URLRequest(url: indexURL)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            let (data, _) = try await session.data(for: request)
+            guard let cat = decodeCatalog(data, from: "network") else { return catalog != nil }
+            guard cat.revision >= (catalog?.revision ?? -1) else {
+                NSLog("[RemoteAssets] ignoring index revision %d, holding %d",
+                      cat.revision, catalog?.revision ?? -1)
+                return true
+            }
             try? data.write(to: catalogCacheURL, options: .atomic)
             apply(cat, source: .network)
+            return true
         } catch {
-            NSLog("[RemoteAssets] catalog refresh failed (still using %@): %@",
+            NSLog("[RemoteAssets] index fetch failed (holding %@): %@",
                   catalogSource.rawValue, error.localizedDescription)
+            return catalog != nil
         }
+    }
+
+    /// Decode and gate. A catalog whose schema this build does not know, or which demands a newer
+    /// app, is discarded here rather than half-decoded into empty lists downstream.
+    private func decodeCatalog(_ data: Data?, from origin: String) -> RemoteCatalog? {
+        guard let data else { return nil }
+        guard let cat = try? JSONDecoder().decode(RemoteCatalog.self, from: data) else {
+            NSLog("[RemoteAssets] %@ index failed to decode", origin)
+            return nil
+        }
+        guard cat.schema == RemoteCatalog.supportedSchema else {
+            NSLog("[RemoteAssets] %@ index schema %d unsupported (this build reads %d)",
+                  origin, cat.schema, RemoteCatalog.supportedSchema)
+            return nil
+        }
+        guard cat.baseUrl.hasSuffix("/"), !cat.baseUrl.contains("["),
+              URL(string: cat.baseUrl + "probe") != nil else {
+            NSLog("[RemoteAssets] %@ index has an unusable baseUrl: %@", origin, cat.baseUrl)
+            return nil
+        }
+        if let min = cat.minAppVersion,
+           Self.appVersion.compare(min, options: .numeric) == .orderedAscending {
+            NSLog("[RemoteAssets] %@ index needs app %@, this is %@", origin, min, Self.appVersion)
+            return nil
+        }
+        return cat
+    }
+
+    private static var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0"
     }
 
     private func apply(_ cat: RemoteCatalog, source: Source) {
         lock.lock()
+        catalog = cat
+        builtIn = cat.builtin
         charById = Dictionary(cat.characters.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         danceById = Dictionary(cat.dances.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        let musicItems = cat.music ?? []
-        musicById = Dictionary(musicItems.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         lock.unlock()
 
         let publish = { [weak self] in
             guard let self else { return }
             self.characters = cat.characters
             self.dances = cat.dances
-            self.music = musicItems
+            self.notice = cat.notice
             self.catalogSource = source
+            self.state = cat.characters.isEmpty || cat.dances.isEmpty ? .unavailable : .ready
         }
         if Thread.isMainThread { publish() } else { DispatchQueue.main.async(execute: publish) }
+
+        NSLog("[RemoteAssets] %@ index rev=%d chars=%d dances=%d",
+              source.rawValue, cat.revision, cat.characters.count, cat.dances.count)
+        // A declared built-in that is not actually in the bundle means every "no network needed"
+        // path quietly downloads instead. Say so rather than letting it hide.
+        if let b = cat.builtin {
+            let paths = [cat.characters.first { $0.id == b.character }?.model,
+                         cat.dances.first { $0.id == b.dance }?.clip].compactMap { $0 }
+            for p in paths where bundleURL(for: p.assetName) == nil {
+                NSLog("[RemoteAssets] index declares built-in %@ but it is not in the bundle", p)
+            }
+        }
     }
 
-    func character(_ id: String) -> CatalogItem? { lock.lock(); defer { lock.unlock() }; return charById[id] }
-    func dance(_ id: String) -> CatalogItem? { lock.lock(); defer { lock.unlock() }; return danceById[id] }
-    func musicItem(_ id: String) -> CatalogItem? { lock.lock(); defer { lock.unlock() }; return musicById[id] }
-
-    func clip(dance danceId: String, forCharacter characterId: String) -> AssetRef? {
-        guard let d = dance(danceId) else { return nil }
-        let rig = character(characterId)?.rig ?? "mixamo"
-        return d.clip(rig: rig)
-    }
+    func character(_ id: String) -> CharacterItem? { lock.lock(); defer { lock.unlock() }; return charById[id] }
+    func dance(_ id: String) -> DanceItem? { lock.lock(); defer { lock.unlock() }; return danceById[id] }
 
     // MARK: - Files
 
-    func localCacheURL(for remoteFile: String) -> URL {
-        cacheDir.appendingPathComponent(remoteFile)
-    }
+    func localCacheURL(for name: String) -> URL { cacheDir.appendingPathComponent(name) }
 
-    func localURL(for remoteFile: String) -> URL? {
-        if let bundled = bundleURL(for: remoteFile) { return bundled }
-        let local = localCacheURL(for: remoteFile)
+    /// A usable local copy, if there already is one: bundled first, then the download cache.
+    func localURL(for name: String) -> URL? {
+        if let bundled = bundleURL(for: name) { return bundled }
+        let local = localCacheURL(for: name)
         return FileManager.default.fileExists(atPath: local.path) ? local : nil
     }
 
-    func bundleURL(for file: String) -> URL? {
-        let name = (file as NSString).deletingPathExtension
-        let ext = (file as NSString).pathExtension
+    func bundleURL(for name: String) -> URL? {
+        let stem = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
         let e = ext.isEmpty ? nil : ext
-        if let url = Bundle.main.url(forResource: name, withExtension: e) { return url }
-        for dir in ["Res", "Res/builtin", "Res/thumbs"] {
-            if let url = Bundle.main.url(forResource: name, withExtension: e, subdirectory: dir) {
+        if let url = Bundle.main.url(forResource: stem, withExtension: e) { return url }
+        for dir in ["Res", "Res/builtin", "Res/music"] {
+            if let url = Bundle.main.url(forResource: stem, withExtension: e, subdirectory: dir) {
                 return url
             }
         }
         return nil
     }
 
-    func resolve(_ ref: AssetRef) async throws -> URL {
-        try await resolve(url: ref.url)
-    }
-
-    func resolve(url: String) async throws -> URL {
-        let file = (url as NSString).lastPathComponent
-        if let bundled = bundleURL(for: file) { return bundled }
-        return try await ensureDownloaded(remoteUrl: url)
+    /// Local copy of `path`, downloading it once if it is not already here.
+    func resolve(_ path: AssetPath) async throws -> URL {
+        if let local = localURL(for: path.assetName) { return local }
+        return try await ensureDownloaded(path)
     }
 
     func resolveCharacterModel(_ id: String) async throws -> URL {
-        if let ref = character(id)?.asset { return try await resolve(ref) }
-        return try await resolve(url: "char_\(id).scn") // Basic fallback
+        guard let path = character(id)?.model else { throw AssetError.notInCatalog(id) }
+        return try await resolve(path)
     }
 
-    func ensureDownloaded(_ ref: AssetRef) async throws -> URL {
-        try await ensureDownloaded(remoteUrl: ref.url)
+    /// Drop a cached file so the next `resolve` fetches it again. Called when what came down does
+    /// not parse: a truncated body or a stored error page used to sit under the asset's name and
+    /// fail on every later launch with nothing to clear it.
+    func evict(_ path: AssetPath) {
+        let local = localCacheURL(for: path.assetName)
+        guard FileManager.default.fileExists(atPath: local.path) else { return }
+        try? FileManager.default.removeItem(at: local)
+        NSLog("[RemoteAssets] evicted %@", path.assetName)
     }
 
-    func ensureDownloaded(remoteUrl: String) async throws -> URL {
-        let file = (remoteUrl as NSString).lastPathComponent
-        if let local = localURL(for: file) { return local }
+    func ensureDownloaded(_ path: AssetPath) async throws -> URL {
+        let key = path.assetName
+        if let local = localURL(for: key) { return local }
 
         let task: Task<URL, Error> = {
             lock.lock()
             defer { lock.unlock() }
-            if let existing = inFlight[file] { return existing }
+            if let existing = inFlight[key] { return existing }
             let t = Task<URL, Error> { [weak self] in
                 guard let self else { throw AssetError.cancelled }
                 defer {
-                    self.lock.lock(); self.inFlight[file] = nil; self.lock.unlock()
-                    Task { @MainActor in self.progress[file] = nil }
+                    self.lock.lock(); self.inFlight[key] = nil; self.lock.unlock()
+                    Task { @MainActor in self.progress[key] = nil }
                 }
-                return try await self.download(remoteUrl)
+                return try await self.download(path)
             }
-            inFlight[file] = t
+            inFlight[key] = t
             return t
         }()
         return try await task.value
     }
 
-    private func download(_ remoteUrl: String) async throws -> URL {
-        let remoteFile = (remoteUrl as NSString).lastPathComponent
-        if let local = localURL(for: remoteFile) { return local }
-        guard let url = URL(string: remoteUrl) else { throw AssetError.badURL(remoteUrl) }
+    private func download(_ path: AssetPath) async throws -> URL {
+        let key = path.assetName
+        if let local = localURL(for: key) { return local }
+        guard let base = snapshotBaseUrl(), let url = URL(string: base + path) else {
+            throw AssetError.noBaseURL(path)
+        }
 
-        await MainActor.run { self.progress[remoteFile] = 0 }
+        await MainActor.run { self.progress[key] = 0 }
 
-        let (tmp, response) = try await downloader.download(url: url, session: session, onProgress: { [weak self] done, total in
+        let (tmp, response) = try await downloader.download(url: url, session: session) { [weak self] done, total in
             guard let self, total > 0 else { return }
             let p = min(1, Double(done) / Double(total))
-            Task { @MainActor in self.progress[remoteFile] = p }
-        }, fallbackTotal: { -1 })
+            Task { @MainActor in self.progress[key] = p }
+        }
 
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             try? FileManager.default.removeItem(at: tmp)
-            throw AssetError.http((response as? HTTPURLResponse)?.statusCode ?? -1, remoteUrl)
+            throw AssetError.http((response as? HTTPURLResponse)?.statusCode ?? -1, path)
         }
 
-        let local = localCacheURL(for: remoteFile)
-        try? FileManager.default.createDirectory(at: local.deletingLastPathComponent(),
-                                                 withIntermediateDirectories: true)
+        let local = localCacheURL(for: key)
         try? FileManager.default.removeItem(at: local)
         try FileManager.default.moveItem(at: tmp, to: local)
         return local
     }
 
+    private func snapshotBaseUrl() -> String? {
+        lock.lock(); defer { lock.unlock() }
+        return catalog?.baseUrl
+    }
+
     enum AssetError: LocalizedError {
-        case badURL(String), http(Int, String), cancelled
+        case noBaseURL(String), http(Int, String), notInCatalog(String), cancelled
         var errorDescription: String? {
             switch self {
-            case .badURL(let f): return "Bad asset URL: \(f)"
-            case .http(let c, let f): return "HTTP \(c) for \(f)"
-            case .cancelled: return "Cancelled"
+            case .noBaseURL(let f):    return "No index baseUrl to fetch \(f) from"
+            case .http(let c, let f):  return "HTTP \(c) for \(f)"
+            case .notInCatalog(let f): return "\(f) is not in the index"
+            case .cancelled:           return "Cancelled"
             }
         }
     }
 }
 
-/// Assets that ship inside the app.
+/// The character and dance that ship inside the app, so a first launch performs with no download.
+/// Read from the index rather than written here - see `BuiltInSet`.
 enum BuiltInAssets {
-    static let characterId = "vroid_4"
-    static let danceId = "Arms_Hip_Hop_Dance"
+    static var characterId: String { RemoteAssets.shared.builtIn?.character ?? "" }
+    static var danceId: String { RemoteAssets.shared.builtIn?.dance ?? "" }
 
-    static func isBuiltIn(character id: String) -> Bool { id == characterId }
-    static func isBuiltIn(dance id: String) -> Bool { id == danceId }
+    static func isBuiltIn(character id: String) -> Bool { !id.isEmpty && id == characterId }
+    static func isBuiltIn(dance id: String) -> Bool { !id.isEmpty && id == danceId }
 }
 
 // MARK: - Download with progress
@@ -283,19 +401,17 @@ private final class Downloader: NSObject, URLSessionDownloadDelegate {
     private struct State {
         let continuation: CheckedContinuation<(URL, URLResponse), Error>
         let onProgress: (Int64, Int64) -> Void
-        let fallbackTotal: () -> Int64
     }
 
     private let lock = NSLock()
     private var tasks: [Int: State] = [:]
 
     func download(url: URL, session: URLSession,
-                  onProgress: @escaping (Int64, Int64) -> Void,
-                  fallbackTotal: @escaping () -> Int64) async throws -> (URL, URLResponse) {
+                  onProgress: @escaping (Int64, Int64) -> Void) async throws -> (URL, URLResponse) {
         return try await withCheckedThrowingContinuation { c in
             let task = session.downloadTask(with: url)
             lock.lock()
-            tasks[task.taskIdentifier] = State(continuation: c, onProgress: onProgress, fallbackTotal: fallbackTotal)
+            tasks[task.taskIdentifier] = State(continuation: c, onProgress: onProgress)
             lock.unlock()
             task.resume()
         }
@@ -307,8 +423,7 @@ private final class Downloader: NSObject, URLSessionDownloadDelegate {
         lock.lock()
         let state = tasks[downloadTask.taskIdentifier]
         lock.unlock()
-        let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : (state?.fallbackTotal() ?? -1)
-        state?.onProgress(totalBytesWritten, total)
+        state?.onProgress(totalBytesWritten, totalBytesExpectedToWrite)
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,

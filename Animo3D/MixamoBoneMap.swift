@@ -11,6 +11,7 @@
 //
 
 import Foundation
+import SceneKit
 
 enum MixamoBoneMap {
 
@@ -48,8 +49,19 @@ enum MixamoBoneMap {
     static let rootNode = "mixamorig_Hips"
 }
 
-/// Bone naming scheme: one retargeting implementation adapted to skeletons from different sources (Mixamo / VRM).
-/// Lets VRoid (VRM) models be driven by the existing Mixamo mocap dances as well.
+/// What the retargeter needs from whatever holds the skeleton.
+///
+/// A protocol rather than the concrete controller so `tools/render_thumbs.swift` can compile
+/// PoseRetargeter.swift as-is and produce the dance card art with the exact same pose maths the app
+/// runs. The alternative was a second copy of that maths inside the tool, and a second copy is a
+/// copy that drifts - the card art would slowly stop matching what the stage shows.
+protocol BoneRig: AnyObject {
+    var scheme: BoneScheme { get }
+    var boneNodes: [String: SCNNode] { get }
+    var isLoaded: Bool { get }
+}
+
+/// The named bones the retargeter and the framing code need, in one place.
 struct BoneScheme {
     let bones: [MixamoBoneMap.BoneDef]   // 8 limb bones (character drive)
     // Used for pose normalization and framing
@@ -74,21 +86,4 @@ struct BoneScheme {
         leftArm: "mixamorig_LeftArm", rightArm: "mixamorig_RightArm",
         leftUpLeg: "mixamorig_LeftUpLeg", rightUpLeg: "mixamorig_RightUpLeg")
 
-    /// VRM (VRoid export, J_Bip_ naming)
-    static let vrm = BoneScheme(
-        bones: [
-            .init(node: "J_Bip_L_UpperArm", childNode: "J_Bip_L_LowerArm", from: 11, to: 13),
-            .init(node: "J_Bip_L_LowerArm", childNode: "J_Bip_L_Hand",     from: 13, to: 15),
-            .init(node: "J_Bip_R_UpperArm", childNode: "J_Bip_R_LowerArm", from: 12, to: 14),
-            .init(node: "J_Bip_R_LowerArm", childNode: "J_Bip_R_Hand",     from: 14, to: 16),
-            .init(node: "J_Bip_L_UpperLeg", childNode: "J_Bip_L_LowerLeg", from: 23, to: 25),
-            .init(node: "J_Bip_L_LowerLeg", childNode: "J_Bip_L_Foot",     from: 25, to: 27),
-            .init(node: "J_Bip_R_UpperLeg", childNode: "J_Bip_R_LowerLeg", from: 24, to: 26),
-            .init(node: "J_Bip_R_LowerLeg", childNode: "J_Bip_R_Foot",     from: 26, to: 28),
-        ],
-        hips: "J_Bip_C_Hips", head: "J_Bip_C_Head",
-        leftShoulder: "J_Bip_L_Shoulder", rightShoulder: "J_Bip_R_Shoulder",
-        leftFoot: "J_Bip_L_Foot", spine: "J_Bip_C_Spine",
-        leftArm: "J_Bip_L_UpperArm", rightArm: "J_Bip_R_UpperArm",
-        leftUpLeg: "J_Bip_L_UpperLeg", rightUpLeg: "J_Bip_R_UpperLeg")
 }

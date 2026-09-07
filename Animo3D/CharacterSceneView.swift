@@ -10,7 +10,7 @@ import SwiftUI
 import SceneKit
 import Combine
 
-final class CharacterSceneController: ObservableObject {
+final class CharacterSceneController: ObservableObject, BoneRig {
 
     enum BackgroundType: String, CaseIterable {
         case studio, sky
@@ -22,18 +22,16 @@ final class CharacterSceneController: ObservableObject {
     private(set) var cameraNode: SCNNode?
     private(set) var isLoaded = false
     private(set) var modelHeight: Float = 0   // Character unit height (for AR scaling)
-    private(set) var scheme: BoneScheme = .mixamo   // Bone naming scheme (Mixamo / VRM)
-    var isVRM: Bool { boneNodes["J_Bip_C_Hips"] != nil }   // VRoid uses full animation JSON for playback
+    let scheme = BoneScheme.mixamo   // Named bones of the Mixamo rig, the only skeleton shipped
     var groundEnabled = false   // Ground + top-down view enabled only for large performance view; disabled for thumbnails/small cards
     var contactShadowOnly = false   // Detail page: Only add contact shadow under feet (to give grounding sense), no dark floor
-    var portraitMode = false    // Static display (thumbnails/character details): Strikes an A-pose to avoid skinning collapse in T-pose in SceneKit
     private var lightsAdded = false
 
     @Published var backgroundType: BackgroundType = .studio {
         didSet { updateBackgroundAndGround() }
     }
 
-    // Skeletal pose at load time (includes A-pose for portraitMode), used for resetting.
+    // Skeletal pose at load time, used for resetting.
     private var bindPose: [(node: SCNNode, orientation: simd_quatf, position: simd_float3)] = []
 
     private func captureBindPose() {
@@ -123,15 +121,7 @@ final class CharacterSceneController: ObservableObject {
             }
         }
 
-        // Bone naming scheme: VRoid (VRM) uses the J_Bip_ prefix, everything else is Mixamo.
-        // PoseRetargeter, applyPortraitPose and normalizeOrientation all read this - leaving it at
-        // its default silently breaks camera/video driving for every VRoid character.
-        scheme = isVRM ? .vrm : .mixamo
-
-        if isVRM { applyToonShading(root) }
-        else { sanitizeMaterials(root) }
-
-        if portraitMode { applyPortraitPose() }
+        sanitizeMaterials(root)
         normalizeOrientation(root)
         setupFrontCamera()
 
@@ -170,21 +160,12 @@ final class CharacterSceneController: ObservableObject {
         let rimShader: Float      // Strength of the additive fresnel rim in the fragment modifier
     }
 
-    /// The cel-shaded VRM path clamps its own diffuse term, so it can take several times the light
-    /// the physically based characters can: the same intensities clip skin and light clothing on a
-    /// Mixamo model to flat white. The studio stage brings its own spots, an LED wall and a follow
-    /// spot, so the generic rig only fills shadows there - all four lights drop, not just two.
+    /// The studio stage brings its own spots, an LED wall and a follow spot, so the generic rig
+    /// only fills shadows there - all four lights drop, not just two.
     private var lightLevels: LightLevels {
         let onStudioStage = groundEnabled && backgroundType == .studio
-        if isVRM {
-            return onStudioStage
-                ? LightLevels(key: 300, fill: 150, rim: 180, sun: 110, ibl: 0.30, shadowAlpha: 0.20,
-                              stageSpot: 0.8, followSpot: 260, rimShader: 0.12)
-                : LightLevels(key: 1200, fill: 600, rim: 800, sun: 450, ibl: 0.60, shadowAlpha: 0.20,
-                              stageSpot: 0.8, followSpot: 260, rimShader: 0.12)
-        }
-        // Physically based characters take a fraction of the VRM levels. The numbers below were not
-        // guessed: each source was rendered on its own offline and measured, and the stage rig
+        // The numbers below were not guessed: each source was rendered on its own
+        // offline and measured, and the stage rig
         // turned out to be upside down. The three club spots alone were producing a mean luma of
         // 0.42 and peaking at pure white - four times the key light - with the 90-degree back rim
         // also reaching 1.0 and wrapping right around the arms and face. The key, the light that is
@@ -840,42 +821,9 @@ final class CharacterSceneController: ObservableObject {
         }
     }
 
-    /// Calculate the actual Up/Left/Forward axes using bone positions, forcing the root node to be Y-up and facing +Z.
-    /// Do not rely on USD's upAxis metadata (that metadata is unreliable).
-    /// Static portrait pose: Required only for VRM (VRoid). Arms lowered in an A-shape, with slight perturbations to the torso chain,
-    /// forcing SceneKit to re-evaluate skinning — otherwise these skeletons collapse in T-pose (arms becoming planes, heads floating).
-    /// Not called during dance paths (retargeter will drive bones itself).
-    /// VRoid models are authored for MToon, a toon shader. The USDZ conversion turns that into
-    /// physically based materials, and under stage lighting a pale anime face immediately clips to
-    /// flat white - the eyes and brows disappear. Lambert with no specular keeps the authored
-    /// colours, still responds to the coloured stage lights, and cannot blow out the same way.
-    ///
-    /// There used to be a cel ramp on the `.lightingModel` entry point here as well. It had to go:
-    /// measured light by light, a VRM character lit by that modifier responded to the key and to
-    /// nothing else - the fill, the back rim, all three club spots and the follow spot each
-    /// contributed exactly zero. The whole stage rig was passing straight through these characters,
-    /// which left them dark, flat, and tinted by whatever colour that one surviving light happened
-    /// to be (the warm key turned VRoid skin a muddy khaki). It is also why the two rigs drifted in
-    /// opposite directions: the physically based path stacked every light and went too bright,
-    /// while this one saw one light and went too dark. Clipping, the reason the ramp existed, is
-    /// handled by whitePoint on the camera now, and measures lower than the neutral reference the
-    /// thumbnails are rendered with.
-    private func applyToonShading(_ root: SCNNode) {
-        root.enumerateHierarchy { node, _ in
-            guard let g = node.geometry else { return }
-            for m in g.materials {
-                m.lightingModel = .lambert
-                m.specular.contents = UIColor.black
-                m.shaderModifiers = [.fragment: Self.rimLightModifier]
-                m.setValue(lightLevels.rimShader, forKey: "rimStrength")
-            }
-        }
-    }
-
     /// Additive fresnel rim that lifts the silhouette off a dark stage. Its strength is a uniform
-    /// rather than a constant: the cel-shaded VRM path can carry a strong one, while on pale cloth
-    /// under physically based shading the same value paints a white edge onto a surface that is
-    /// already near clipping.
+    /// rather than a constant: on pale cloth a high value paints a white edge onto a surface that
+    /// is already near clipping, so the stage rig carries far less of it than the non-stage one.
     private static let rimLightModifier = """
     #pragma arguments
     float rimStrength;
@@ -928,19 +876,8 @@ final class CharacterSceneController: ObservableObject {
         }
     }
 
-    private func applyPortraitPose() {
-        guard boneNodes["J_Bip_C_Hips"] != nil else { return }   // VRM only
-        rotateBone(scheme.leftArm,  angle:  1.0, axis: simd_float3(0, 0, 1))
-        rotateBone(scheme.rightArm, angle: -1.0, axis: simd_float3(0, 0, 1))
-        rotateBone(scheme.spine,    angle: 0.03, axis: simd_float3(1, 0, 0))
-        rotateBone(scheme.head,     angle: 0.03, axis: simd_float3(1, 0, 0))
-    }
-
-    private func rotateBone(_ name: String, angle: Float, axis: simd_float3) {
-        guard let b = boneNodes[name] else { return }
-        b.simdOrientation = simd_mul(b.simdOrientation, simd_quatf(angle: angle, axis: axis))
-    }
-
+    /// Calculate the actual Up/Left/Forward axes using bone positions, forcing the root node to be
+    /// Y-up and facing +Z. Do not rely on USD's upAxis metadata (that metadata is unreliable).
     private func normalizeOrientation(_ root: SCNNode) {
         guard let hips = boneNodes[scheme.hips]?.simdWorldPosition,
               let head = boneNodes[scheme.head]?.simdWorldPosition,
@@ -982,7 +919,7 @@ final class CharacterSceneController: ObservableObject {
             // are the supported knobs for exactly the grade that curve was reaching for.
             camera.wantsHDR = true
             camera.wantsExposureAdaptation = false
-            camera.exposureOffset = isVRM ? 0.2 : -0.4
+            camera.exposureOffset = -0.4
 
             // whitePoint is the luminance that maps to pure white. Raising it above 1 pulls the
             // highlights back off the clip point, which is what stops light skin and white
@@ -990,16 +927,16 @@ final class CharacterSceneController: ObservableObject {
             // on the top of the range only, so the body keeps its midtones while the face - the
             // palest, most forward-facing surface, and the one that catches both the key and the
             // follow spot - stops flattening out.
-            camera.whitePoint = isVRM ? 1.3 : 2.3
+            camera.whitePoint = 2.3
             camera.averageGray = 0.18
-            camera.contrast = isVRM ? 0.05 : 0.30
+            camera.contrast = 0.30
 
             // The vignette the ACES modifier tried to draw by hand, done by the renderer.
             camera.vignettingIntensity = DeviceTier.isLowEnd ? 0 : 0.4
             camera.vignettingPower = DeviceTier.isLowEnd ? 0 : 1.2
 
-            camera.bloomIntensity = DeviceTier.isLowEnd ? 0 : (isVRM ? 0.4 : 0.12)
-            camera.bloomThreshold = isVRM ? 1.1 : 1.6
+            camera.bloomIntensity = DeviceTier.isLowEnd ? 0 : 0.12
+            camera.bloomThreshold = 1.6
             camera.bloomBlurRadius = 15.0
 
             if !DeviceTier.isLowEnd {

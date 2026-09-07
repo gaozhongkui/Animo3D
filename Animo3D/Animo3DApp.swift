@@ -13,12 +13,17 @@ struct Animo3DApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if showMainView {
+            Group {
+                if showMainView {
                 RootTabView()
                     .transition(.opacity.combined(with: .scale(scale: 1.1)))
-            } else {
-                SplashView(isActive: $showMainView)
+                } else {
+                    SplashView(isActive: $showMainView)
+                }
             }
+            // The index is the only asset config, and every grid needs it, so the fetch starts
+            // before the first screen is drawn rather than when a list first appears.
+            .task { RemoteAssets.shared.start() }
         }
     }
 }

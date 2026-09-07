@@ -18,7 +18,7 @@ import simd
 
 final class PoseRetargeter {
 
-    private let controller: CharacterSceneController
+    private let controller: BoneRig
 
     private struct Rest {
         let node: SCNNode
@@ -46,7 +46,7 @@ final class PoseRetargeter {
     private var spineRestWorldOrient = simd_quatf(angle: 0, axis: [0, 1, 0])
     private let spineGain: Float = 0.7               // Damping, so noise is not amplified and the spine does not overshoot
 
-    init(controller: CharacterSceneController) {
+    init(controller: BoneRig) {
         self.controller = controller
     }
 

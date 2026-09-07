@@ -11,136 +11,13 @@ import SceneKit
 import Combine
 
 /// Manage the current character + the dance being played.
-final class DanceStage: ObservableObject {
-    let controller: CharacterSceneController = {
-        let c = CharacterSceneController()
-        c.groundEnabled = true   // Performance page shows ground + shadows
-        return c
-    }()
-    private var retargeter: PoseRetargeter?
-    private var player: MocapPlayer?
-    private var vroidPlayer: VRoidClipPlayer?
-
-    /// The model parsed ahead of time, keyed by the character it belongs to.
-    ///
-    /// The same file otherwise gets parsed three separate times on the way to the stage - once by
-    /// ThumbRenderer for the dance grid, once by LiveDanceView for the selected card, and once more
-    /// here on "Start Performance" - and `SCNScene(url:)` plus `warmUp` on a 60MB model is seconds
-    /// of work each time. Starting it while the user is still choosing a dance means the button has
-    /// nothing left to wait for.
-    private var prewarmKey = ""
-    private var prewarmTask: Task<SCNScene?, Never>?
-
-    /// Begin parsing a character's model in the background. Cheap to call repeatedly.
-    @MainActor
-    func prewarm(character: String) {
-        guard !character.isEmpty, character != prewarmKey else { return }
-        prewarmKey = character
-        prewarmTask?.cancel()
-        prewarmTask = Task.detached(priority: .utility) {
-            guard let url = try? await RemoteAssets.shared.resolveCharacterModel(character) else { return nil }
-            guard !Task.isCancelled else { return nil }
-            return CharacterSceneController.loadSceneFile(at: url, warmUp: true)
-        }
-    }
-
-    /// Pull down the clip this character will actually need.
-    ///
-    /// The dance grid only ever fetches mixamo data, because its thumbnails are posed through
-    /// PoseRetargeter. A VRoid character performs from the vrm clip instead, so without this the
-    /// 1.2MB file is still missing at the moment the user presses Start.
-    @MainActor
-    func prewarm(dance: String, for character: String) {
-        guard !dance.isEmpty else { return }
-        let rig = RemoteAssets.shared.character(character)?.rig ?? "mixamo"
-        guard let ref = RemoteAssets.shared.dance(dance)?.clip(rig: rig) else { return }
-        Task.detached(priority: .utility) { _ = try? await RemoteAssets.shared.resolve(ref) }
-    }
-
-    /// Load character + dance. **All heavy lifting is on background threads**:
-    /// Model parsing (10~60MB) and dance data parsing (vr_*.json up to 2.5MB) do not occupy the main thread,
-    /// only lightweight tasks like attaching nodes/creating players return to the main thread — this is the solution to "lag when entering the stage page".
-    ///
-    /// Returns false when the stage could not be assembled, so the caller can drop its loading mask
-    /// instead of leaving it up forever.
-    @discardableResult
-    @MainActor
-    func load(character: String, dance: String) async -> Bool {
-        player?.stop(); vroidPlayer?.stop()
-        player = nil; vroidPlayer = nil
-
-        let file = characterModelFile(character)
-
-        // Prefer the copy prewarm already parsed; fall back to parsing inline.
-        var loaded: SCNScene?
-        if prewarmKey == character, let task = prewarmTask {
-            loaded = await task.value
-        }
-        if loaded == nil {
-            // Bundled built-ins resolve instantly; everything else is fetched once and cached.
-            guard let localModelURL = try? await RemoteAssets.shared.resolveCharacterModel(character) else {
-                NSLog("[DanceStage] failed to download/locate model %@", file)
-                return false
-            }
-            loaded = await Task.detached(priority: .userInitiated) {
-                CharacterSceneController.loadSceneFile(at: localModelURL, warmUp: true)
-            }.value
-        }
-        // A parsed scene can only be installed once - install() reparents its root node - so the
-        // cached copy is consumed here rather than left for a second Start.
-        prewarmKey = ""
-        prewarmTask = nil
-        guard let loaded else { NSLog("[DanceStage] failed to load model %@", file); return false }
-        controller.install(loaded)   // Reuse scene, change model (.scn/.usdz)
-        NSLog("[DanceStage] load char=%@ isVRM=%d dance=%@", character, controller.isVRM ? 1 : 0, dance)
-
-        if controller.isVRM {
-            // VRoid: Full skeletal animation (quaternion JSON exported by three-vrm retargeting)
-            retargeter = nil
-            // The clip file comes from the catalog rather than a hand-assembled "vrm_" prefix.
-            guard let ref = RemoteAssets.shared.dance(dance)?.clip(rig: "vrm"),
-                  let url = try? await RemoteAssets.shared.resolve(ref) else {
-                NSLog("[DanceStage] no vrm clip for %@", dance)
-                return false
-            }
-            let clip = await Task.detached(priority: .userInitiated) { VRoidClip.load(at: url) }.value
-            guard let clip else { return false }
-            let p = VRoidClipPlayer(clip: clip, controller: controller)
-            vroidPlayer = p
-            p.start()
-        } else {
-            let rt = PoseRetargeter(controller: controller)
-            retargeter = rt
-            rt.resetCapture()
-            guard let ref = RemoteAssets.shared.dance(dance)?.clip(rig: "mixamo"),
-                  let url = try? await RemoteAssets.shared.resolve(ref) else {
-                NSLog("[DanceStage] no mocap clip for %@", dance)
-                return false
-            }
-            let clip = await Task.detached(priority: .userInitiated) { MocapClip.load(url) }.value
-            guard let clip else { return false }
-            let p = MocapPlayer(frames: clip.frames, retargeter: rt)
-            player = p
-            p.start()
-        }
-        return true
-    }
-
-    /// Re-sample the static pose after switching between Screen and AR.
-    func resetRetarget() { retargeter?.resetCapture() }
-
-    func stop() {
-        player?.stop(); vroidPlayer?.stop()
-    }
-}
-
 struct DanceStudioView: View {
     var initialCharacter: String? = nil
     var initialDance: String? = nil
     @ObservedObject private var remoteAssets = RemoteAssets.shared
     @Environment(\.dismiss) private var dismiss
 
-    @StateObject private var stage = DanceStage()
+    @StateObject private var stage = DancePerformer(owner: "DanceStage", groundEnabled: true)
     @StateObject private var recorder = SceneViewRecorder()
     @StateObject private var holder = SceneHolder()
     @StateObject private var music = MusicController()
@@ -165,8 +42,8 @@ struct DanceStudioView: View {
     @State private var processing = false   // Mixing music
     @State private var loading = false      // Loading character/dance (model + animation parsing in background)
     @State private var stageWatchdog: Task<Void, Never>?
-    @State private var zoomChar: CatalogItem?   // Character zoom preview
-    @State private var zoomDance: CatalogItem?  // Dance zoom preview
+    @State private var zoomChar: CharacterItem?   // Character zoom preview
+    @State private var zoomDance: DanceItem?  // Dance zoom preview
     @State private var vfx = DanceVFX()         // Stage VFX
     @State private var vfxOn = true
     @State private var vfxPreset = 0
@@ -208,7 +85,7 @@ struct DanceStudioView: View {
         }
         // Use one simple standard animation throughout and drop all the nested withAnimation calls
         .animation(.default, value: step)
-        .overlay { if loading { loadingHUD } }
+        .overlay { if loading { StageLoadingHUD(progress: remoteAssets.activeDownloadProgress) } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)   // It ships its own unified back/close button
         .sheet(isPresented: $showShare) { if let url = shareURL { ShareSheet(items: [url]) } }
@@ -236,8 +113,8 @@ struct DanceStudioView: View {
             if s == .dance || s == .music { stage.prewarm(character: character) }
         }
         .onChange(of: dance) { d in
-            // A VRoid character performs from the vrm clip, which the dance grid never fetches.
-            stage.prewarm(dance: d, for: character)
+            // The grid only shows pre-rendered art; pull the full take now.
+            stage.prewarm(dance: d)
         }
         .onDisappear { music.stop(); vfx.remove(); stage.stop() }
         .fullScreenCover(item: $zoomChar) { c in
@@ -249,87 +126,6 @@ struct DanceStudioView: View {
             DancePreviewPage(dance: d.id, name: d.name, style: idx)
         }
     }
-
-    /// 创意加载 HUD：采用全屏流光效果和磨砂玻璃质感
-    private var loadingHUD: some View {
-        ZStack {
-            // 背景层：全屏模糊氛围
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .ignoresSafeArea()
-
-            // 动态流光背景点缀
-            ZStack {
-                Circle()
-                    .fill(Color.accentColor.opacity(0.15))
-                    .frame(width: 300, height: 300)
-                    .blur(radius: 50)
-                    .offset(x: -100, y: -150)
-
-                Circle()
-                    .fill(Color.purple.opacity(0.15))
-                    .frame(width: 300, height: 300)
-                    .blur(radius: 50)
-                    .offset(x: 100, y: 150)
-            }
-            .onAppear { /* 可在此处添加背景动画 */ }
-
-            VStack(spacing: 28) {
-                // 核心动画：旋转的星火标志
-                ZStack {
-                    Circle()
-                        .stroke(Color.white.opacity(0.1), lineWidth: 4)
-                        .frame(width: 80, height: 80)
-
-                    Circle()
-                        .trim(from: 0, to: 0.3)
-                        .stroke(
-                            LinearGradient(colors: [Color.accentColor, .purple], startPoint: .leading, endPoint: .trailing),
-                            style: StrokeStyle(lineWidth: 4, lineCap: .round)
-                        )
-                        .frame(width: 80, height: 80)
-                        .rotationEffect(.degrees(animateItems ? 360 : 0))
-                        .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: animateItems)
-
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 30, weight: .bold))
-                        .foregroundStyle(LinearGradient(colors: [Color.accentColor, .white], startPoint: .top, endPoint: .bottom))
-                }
-
-                VStack(spacing: 12) {
-                    if let p = remoteAssets.activeDownloadProgress {
-                        // 下载模式
-                        Text("Downloading Assets")
-                            .font(.system(size: 20, weight: .black, design: .rounded))
-                            .tracking(1)
-
-                        ProgressView(value: p)
-                            .progressViewStyle(.linear)
-                            .tint(Color.accentColor)
-                            .frame(width: 200)
-                            .scaleEffect(x: 1, y: 1.5, anchor: .center)
-
-                        Text("\(Int(p * 100))%")
-                            .font(.system(size: 14, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        // 准备模式（本地模型走这里）
-                        Text("Preparing Stage")
-                            .font(.system(size: 20, weight: .black, design: .rounded))
-                            .tracking(1)
-
-                        Text("Optimizing 3D Render Engine...")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .onAppear { animateItems = true }
-        .transition(.opacity.combined(with: .scale(scale: 1.1)))
-    }
-
-    @State private var animateItems = false
 
     // MARK: Step header (progress)
     private var stepHeader: some View {
@@ -428,9 +224,10 @@ struct DanceStudioView: View {
         }
     }
 
-    // Action selection preview: Use currently selected character (fallback model if none selected)
-    private var previewModel: String {
-        character.isEmpty ? characterModelFile(BuiltInAssets.characterId) : characterModelFile(character)
+    /// Who performs the live preview on the selected card: the chosen character, or the built-in
+    /// one before a choice has been made.
+    private var previewCharacter: String {
+        character.isEmpty ? BuiltInAssets.characterId : character
     }
 
     /// Subtitle for each dance (BPM · style), deterministically generated from the name, just for atmosphere.
@@ -441,7 +238,7 @@ struct DanceStudioView: View {
         return "\(bpm) BPM · \(styles[hash % styles.count])"
     }
 
-    // MARK: Step 2 Select Dance (Each card shows the character striking that pose)
+    // MARK: Step 2 - select dance (cards are pre-rendered art, see DanceThumb)
     private var danceStep: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
@@ -452,9 +249,9 @@ struct DanceStudioView: View {
                             Group {
                                 if isSelected && DeviceTier.allowsLiveDanceCards {
                                     CardBackdrop(style: i)
-                                        .overlay(LiveDanceView(model: previewModel, dance: d.id))
+                                        .overlay(LiveDanceView(character: previewCharacter, dance: d.id))
                                 } else {
-                                    DanceThumbView(model: previewModel, dance: d.id, style: i)
+                                    DanceCardView(character: previewCharacter, dance: d.id, style: i)
                                         .aspectRatio(3.0/4.0, contentMode: .fill)
                                 }
                             }
@@ -828,7 +625,7 @@ struct DanceStudioView: View {
             stageWatchdog = Task {
                 try? await Task.sleep(nanoseconds: 8_000_000_000)
                 guard !Task.isCancelled else { return }
-                NSLog("[DanceStage] first frame never arrived; dropping the mask anyway")
+                NSLog("[Stage] first frame never arrived; dropping the mask anyway")
                 loading = false
             }
         }
