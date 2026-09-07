@@ -193,7 +193,8 @@ struct DanceStudioView: View {
                                 .shadow(color: isSelected ? Color.accentColor.opacity(0.3) : Color.black.opacity(0.05),
                                         radius: isSelected ? 10 : 5, x: 0, y: 5)
 
-                            LinearGradient(colors: [.clear, .black.opacity(0.4)], startPoint: .center, endPoint: .bottom)
+                            LinearGradient(colors: [.clear, .black.opacity(0.72)],
+                                           startPoint: .init(x: 0.5, y: 0.55), endPoint: .bottom)
                                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                             if isSelected {
@@ -230,12 +231,17 @@ struct DanceStudioView: View {
         character.isEmpty ? BuiltInAssets.characterId : character
     }
 
-    /// Subtitle for each dance (BPM · style), deterministically generated from the name, just for atmosphere.
-    private func danceMeta(_ key: String) -> String {
-        let styles = ["Pop", "Hip Hop", "House", "Jazz", "K-Pop", "EDM"]
-        let hash = abs(key.hashValue)
-        let bpm = 96 + (hash % 8) * 8            // 96…152
-        return "\(bpm) BPM · \(styles[hash % styles.count])"
+    /// Subtitle for a dance card: how long the take actually runs.
+    ///
+    /// This used to read "128 BPM · House", made up from `key.hashValue`. Two problems. It was
+    /// invented data presented as fact - nothing in the catalog knows a dance's BPM or genre. And
+    /// `hashValue` is seeded per process in Swift, so the comment claiming it was deterministic was
+    /// wrong: every launch gave the same dance a different tempo and a different genre. The index
+    /// carries the real duration, so show that.
+    private func danceMeta(_ d: DanceItem) -> String {
+        guard let seconds = d.duration, seconds > 0 else { return "Ready to dance" }
+        let s = Int(seconds.rounded())
+        return s < 60 ? "\(s)s" : String(format: "%d:%02d", s / 60, s % 60)
     }
 
     // MARK: Step 2 - select dance (cards are pre-rendered art, see DanceThumb)
@@ -259,17 +265,33 @@ struct DanceStudioView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 3)
+                                    .stroke(isSelected ? CardBackdrop.accent(for: i).opacity(0.95)
+                                                       : .white.opacity(0.08),
+                                            lineWidth: isSelected ? 2 : 0.5)
                             )
-                            .shadow(color: isSelected ? Color.accentColor.opacity(0.3) : Color.black.opacity(0.05),
-                                    radius: isSelected ? 10 : 5, x: 0, y: 5)
+                            // Selection reads as stage light, not as a form control: the card lifts
+                            // and glows, in its own accent rather than the system blue.
+                            .shadow(color: isSelected ? CardBackdrop.accent(for: i).opacity(0.6)
+                                                      : .black.opacity(0.35),
+                                    radius: isSelected ? 18 : 8, x: 0, y: isSelected ? 8 : 4)
+                            .scaleEffect(isSelected ? 1.03 : 1)
+                            .animation(.spring(response: 0.32, dampingFraction: 0.75), value: isSelected)
 
-                            LinearGradient(colors: [.clear, .black.opacity(0.4)], startPoint: .center, endPoint: .bottom)
+                            LinearGradient(colors: [.clear, .black.opacity(0.72)],
+                                           startPoint: .init(x: 0.5, y: 0.55), endPoint: .bottom)
                                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(d.name).font(.system(size: 15, weight: .bold)).foregroundStyle(.white).lineLimit(1)
-                                Text(danceMeta(d.id)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.85))
+                                // Two lines: "Booty Hip Hop Dance" and "Dancing Maraschino Step" do
+                                // not fit on one at this size, and a truncated dance name is the
+                                // one thing on this card the user is actually reading.
+                                Text(d.name)
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.85)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Text(danceMeta(d)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.85))
                             }
                             .padding(12)
                         }

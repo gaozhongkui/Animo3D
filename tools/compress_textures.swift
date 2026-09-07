@@ -32,6 +32,14 @@ struct Options {
     var quality: CGFloat = 0.85
     /// Normal maps carry geometry, not colour: artifacts there show up as fake bumps.
     var normalQuality: CGFloat = 0.95
+    /// Lower bound applied to roughness maps, 0 to leave them alone.
+    ///
+    /// `sanitizeMaterials` clamps roughness to 0.45 - but only when it is a scalar. Remy, Erika and
+    /// The Boss drive roughness from a *texture*, so the clamp never ran on them, and those maps are
+    /// authored at 0.20-0.32 (measured means of 50-82 out of 255). Under the stage key light that
+    /// reads as wet plastic. The floor cannot be applied at runtime without re-uploading the texture
+    /// every load, so it is baked in here.
+    var roughnessFloor: Double = 0.45
 }
 
 /// Every texture slot a material can hold. `metalness` is included even though the app forces it to
@@ -104,6 +112,24 @@ func resize(_ img: CGImage, maxEdge: Int) -> CGImage? {
     return ctx.makeImage()
 }
 
+/// Raise every channel of a roughness map to at least `floor`. Values above it keep the spread the
+/// artist authored - eyes stay glossier than leather - so this only removes the mirror end.
+func applyRoughnessFloor(_ img: CGImage, floor: Double) -> CGImage? {
+    let w = img.width, h = img.height
+    var buf = [UInt8](repeating: 0, count: w * h * 4)
+    guard let ctx = CGContext(data: &buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                              space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+    let min8 = UInt8(max(0, min(255, floor * 255)))
+    for i in stride(from: 0, to: buf.count, by: 4) {
+        if buf[i]   < min8 { buf[i]   = min8 }
+        if buf[i+1] < min8 { buf[i+1] = min8 }
+        if buf[i+2] < min8 { buf[i+2] = min8 }
+    }
+    return ctx.makeImage()
+}
+
 func encode(_ img: CGImage, keepAlpha: Bool, quality: CGFloat) -> Data? {
     let rep = NSBitmapImageRep(cgImage: img)
     if keepAlpha { return rep.representation(using: .png, properties: [:]) }
@@ -126,14 +152,18 @@ func compress(_ url: URL, to outURL: URL, _ opt: Options) -> Bool {
             guard seen.insert(ObjectIdentifier(m)).inserted else { continue }
             for (label, prop) in slots(m) {
                 guard let contents = prop.contents else { continue }
-                if alreadyCompressed(contents, maxEdge: opt.maxEdge) {
+                if label != "roughness", alreadyCompressed(contents, maxEdge: opt.maxEdge) {
                     let n = (contents as? Data)?.count ?? 0
                     before += n; after += n; skipped += 1; continue
                 }
                 let originalBytes = (contents as? Data)?.count ?? 0
                 guard let img = decode(contents) else { continue }
                 let alpha = alphaCapableSlots.contains(label) && hasMeaningfulAlpha(img)
-                guard let scaled = resize(img, maxEdge: opt.maxEdge) else { continue }
+                guard var scaled = resize(img, maxEdge: opt.maxEdge) else { continue }
+                if label == "roughness", opt.roughnessFloor > 0,
+                   let floored = applyRoughnessFloor(scaled, floor: opt.roughnessFloor) {
+                    scaled = floored
+                }
                 let q = label == "normal" ? opt.normalQuality : opt.quality
                 guard let data = encode(scaled, keepAlpha: alpha, quality: q) else { continue }
                 // Never make a map bigger than it already was.
@@ -179,6 +209,7 @@ func run() {
             case "--max-edge": i += 1; opt.maxEdge = Int(args[i]) ?? opt.maxEdge
             case "--quality": i += 1; opt.quality = CGFloat(Double(args[i]) ?? 0.85)
             case "--normal-quality": i += 1; opt.normalQuality = CGFloat(Double(args[i]) ?? 0.95)
+            case "--roughness-floor": i += 1; opt.roughnessFloor = Double(args[i]) ?? 0.45
             default: positional.append(args[i])
             }
             i += 1

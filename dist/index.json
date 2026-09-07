@@ -1,6 +1,6 @@
 {
  "schema": 2,
- "revision": 2,
+ "revision": 3,
  "generated": "2026-09-07",
  "minAppVersion": null,
  "baseUrl": "https://dekbcnbakegjgbjxflxe.supabase.co/storage/v1/object/public/models/",

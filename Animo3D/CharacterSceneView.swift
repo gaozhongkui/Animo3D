@@ -182,6 +182,49 @@ final class CharacterSceneController: ObservableObject, BoneRig {
                           stageSpot: 0.07, followSpot: 25, rimShader: 0.04)
     }
 
+    /// The camera's tone mapping. Split by background, because the two backgrounds are two
+    /// different lighting conditions and one grade cannot serve both.
+    ///
+    /// The dark club stage needs `whitePoint` well above 1 to pull light skin and pale cloth back
+    /// off the clip point. Applied to the daylight scene that same curve maps a luminance of 1.0 to
+    /// about 0.43 - so the white cumulus in the sky dome came out the same grey as the sky behind
+    /// them, and the clouds simply disappeared. It read as "the sky texture is wrong"; the texture
+    /// was fine, the grade was crushing it.
+    private struct CameraGrade {
+        let exposureOffset: CGFloat
+        let whitePoint: CGFloat
+        let contrast: CGFloat
+        let vignetting: CGFloat
+        let bloom: CGFloat
+        let bloomThreshold: CGFloat
+    }
+
+    private var cameraGrade: CameraGrade {
+        if groundEnabled && backgroundType == .studio {
+            return CameraGrade(exposureOffset: -0.4, whitePoint: 2.3, contrast: 0.30,
+                               vignetting: 0.40, bloom: 0.12, bloomThreshold: 1.6)
+        }
+        // Daylight: neutral exposure, white stays white, only a touch of contrast and bloom.
+        return CameraGrade(exposureOffset: 0.0, whitePoint: 1.0, contrast: 0.08,
+                           vignetting: 0.22, bloom: 0.05, bloomThreshold: 1.1)
+    }
+
+    private func applyCameraGrade() {
+        guard let camera = cameraNode?.camera else { return }
+        let g = cameraGrade
+        camera.wantsHDR = true
+        camera.wantsExposureAdaptation = false
+        camera.exposureOffset = g.exposureOffset
+        camera.whitePoint = g.whitePoint
+        camera.averageGray = 0.18
+        camera.contrast = g.contrast
+        camera.vignettingIntensity = DeviceTier.isLowEnd ? 0 : g.vignetting
+        camera.vignettingPower = DeviceTier.isLowEnd ? 0 : 1.2
+        camera.bloomIntensity = DeviceTier.isLowEnd ? 0 : g.bloom
+        camera.bloomThreshold = g.bloomThreshold
+        camera.bloomBlurRadius = 15.0
+    }
+
     /// Push the current levels into the rig. Safe to call at any time; it only touches intensities.
     private func applyLightLevels() {
         let l = lightLevels
@@ -204,7 +247,8 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             // Not pure black: a very dark blue-grey keeps the falloff soft.
             fog = UIColor(red: 0.04, green: 0.04, blue: 0.06, alpha: 1)
         case .sky:
-            fog = UIColor(red: 0.82, green: 0.88, blue: 0.95, alpha: 1)
+            let hz = CharacterSceneView.skyHorizon
+            fog = UIColor(red: CGFloat(hz.0), green: CGFloat(hz.1), blue: CGFloat(hz.2), alpha: 1)
         }
 
         // Only the full stage paints a background. Thumbnails and the live dance cards draw over a
@@ -214,7 +258,11 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             case .studio:
                 scene.background.contents = fog
             case .sky:
-                scene.background.contents = UIImage(named: "sky_park") ?? CharacterSceneView.skyBackdrop()
+                // A proper 2:1 equirectangular dome, built from the source photograph by
+                // tools/make_sky.py: its sky and treeline only, with the paving discarded. Setting
+                // the photo itself here - 704x1503, portrait, plaza included - is what wrapped a
+                // picture of the ground across the sky.
+                scene.background.contents = UIImage(named: "sky_dome") ?? CharacterSceneView.skyBackdrop()
             }
         } else {
             scene.background.contents = nil
@@ -239,8 +287,10 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             setupGround(root)
         }
         // Last, so the rig matches the stage that setupGround just built or tore down. Switching
-        // background type goes through here too, which is why the levels follow the switch.
+        // background type goes through here too, which is why the levels and the grade follow the
+        // switch rather than staying on whatever the model was mounted with.
         applyLightLevels()
+        applyCameraGrade()
     }
 
     private var floorNode: SCNNode?
@@ -485,7 +535,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             let beamNode = SCNNode()
             beamNode.simdPosition = simd_float3(0, -Float(len) / 2, 0)
             for turn in [Float(0), Float.pi / 2] {
-                let quad = SCNPlane(width: CGFloat(h * 0.75), height: CGFloat(len))
+                let quad = SCNPlane(width: CGFloat(h * 0.95), height: CGFloat(len))
                 let m = SCNMaterial()
                 m.lightingModel = .constant
                 m.diffuse.contents = Self.beamTexture
@@ -498,7 +548,9 @@ final class CharacterSceneController: ObservableObject, BoneRig {
                 card.eulerAngles = SCNVector3(0, turn, 0)
                 beamNode.addChildNode(card)
             }
-            beamNode.opacity = 0.8
+            // Additive and unlit, like the wall: opacity here changes how much light the beam
+            // appears to carry, not how exposed the performer is.
+            beamNode.opacity = 0.95
             pivot.addChildNode(beamNode)
             beamBodies.append(beamNode)
             beamMaterials.append(beamNode.childNodes.compactMap { $0.geometry?.firstMaterial })
@@ -913,32 +965,9 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         if let camera = cam.camera {
             camera.zNear = Double(height) * 0.01
             camera.zFar = Double(height) * 50
-            // SCNCamera does not conform to SCNShadable - it has no shaderModifiers - so a
-            // hand-written ACES curve cannot be attached here at all. It does not need to be:
-            // wantsHDR turns on SceneKit's own tone mapping, and whitePoint/vignetting/contrast
-            // are the supported knobs for exactly the grade that curve was reaching for.
-            camera.wantsHDR = true
-            camera.wantsExposureAdaptation = false
-            camera.exposureOffset = -0.4
-
-            // whitePoint is the luminance that maps to pure white. Raising it above 1 pulls the
-            // highlights back off the clip point, which is what stops light skin and white
-            // clothing on the physically based characters from fusing into one flat patch. It acts
-            // on the top of the range only, so the body keeps its midtones while the face - the
-            // palest, most forward-facing surface, and the one that catches both the key and the
-            // follow spot - stops flattening out.
-            camera.whitePoint = 2.3
-            camera.averageGray = 0.18
-            camera.contrast = 0.30
-
-            // The vignette the ACES modifier tried to draw by hand, done by the renderer.
-            camera.vignettingIntensity = DeviceTier.isLowEnd ? 0 : 0.4
-            camera.vignettingPower = DeviceTier.isLowEnd ? 0 : 1.2
-
-            camera.bloomIntensity = DeviceTier.isLowEnd ? 0 : 0.12
-            camera.bloomThreshold = 1.6
-            camera.bloomBlurRadius = 15.0
-
+            // The grade itself lives in `cameraGrade` and is pushed by applyCameraGrade(), which
+            // runs from updateBackgroundAndGround(): it depends on which background is up, and this
+            // function only runs when a model is mounted.
             if !DeviceTier.isLowEnd {
                 camera.screenSpaceAmbientOcclusionIntensity = groundEnabled ? 0.4 : 0.2
                 camera.screenSpaceAmbientOcclusionRadius = 1.0
@@ -1148,9 +1177,10 @@ struct CharacterSceneView: UIViewRepresentable {
                 let f = p - floor(p)
                 let a = stops[i], b = stops[j]
 
-                // 优化扫视光条：让它更宽、更暗，避免产生背景亮线
-                let bar = pow(0.5 + 0.5 * sin(t * .pi * 2), 4) // 周期减半，强度衰减更快
-                let level = 0.20 + 0.35 * bar // 整体亮度大幅下调
+                // The travelling bright band. Wide and soft rather than a thin line, which read
+                // as a stray highlight rather than as content on a screen.
+                let bar = pow(0.5 + 0.5 * sin(t * .pi * 2), 4)
+                let level = 0.38 + 0.55 * bar
                 c.setFillColor(UIColor(red: (a.0 + (b.0 - a.0) * f) * level,
                                        green: (a.1 + (b.1 - a.1) * f) * level,
                                        blue: (a.2 + (b.2 - a.2) * f) * level, alpha: 1).cgColor)
@@ -1168,8 +1198,14 @@ struct CharacterSceneView: UIViewRepresentable {
             }
             c.strokePath()
 
-            // Overall knock-down: the wall must never out-shine the performer
-            c.setFillColor(UIColor(white: 0, alpha: 0.52).cgColor)
+            // Knock-down, so the wall never out-shines the performer. It used to be 0.52, which
+            // together with `level` capping at 0.55 and the mask's vignette left the wall peaking
+            // around 0.20 - the single strongest "this is a venue" cue in the frame, invisible.
+            //
+            // Raising it is free: this material is `.constant`, so the wall emits and lights
+            // nothing. The over-exposure that the levels were originally pulled down to fix was
+            // measured on the *performer*, and no emissive set piece contributes to that.
+            c.setFillColor(UIColor(white: 0, alpha: 0.18).cgColor)
             c.fill(CGRect(origin: .zero, size: size))
         }
     }()
@@ -1301,8 +1337,10 @@ struct CharacterSceneView: UIViewRepresentable {
         return UIGraphicsImageRenderer(size: size).image { ctx in
             let c = ctx.cgContext
             let rgb = CGColorSpaceCreateDeviceRGB()
-            let vig = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.85).cgColor]
-            c.drawRadialGradient(CGGradient(colorsSpace: rgb, colors: vig as CFArray, locations: [0.30, 1])!,
+            // 0.85 from 30% out left the wall's edges at about 3% brightness. The vignette is
+            // here to frame the performer, not to erase the set.
+            let vig = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.62).cgColor]
+            c.drawRadialGradient(CGGradient(colorsSpace: rgb, colors: vig as CFArray, locations: [0.42, 1])!,
                                  startCenter: CGPoint(x: size.width / 2, y: size.height * 0.55), startRadius: 0,
                                  endCenter: CGPoint(x: size.width / 2, y: size.height * 0.55),
                                  endRadius: size.width * 0.62, options: [])
@@ -1313,16 +1351,31 @@ struct CharacterSceneView: UIViewRepresentable {
     }()
 
     /// Fallback procedural sky background
+    /// Where the sky meets the ground.
+    ///
+    /// The fog is set to exactly this colour, and that is the whole mechanism behind the outdoor
+    /// look: the plaza is a finite plane, and it is fog matching the horizon that makes its far
+    /// edge disappear instead of ending in a hard line. The two were written separately once - a
+    /// pale blue fog against a warm horizon - and the seam was visible right across the frame.
+    ///
+    /// Sampled from the source photograph by `tools/make_sky.py`, which prints the value whenever
+    /// it rebuilds the dome; paste it here after changing the photo.
+    static let skyHorizon: (Double, Double, Double) = (0.65, 0.74, 0.78)
+
+    /// Fallback dome, used only when `sky_dome.jpg` is missing: a plain vertical gradient ending on
+    /// `skyHorizon`. Deliberately plain - a procedural sunset was tried here, and because the camera
+    /// only ever sees the band around the horizon, the entire sky read as red.
     private static func makeSkyBackdrop() -> UIImage {
-        let size = CGSize(width: 400, height: 800)
+        let size = CGSize(width: 512, height: 256)
+        let hz = skyHorizon
         return UIGraphicsImageRenderer(size: size).image { ctx in
-            let c = ctx.cgContext
-            let colors = [UIColor(red: 0.45, green: 0.65, blue: 0.88, alpha: 1).cgColor,
-                          UIColor(red: 0.75, green: 0.85, blue: 0.95, alpha: 1).cgColor,
-                          UIColor.white.cgColor]
+            let colors = [UIColor(red: 0.13, green: 0.31, blue: 0.66, alpha: 1).cgColor,
+                          UIColor(red: 0.46, green: 0.67, blue: 0.89, alpha: 1).cgColor,
+                          UIColor(red: CGFloat(hz.0), green: CGFloat(hz.1), blue: CGFloat(hz.2), alpha: 1).cgColor]
             let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray,
-                               locations: [0, 0.6, 1])!
-            c.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+                               locations: [0, 0.42, 0.5])!
+            ctx.cgContext.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height),
+                                             options: [.drawsAfterEndLocation])
         }
     }
 }

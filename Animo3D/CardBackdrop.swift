@@ -2,81 +2,96 @@
 //  CardBackdrop.swift
 //  Animo3D
 //
-//  Decorative backgrounds for dance cards: bokeh / sparkle / hearts / stars / rainbow, cycled in order, which reads richer than a plain gradient.
+//  The backdrop behind a dance or character card: a dark stage, lit.
+//
+//  What this replaced, and why: five candy-pastel gradients - peach, pink, mint, a rainbow angular
+//  sweep - each scattered with white `heart.fill` / `star.fill` / `sparkle` symbols at fixed
+//  fractional positions. Three things were wrong with it. The palette fought the app: every other
+//  screen is a dark neon stage, so the grid read as a different product bolted on. A character
+//  rendered on transparent black sat on top of pale mint as a cut-out with no grounding. And the
+//  symbols were decoration standing in for composition - they made every card busy without making
+//  any card informative.
+//
+//  Each variant here is the same idea in a different key: a dark ground, one coloured rim glow
+//  behind the performer's shoulders, and a pool of light at their feet. The pool is what does the
+//  work - it reads as a floor without the card needing to know where the feet actually are, which a
+//  drawn shadow would (the rendered figure is centred, and its stance changes with every dance).
 //
 
 import SwiftUI
 
 struct CardBackdrop: View {
     let style: Int
-    private var s: Int { ((style % 5) + 5) % 5 }
+
+    /// Accent per variant: the rim glow above, the floor pool below.
+    struct Palette {
+        let top: Color, bottom: Color, accent: Color, secondary: Color
+    }
+
+    /// The accent a card of this style is lit with. Exposed so a selected card can glow in its own
+    /// colour: the system blue looked bolted on next to a teal or amber card.
+    static func accent(for style: Int) -> Color { Self(style: style).palette.accent }
+
+    private var palette: Palette {
+        switch ((style % 5) + 5) % 5 {
+        case 0: return Palette(top: hex(0x241A4D), bottom: hex(0x0D0B1F),
+                               accent: hex(0x6EE7FF), secondary: hex(0xB794FF))   // cyan / violet
+        case 1: return Palette(top: hex(0x3A1436), bottom: hex(0x120A18),
+                               accent: hex(0xFF6EC7), secondary: hex(0xFFB86E))   // magenta / amber
+        case 2: return Palette(top: hex(0x102E3E), bottom: hex(0x07131C),
+                               accent: hex(0x34E2C4), secondary: hex(0x4D9BFF))   // teal / blue
+        case 3: return Palette(top: hex(0x2C1B4A), bottom: hex(0x0F0A1C),
+                               accent: hex(0xA678FF), secondary: hex(0xFF7AC8))   // violet / pink
+        default: return Palette(top: hex(0x3B2412), bottom: hex(0x150C08),
+                                accent: hex(0xFFA23A), secondary: hex(0xFF5E7A))  // amber / coral
+        }
+    }
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
+            let p = palette
             ZStack {
-                base
-                motifs(w: w, h: h)
+                LinearGradient(colors: [p.top, p.bottom], startPoint: .top, endPoint: .bottom)
+
+                // Rim glow, upper third: sits behind the head and shoulders and separates the
+                // figure from the ground, the way the stage's back light does.
+                Circle()
+                    .fill(p.accent.opacity(0.38))
+                    .frame(width: w * 1.05, height: w * 1.05)
+                    .blur(radius: w * 0.30)
+                    .position(x: w * 0.5, y: h * 0.30)
+
+                // Second, offset accent so the light is not perfectly symmetric.
+                Circle()
+                    .fill(p.secondary.opacity(0.26))
+                    .frame(width: w * 0.7, height: w * 0.7)
+                    .blur(radius: w * 0.26)
+                    .position(x: w * 0.78, y: h * 0.20)
+
+                // Floor pool: a flattened ellipse low in the card. This is the grounding cue.
+                // Blurred as well as gradient-filled - the gradient alone still left a visible
+                // elliptical edge where the shape ended, which read as a drawn oval rather than light.
+                Ellipse()
+                    .fill(
+                        RadialGradient(colors: [p.accent.opacity(0.50), p.accent.opacity(0)],
+                                       center: .center, startRadius: 0, endRadius: w * 0.50)
+                    )
+                    .frame(width: w * 1.25, height: h * 0.22)
+                    .blur(radius: w * 0.06)
+                    .position(x: w * 0.5, y: h * 0.84)
+
+                // Vignette: pulls the corners down so the card frames the performer.
+                RadialGradient(colors: [.clear, .black.opacity(0.55)],
+                               center: .center, startRadius: w * 0.30, endRadius: w * 0.95)
             }
             .compositingGroup()
         }
     }
 
-    private var base: some View {
-        Group {
-            switch s {
-            case 0: LinearGradient(colors: [hex(0x3A2C6E), hex(0x1E2A5E)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            case 1: LinearGradient(colors: [hex(0xF7C9A0), hex(0xE79079)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            case 2: LinearGradient(colors: [hex(0xFFD6EC), hex(0xFF9DC6)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            case 3: LinearGradient(colors: [hex(0xC6F0D6), hex(0x86D9C0)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            default: AngularGradient(colors: [hex(0xFFC1E3), hex(0xC1D6FF), hex(0xC6F5E0), hex(0xFFF0B3), hex(0xFFC1E3)],
-                                     center: .center)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func motifs(w: CGFloat, h: CGFloat) -> some View {
-        switch s {
-        case 0: // Bokeh
-            blob(hex(0x6EE7FF), 0.55*w, 0.22, 0.20)
-            blob(hex(0xB794FF), 0.6*w, 0.75, 0.30)
-            blob(hex(0x5A7BFF), 0.45*w, 0.5, 0.7)
-        case 1: // Sparkle
-            sym("sparkle", 22, 0.25, 0.22); sym("sparkle", 14, 0.7, 0.35)
-            sym("sparkle", 18, 0.5, 0.72); sym("sparkle", 12, 0.8, 0.8)
-        case 2: // Hearts
-            sym("heart.fill", 20, 0.22, 0.24); sym("heart.fill", 13, 0.75, 0.3)
-            sym("heart.fill", 16, 0.5, 0.7); sym("heart.fill", 11, 0.82, 0.78)
-        case 3: // Stars
-            sym("star.fill", 20, 0.24, 0.22); sym("star.fill", 13, 0.72, 0.32)
-            sym("star.fill", 15, 0.48, 0.72); sym("star.fill", 11, 0.8, 0.8)
-        default: // Rainbow with a touch of sparkle
-            sym("sparkle", 18, 0.3, 0.25); sym("sparkle", 13, 0.72, 0.7)
-        }
-    }
-
-    private func blob(_ c: Color, _ d: CGFloat, _ fx: CGFloat, _ fy: CGFloat) -> some View {
-        Circle().fill(c.opacity(0.55)).frame(width: d, height: d).blur(radius: 22)
-            .modifier(PositionFrac(fx: fx, fy: fy))
-    }
-
-    private func sym(_ name: String, _ size: CGFloat, _ fx: CGFloat, _ fy: CGFloat) -> some View {
-        Image(systemName: name).font(.system(size: size)).foregroundStyle(.white.opacity(0.55))
-            .modifier(PositionFrac(fx: fx, fy: fy))
-    }
-
     private func hex(_ v: UInt) -> Color {
-        Color(red: Double((v >> 16) & 0xFF)/255, green: Double((v >> 8) & 0xFF)/255, blue: Double(v & 0xFF)/255)
-    }
-}
-
-/// Positioned as a fraction of the parent container.
-private struct PositionFrac: ViewModifier {
-    let fx: CGFloat; let fy: CGFloat
-    func body(content: Content) -> some View {
-        GeometryReader { g in
-            content.position(x: g.size.width * fx, y: g.size.height * fy)
-        }
+        Color(red: Double((v >> 16) & 0xFF) / 255,
+              green: Double((v >> 8) & 0xFF) / 255,
+              blue: Double(v & 0xFF) / 255)
     }
 }
