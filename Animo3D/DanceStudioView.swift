@@ -37,6 +37,9 @@ struct DanceStudioView: View {
     @State private var arPlaced = false
     /// Read once, at init, so the panel does not vanish mid-session the moment the flag is written.
     @State private var showCoach = !ARCoachView.hasBeenSeen
+    /// True while Apple's scanning overlay owns the screen.
+    @State private var arCoaching = false
+    @State private var arTrackingHint: String?
     @State private var showPlacementMiss = false
     @State private var placementMissTask: Task<Void, Never>?
     @State private var shareURL: URL?
@@ -412,6 +415,8 @@ struct DanceStudioView: View {
                                         installVFX()      // effects only exist once there is somewhere to put them
                                     },
                                     onPlacementMissed: { retireCoach(); flashPlacementMiss() },
+                                    onCoaching: { arCoaching = $0 },
+                                    onTrackingHint: { arTrackingHint = $0 },
                                     holder: holder)
                 } else {
                     CharacterSceneView(controller: stage.controller,
@@ -425,9 +430,27 @@ struct DanceStudioView: View {
 
             // Placement guidance, up only until the character is standing. The condition used to be
             // just `arMode`, so this panel sat over the camera feed for the whole session.
-            if arMode && !arPlaced && showCoach {
+            // Own guidance only once Apple's is done: the overlay covers scanning, this covers
+            // the tap that places the character.
+            if arMode && !arPlaced && showCoach && !arCoaching {
                 ARCoachView()
                     .transition(.opacity)
+            }
+
+            if let arTrackingHint, arMode, !arPlaced, !arCoaching {
+                VStack {
+                    Spacer()
+                    Text(arTrackingHint)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(Capsule().fill(.black.opacity(0.55)))
+                        .padding(.horizontal, 32)
+                        .padding(.bottom, 190)
+                }
+                .transition(.opacity)
+                .allowsHitTesting(false)
             }
 
             // A tap that found no floor used to do nothing at all except print to the console. This

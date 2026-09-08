@@ -22,13 +22,18 @@ struct ARCharacterView: UIViewRepresentable {
     /// Called when a tap found no floor, so the caller can say so instead of leaving the user
     /// tapping a screen that never answers.
     var onPlacementMissed: (() -> Void)? = nil
+    /// True while Apple's scanning overlay holds the screen.
+    var onCoaching: ((Bool) -> Void)? = nil
+    /// A short reason tracking is unhealthy, or nil when it is fine.
+    var onTrackingHint: ((String?) -> Void)? = nil
     var holder: SceneHolder? = nil
     /// true = land on the floor after scanning the ground; false = no ground detection, place directly in front of the camera (for quick validation).
     var detectGround: Bool = true
 
     func makeCoordinator() -> Coordinator {
         Coordinator(controller: controller, onAttach: onAttach, onPlaced: onPlaced,
-                    onPlacementMissed: onPlacementMissed, detectGround: detectGround)
+                    onPlacementMissed: onPlacementMissed, detectGround: detectGround,
+                    onCoaching: onCoaching, onTrackingHint: onTrackingHint)
     }
 
     func makeUIView(context: Context) -> ARSCNView {
@@ -41,28 +46,17 @@ struct ARCharacterView: UIViewRepresentable {
         context.coordinator.setup(arView)
 
         if ARWorldTrackingConfiguration.isSupported {
-            let config = ARWorldTrackingConfiguration()
-            config.planeDetection = detectGround ? [.horizontal] : []
-            config.environmentTexturing = .automatic
-
-            // People Occlusion, so a real person can pass in front of the character.
-            // Needs an A12 or newer; iOS 16's depth is markedly more accurate than iOS 13's.
-            if ARWorldTrackingConfiguration.supportsFrameSemantics(.personSegmentationWithDepth) {
-                config.frameSemantics.insert(.personSegmentationWithDepth)
-                print("[AR] People Occlusion enabled")
-            } else {
-                print("[AR] People Occlusion not supported on this device")
-            }
-
-            arView.session.run(config)
+            // Shared with the community AR screen, so both get LiDAR scene reconstruction and
+            // scene depth where the device has them - neither asked for either before.
+            arView.session.run(ARPlacement.makeConfiguration(detectGround: detectGround))
 
             if detectGround {
-                // No ARCoachingOverlayView here. It was added as a full-screen subview with
-                // `activatesAutomatically = true`, so whenever a plane had not been found yet - which
-                // is exactly when the user is tapping to try - it sat on top of the ARSCNView and
-                // swallowed every touch before the tap recogniser below could see it. That is the
-                // "no plane found, and tapping does nothing" report: one symptom, one cause.
-                // The app already has its own guidance (ARCoachView), which is non-interactive.
+                // Apple's scanning guidance, shown until the first plane or a 15s timeout. It is
+                // manually driven precisely because leaving it to `activatesAutomatically` is what
+                // let it hold the screen forever in a room ARKit could not read - see
+                // ARPlacement.installCoaching.
+                context.coordinator.beginCoaching(on: arView)
+
                 let tap = UITapGestureRecognizer(target: context.coordinator,
                                                  action: #selector(Coordinator.handleTap(_:)))
                 arView.addGestureRecognizer(tap)
@@ -89,11 +83,12 @@ struct ARCharacterView: UIViewRepresentable {
     func updateUIView(_ uiView: ARSCNView, context: Context) {}
 
     static func dismantleUIView(_ uiView: ARSCNView, coordinator: Coordinator) {
+        coordinator.endCoaching()          // invalidates the timer; it would outlive the view
         uiView.session.pause()
         coordinator.restoreCharacter()
     }
 
-    final class Coordinator: NSObject, ARSCNViewDelegate {
+    final class Coordinator: NSObject, ARSCNViewDelegate, ARCoachingOverlayViewDelegate {
         private let controller: CharacterSceneController
         private let onAttach: (() -> Void)?
         private let onPlaced: ((SCNNode) -> Void)?
@@ -113,14 +108,51 @@ struct ARCharacterView: UIViewRepresentable {
         /// How far the character was pushed down so its feet sit on the container origin. Kept so
         /// leaving AR can put it back - the screen stage shares the same node.
         private var groundOffset: Float = 0
+        private let onCoaching: ((Bool) -> Void)?
+        private let onTrackingHint: ((String?) -> Void)?
+        private weak var coaching: ARCoachingOverlayView?
+        private var coachingTimer: Timer?
 
         init(controller: CharacterSceneController, onAttach: (() -> Void)?,
-             onPlaced: ((SCNNode) -> Void)?, onPlacementMissed: (() -> Void)?, detectGround: Bool) {
+             onPlaced: ((SCNNode) -> Void)?, onPlacementMissed: (() -> Void)?, detectGround: Bool,
+             onCoaching: ((Bool) -> Void)?, onTrackingHint: ((String?) -> Void)?) {
             self.controller = controller
             self.onAttach = onAttach
             self.onPlaced = onPlaced
             self.onPlacementMissed = onPlacementMissed
             self.detectGround = detectGround
+            self.onCoaching = onCoaching
+            self.onTrackingHint = onTrackingHint
+        }
+
+        // MARK: Session health
+
+        /// Show Apple's scanning guidance, and arm the timeout that guarantees it goes away.
+        func beginCoaching(on arView: ARSCNView) {
+            let overlay = ARPlacement.installCoaching(on: arView, delegate: self)
+            coaching = overlay
+            overlay.setActive(true, animated: true)
+            onCoaching?(true)
+            coachingTimer = Timer.scheduledTimer(withTimeInterval: ARPlacement.coachingTimeout,
+                                                 repeats: false) { [weak self] _ in
+                self?.endCoaching()
+            }
+        }
+
+        /// Called on the first detected plane, on timeout, and on teardown. Idempotent.
+        func endCoaching() {
+            coachingTimer?.invalidate(); coachingTimer = nil
+            guard let overlay = coaching, overlay.isActive else { return }
+            overlay.setActive(false, animated: true)
+        }
+
+        func coachingOverlayViewDidDeactivate(_ v: ARCoachingOverlayView) {
+            coachingTimer?.invalidate(); coachingTimer = nil
+            onCoaching?(false)
+        }
+
+        func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
+            onTrackingHint?(ARPlacement.trackingHint(for: camera.trackingState))
         }
 
         func setup(_ arView: ARSCNView) {
@@ -307,6 +339,8 @@ struct ARCharacterView: UIViewRepresentable {
         // MARK: Plane visualization + Anchor placement
         func renderer(_ renderer: SCNSceneRenderer, didAdd node: SCNNode, for anchor: ARAnchor) {
             if let plane = anchor as? ARPlaneAnchor {
+                // A plane exists, so the scanning guidance has done its job.
+                endCoaching()
                 let g = SCNPlane(width: CGFloat(plane.planeExtent.width), height: CGFloat(plane.planeExtent.height))
                 g.firstMaterial?.diffuse.contents = UIColor.systemTeal.withAlphaComponent(0.18)
                 g.firstMaterial?.isDoubleSided = true

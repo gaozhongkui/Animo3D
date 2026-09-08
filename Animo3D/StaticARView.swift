@@ -33,11 +33,17 @@ struct StaticARView: UIViewRepresentable {
     /// `onPlacementMissed` between them miss the one case where feedback matters most: a model that
     /// failed to load leaves nothing to place, so neither fires and the screen looks inert.
     var onTapped: (() -> Void)? = nil
+    /// True while Apple's scanning overlay is on screen. The app's own guidance and status line
+    /// stay out of the way while it is up, so the user is not being told two things at once.
+    var onCoaching: ((Bool) -> Void)? = nil
+    /// A short reason tracking is unhealthy, or nil when it is fine.
+    var onTrackingHint: ((String?) -> Void)? = nil
     var holder: SceneHolder? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(url: url, targetHeight: targetHeight, onPlaced: onPlaced,
-                    onPlacementMissed: onPlacementMissed, onTapped: onTapped)
+                    onPlacementMissed: onPlacementMissed, onTapped: onTapped,
+                    onCoaching: onCoaching, onTrackingHint: onTrackingHint)
     }
 
     func makeUIView(context: Context) -> ARSCNView {
@@ -48,18 +54,10 @@ struct StaticARView: UIViewRepresentable {
         context.coordinator.setup(arView)
 
         if ARWorldTrackingConfiguration.isSupported {
-            let config = ARWorldTrackingConfiguration()
-            config.planeDetection = [.horizontal]
-            config.environmentTexturing = .automatic
-            if ARWorldTrackingConfiguration.supportsFrameSemantics(.personSegmentationWithDepth) {
-                config.frameSemantics.insert(.personSegmentationWithDepth)
-            }
-            arView.session.run(config)
+            arView.session.run(ARPlacement.makeConfiguration())
 
-            // No ARCoachingOverlayView: it is a full-screen subview that swallows every touch while
-            // it is up, which is exactly when the user is tapping to place. The app's own guidance
-            // is non-interactive.
             let c = context.coordinator
+            c.beginCoaching(on: arView)
             let tap = UITapGestureRecognizer(target: c, action: #selector(Coordinator.handleTap(_:)))
             arView.addGestureRecognizer(tap)
             let pinch = UIPinchGestureRecognizer(target: c, action: #selector(Coordinator.handlePinch(_:)))
@@ -78,30 +76,38 @@ struct StaticARView: UIViewRepresentable {
     func updateUIView(_ uiView: ARSCNView, context: Context) {}
 
     static func dismantleUIView(_ uiView: ARSCNView, coordinator: Coordinator) {
+        coordinator.endCoaching()          // invalidates the timer; it would outlive the view
         uiView.session.pause()
     }
 
-    final class Coordinator: NSObject, ARSCNViewDelegate {
+    final class Coordinator: NSObject, ARSCNViewDelegate, ARCoachingOverlayViewDelegate {
         private let url: URL
         private let targetHeight: Float
         private let onPlaced: (() -> Void)?
         private let onPlacementMissed: (() -> Void)?
         private let onTapped: (() -> Void)?
+        private let onCoaching: ((Bool) -> Void)?
+        private let onTrackingHint: ((String?) -> Void)?
 
         private weak var arView: ARSCNView?
         private var container: SCNNode?
         private var reticle: SCNNode?
         private var planeNodes: [UUID: SCNNode] = [:]
+        private weak var coaching: ARCoachingOverlayView?
+        private var coachingTimer: Timer?
         private(set) var placed = false
         private var placedScale: Float = 1
 
         init(url: URL, targetHeight: Float, onPlaced: (() -> Void)?,
-             onPlacementMissed: (() -> Void)?, onTapped: (() -> Void)?) {
+             onPlacementMissed: (() -> Void)?, onTapped: (() -> Void)?,
+             onCoaching: ((Bool) -> Void)?, onTrackingHint: ((String?) -> Void)?) {
             self.url = url
             self.targetHeight = targetHeight
             self.onPlaced = onPlaced
             self.onPlacementMissed = onPlacementMissed
             self.onTapped = onTapped
+            self.onCoaching = onCoaching
+            self.onTrackingHint = onTrackingHint
         }
 
         func setup(_ arView: ARSCNView) {
@@ -145,6 +151,36 @@ struct StaticARView: UIViewRepresentable {
             reticle = r
         }
 
+        // MARK: Session health
+
+        /// Show Apple's scanning guidance, and arm the timeout that guarantees it goes away.
+        func beginCoaching(on arView: ARSCNView) {
+            let overlay = ARPlacement.installCoaching(on: arView, delegate: self)
+            coaching = overlay
+            overlay.setActive(true, animated: true)
+            onCoaching?(true)
+            coachingTimer = Timer.scheduledTimer(withTimeInterval: ARPlacement.coachingTimeout,
+                                                 repeats: false) { [weak self] _ in
+                self?.endCoaching()
+            }
+        }
+
+        /// Called on the first detected plane, on timeout, and on teardown. Idempotent.
+        func endCoaching() {
+            coachingTimer?.invalidate(); coachingTimer = nil
+            guard let overlay = coaching, overlay.isActive else { return }
+            overlay.setActive(false, animated: true)
+        }
+
+        func coachingOverlayViewDidDeactivate(_ v: ARCoachingOverlayView) {
+            coachingTimer?.invalidate(); coachingTimer = nil
+            onCoaching?(false)
+        }
+
+        func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
+            onTrackingHint?(ARPlacement.trackingHint(for: camera.trackingState))
+        }
+
         // MARK: Reticle
 
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
@@ -162,6 +198,8 @@ struct StaticARView: UIViewRepresentable {
 
         func renderer(_ renderer: SCNSceneRenderer, didAdd node: SCNNode, for anchor: ARAnchor) {
             if let plane = anchor as? ARPlaneAnchor {
+                // A plane exists, so the scanning guidance has done its job.
+                endCoaching()
                 let g = SCNPlane(width: CGFloat(plane.planeExtent.width),
                                  height: CGFloat(plane.planeExtent.height))
                 g.firstMaterial?.diffuse.contents = UIColor.systemTeal.withAlphaComponent(0.18)

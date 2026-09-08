@@ -28,6 +28,10 @@ struct StaticARScreen: View {
     @State private var placed = false
     /// Read once, at init: writing the flag must not make the panel disappear mid-render.
     @State private var showCoach = !ARCoachView.hasBeenSeen
+    /// True while Apple's scanning overlay owns the screen. Everything of the app's own hides -
+    /// the overlay is full-screen, and two sets of instructions at once is worse than either.
+    @State private var coaching = true
+    @State private var trackingHint: String?
     @State private var finished: FinishedWork?
     @State private var showMiss = false
     @State private var missTask: Task<Void, Never>?
@@ -40,12 +44,33 @@ struct StaticARScreen: View {
                          onPlaced: { placed = true },
                          onPlacementMissed: { flashMiss() },
                          onTapped: { retireCoach() },
+                         onCoaching: { coaching = $0 },
+                         onTrackingHint: { trackingHint = $0 },
                          holder: holder)
                 .ignoresSafeArea()
 
-            if !placed && showCoach {
+            // Own guidance only once Apple's is done: it covers scanning, this covers the tap.
+            if !placed && showCoach && !coaching {
                 ARCoachView()
                     .transition(.opacity)
+            }
+
+            // Why tracking is unhealthy, when it is. Suppressed while the overlay is up, because
+            // the overlay says the same things better.
+            if let trackingHint, !coaching, !placed {
+                VStack {
+                    Spacer()
+                    Text(trackingHint)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(Capsule().fill(.black.opacity(0.55)))
+                        .padding(.horizontal, 32)
+                        .padding(.bottom, 150)
+                }
+                .transition(.opacity)
+                .allowsHitTesting(false)
             }
 
             if showMiss {
@@ -68,7 +93,8 @@ struct StaticARScreen: View {
                         if recorder.isRecording { recorder.stop { _ in } }
                         dismiss()
                     }
-                    .opacity(recorder.isRecording ? 0 : 1)
+                    // Also hidden under the scanning overlay, which draws its own full-screen UI.
+                    .opacity(recorder.isRecording || coaching ? 0 : 1)
                     Spacer()
                 }
                 .padding(.horizontal, 16).padding(.top, 8)

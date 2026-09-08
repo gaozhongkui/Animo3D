@@ -16,20 +16,38 @@ import ARKit
 import SceneKit
 
 enum ARPlacement {
-    /// Floor distances that count as somewhere a person meant to point at.
-    ///
-    /// An `.estimatedPlane` raycast with few feature points will return a hit far outside this
-    /// range, and placing there reads as "I tapped near me and it appeared on the horizon".
-    static let range: ClosedRange<Float> = 0.35...6.0
+    /// How far a hit on a surface ARKit has actually measured may be. A real detected plane 10 m
+    /// away is just a large room, so this is generous.
+    static let measuredRange: ClosedRange<Float> = 0.3...12.0
+
+    /// How far a hit on a *guessed* surface may be. An `.estimatedPlane` raycast with few feature
+    /// points will happily return something tens of metres out, and placing there reads as "I
+    /// tapped near me and it appeared on the horizon" - so guesses are kept close.
+    static let estimatedRange: ClosedRange<Float> = 0.35...6.0
 
     /// One raycast, used by both the reticle and the tap, so what the reticle shows is exactly where
-    /// a tap lands. Real plane geometry is preferred; an estimated plane is the fallback while
-    /// ARKit is still resolving the surface.
+    /// a tap lands.
+    ///
+    /// Three targets, in descending order of how much ARKit actually knows:
+    ///
+    /// 1. `.existingPlaneGeometry` - inside the measured outline of a detected plane. Best answer.
+    /// 2. `.existingPlaneInfinite` - the same plane, treated as the unbounded surface it physically
+    ///    is. This is the one that was missing, and it is most of why finding the floor felt bad:
+    ///    a plane's measured extent starts as a small patch under wherever the camera happened to
+    ///    look and grows slowly, so aiming a metre to the left of it fell straight through to a
+    ///    guess even though ARKit already knew perfectly well where the floor was.
+    /// 3. `.estimatedPlane` - a plane inferred from raw feature points, used while nothing is
+    ///    detected yet. Kept last, and kept near.
     static func floorHit(at point: CGPoint, in arView: ARSCNView) -> ARRaycastResult? {
         guard let camera = arView.session.currentFrame?.camera.transform else { return nil }
         let eye = simd_float3(camera.columns.3.x, camera.columns.3.y, camera.columns.3.z)
 
-        for target: ARRaycastQuery.Target in [.existingPlaneGeometry, .estimatedPlane] {
+        let targets: [(ARRaycastQuery.Target, ClosedRange<Float>)] = [
+            (.existingPlaneGeometry, measuredRange),
+            (.existingPlaneInfinite, measuredRange),
+            (.estimatedPlane, estimatedRange),
+        ]
+        for (target, range) in targets {
             guard let q = arView.raycastQuery(from: point, allowing: target, alignment: .horizontal),
                   let hit = arView.session.raycast(q).first else { continue }
             let p = simd_float3(hit.worldTransform.columns.3.x,
@@ -38,6 +56,100 @@ enum ARPlacement {
             if range.contains(simd_distance(p, eye)) { return hit }
         }
         return nil
+    }
+
+    /// The session configuration both AR screens run.
+    ///
+    /// It was duplicated in each of them, which is how they drifted: neither ever asked for LiDAR
+    /// scene reconstruction, so on a device that has it ARKit was being made to find the floor from
+    /// camera feature points alone - the same way a six-year-old phone has to.
+    ///
+    /// Everything here is behind a capability check rather than a device-tier guess. A phone that
+    /// cannot do these does not advertise them, and a phone that can is by definition new enough to
+    /// afford them.
+    static func makeConfiguration(detectGround: Bool = true) -> ARWorldTrackingConfiguration {
+        let config = ARWorldTrackingConfiguration()
+        config.planeDetection = detectGround ? [.horizontal] : []
+        config.environmentTexturing = .automatic
+
+        // LiDAR. The mesh gives plane detection real geometry to agree with instead of a cloud of
+        // feature points, which is the difference between finding the floor immediately and
+        // sweeping the phone around waiting.
+        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+            config.sceneReconstruction = .mesh
+        }
+        // Depth, which the raycaster and the plane fitter both benefit from. Smoothed rather than
+        // raw: this is used for placement, where stability matters more than latency.
+        if ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth) {
+            config.frameSemantics.insert(.smoothedSceneDepth)
+        }
+        if ARWorldTrackingConfiguration.supportsFrameSemantics(.personSegmentationWithDepth) {
+            config.frameSemantics.insert(.personSegmentationWithDepth)
+        }
+        return config
+    }
+
+    /// Apple's own scanning guidance, switched back on - but driven by hand, not left to itself.
+    ///
+    /// It is worth having: it does the genuinely hard part, an animated phone-and-plane figure with
+    /// per-reason instructions ("move slowly", "not enough light") in every language Apple ships,
+    /// updated live from the session. Reimplementing that badly is worse than using it.
+    ///
+    /// `activatesAutomatically` is deliberately **off**. That is what made this a problem the first
+    /// time: with it on, the overlay is up for as long as the goal is unmet, and it is a full-screen
+    /// subview that swallows every touch while up. In a room ARKit cannot read - dark, or a plain
+    /// floor - the goal is *never* met, so the overlay never leaves and the user can never tap. That
+    /// is the "no plane found, and tapping does nothing" report, and removing the overlay entirely
+    /// was an overcorrection.
+    ///
+    /// So the caller shows it on entry and takes it away on the first detected plane **or** after a
+    /// timeout, whichever comes first. Guidance while it is useful, and control back regardless.
+    @discardableResult
+    static func installCoaching(on arView: ARSCNView,
+                                delegate: ARCoachingOverlayViewDelegate) -> ARCoachingOverlayView {
+        let coaching = ARCoachingOverlayView()
+        coaching.session = arView.session
+        coaching.goal = .horizontalPlane
+        coaching.activatesAutomatically = false
+        coaching.delegate = delegate
+        coaching.translatesAutoresizingMaskIntoConstraints = false
+        arView.addSubview(coaching)
+        NSLayoutConstraint.activate([
+            coaching.topAnchor.constraint(equalTo: arView.topAnchor),
+            coaching.bottomAnchor.constraint(equalTo: arView.bottomAnchor),
+            coaching.leadingAnchor.constraint(equalTo: arView.leadingAnchor),
+            coaching.trailingAnchor.constraint(equalTo: arView.trailingAnchor),
+        ])
+        return coaching
+    }
+
+    /// How long the scanning overlay may hold the screen before the user gets control back even
+    /// though no plane has been found. Long enough for a normal room to resolve, short enough that
+    /// a room which never will does not become a dead end.
+    static let coachingTimeout: TimeInterval = 15
+
+    /// What to tell the user when tracking is not healthy, or nil when it is.
+    ///
+    /// Nothing was reported before: when ARKit could not find a surface the app said the same
+    /// "slowly move your phone" as always, whatever the actual reason. Most of the time the reason
+    /// is knowable and specific - the room is too dark or too plain, or the phone is being swung
+    /// around too fast - and saying which is the difference between a user fixing it and a user
+    /// concluding the feature is broken.
+    static func trackingHint(for state: ARCamera.TrackingState) -> String? {
+        switch state {
+        case .normal:
+            return nil
+        case .notAvailable:
+            return nil                      // starting up; the coach panel already covers this
+        case .limited(let reason):
+            switch reason {
+            case .excessiveMotion:   return L("Move your phone more slowly")
+            case .insufficientFeatures: return L("Too dark or too plain here - try a floor with more texture")
+            case .relocalizing:      return L("Finding your space again")
+            case .initializing:      return nil
+            @unknown default:        return nil
+            }
+        }
     }
 
     /// Yaw a placement so the model looks at the viewer.
