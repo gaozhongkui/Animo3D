@@ -19,8 +19,18 @@ Defaults are chosen for **uploading to Mixamo's auto-rigger**:
 
   - **No rig, no animation.** The auto-rigger wants a bare mesh; an existing armature makes it skip
     rigging, and animation data is dead weight. `--keep-rig` / `--keep-animation` override this.
-  - **Y-up, -Z forward.** Mixamo's own convention, and the same axes `vroid_to_usdz.py` used, so a
-    model does not arrive lying on its back.
+  - **Y-up, -Z forward**, Mixamo's own convention, so a model does not arrive lying on its back.
+  - **Turned to face the camera when the source faces away.** Mixamo previews and rigs a character
+    that faces FBX **+Z**. A VRM faces glTF +Z, which Blender's glTF importer maps to Blender +Y,
+    which the standard FBX export maps to **-Z** - exactly backwards, so every VRoid upload showed
+    Mixamo its back and the six rigger markers would have gone on the wrong side. Mixamo's own
+    characters already face the right way and are left alone.
+
+    The decision is made from the **bone names** (`J_Bip_*` = VRM, `mixamorig*` = Mixamo), read
+    before the armature is removed. Geometry cues do not work here: "the toes point forward" holds
+    for a T-pose and breaks on a posed model - measured, a dancing Mixamo GLB and a T-posed Mixamo
+    FBX disagree about which way is forward. Use `--face-flip` / `--no-face-flip` to override, which
+    is what an unrecognised rig needs.
   - **Textures embedded** (`path_mode='COPY'`, `embed_textures=True`). Mixamo takes a single file;
     an FBX referencing textures beside it uploads as an untextured grey mesh.
   - **Materials rebuilt as Principled BSDF** when they do not already have one. VRM/MToon materials
@@ -82,6 +92,11 @@ def outer():
     ap.add_argument("--no-ground", action="store_true", help="do not drop the model onto y=0")
     ap.add_argument("--no-rebuild-materials", action="store_true",
                     help="do not rewire non-Principled materials (VRM/MToon export untextured)")
+    face = ap.add_mutually_exclusive_group()
+    face.add_argument("--face-flip", action="store_true",
+                      help="force the 180-degree turn (source faces away from Mixamo's camera)")
+    face.add_argument("--no-face-flip", action="store_true",
+                      help="never turn the model, whatever its rig looks like")
     ap.add_argument("--scale", type=float, default=1.0, help="uniform scale before export")
     args = ap.parse_args()
 
@@ -114,6 +129,10 @@ def outer():
             cmd.append("--no-ground")
         if args.no_rebuild_materials:
             cmd.append("--no-rebuild-materials")
+        if args.face_flip:
+            cmd.append("--face-flip")
+        if args.no_face_flip:
+            cmd.append("--no-face-flip")
 
         r = subprocess.run(cmd, capture_output=True, text=True)
         ok = os.path.isfile(dst)
@@ -160,6 +179,29 @@ def base_color_image(mat):
     return max(tex_nodes, key=lambda n: n.image.size[0] * n.image.size[1]).image
 
 
+def turn_to_face_camera(meshes):
+    """Rotate 180 degrees about the model's own vertical axis.
+
+    About the body's horizontal centre rather than the world origin: a model that is not centred
+    would otherwise be mirrored across the origin and end up standing somewhere else.
+    """
+    import math
+    xs, ys = [], []
+    for m in meshes:
+        for v in m.data.vertices:
+            w = m.matrix_world @ v.co
+            xs.append(w.x); ys.append(w.y)
+    cx = (min(xs) + max(xs)) / 2
+    cy = (min(ys) + max(ys)) / 2
+
+    pivot = mathutils.Matrix.Translation((cx, cy, 0))
+    turn = mathutils.Matrix.Rotation(math.radians(180), 4, "Z")
+    xform = pivot @ turn @ pivot.inverted()
+    for o in bpy.data.objects:
+        if o.parent is None:
+            o.matrix_world = xform @ o.matrix_world
+
+
 def rebuild_materials():
     """Give every material a Principled BSDF driven by an Image Texture.
 
@@ -201,6 +243,8 @@ def inner():
     keep_anim = "--keep-animation" in argv
     no_ground = "--no-ground" in argv
     rebuild = "--no-rebuild-materials" not in argv
+    force_flip = "--face-flip" in argv
+    forbid_flip = "--no-face-flip" in argv
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
@@ -240,6 +284,18 @@ def inner():
 
     rebuilt = rebuild_materials() if rebuild else 0
 
+    # Read the rig's identity while the armature is still here - this is the only reliable signal
+    # for which way the model faces, and the next step deletes it.
+    bone_names = [b.name for a in armatures for b in a.data.bones]
+    if any(b.startswith("J_Bip") for b in bone_names):
+        rig_kind = "vrm"
+    elif any("mixamorig" in b.lower() for b in bone_names):
+        rig_kind = "mixamo"
+    else:
+        rig_kind = "unknown"
+
+    flip = force_flip or (rig_kind == "vrm" and not forbid_flip)
+
     if not keep_anim:
         # Animation on a model heading for the auto-rigger is dead weight, and a stray action can
         # leave the exported mesh frozen in a pose from frame 1 rather than its bind pose.
@@ -268,6 +324,10 @@ def inner():
                 o.scale = [s * scale for s in o.scale]
 
     bpy.context.view_layer.update()
+
+    if flip:
+        turn_to_face_camera(meshes)
+        bpy.context.view_layer.update()
 
     if not no_ground:
         # Feet on the origin: Mixamo builds the skeleton from the ground plane up.
@@ -315,7 +375,11 @@ def inner():
     print(f"[glb2fbx] {len(meshes)} mesh, {tris} tris, {images} textures, "
           f"{rebuilt} mats rebuilt, {len(helpers)} helpers dropped, "
           f"height {hi - lo:.2f}, feet at {lo:.3f}, "
+          f"src rig={rig_kind}, faced={'turned' if flip else 'as-is'}, "
           f"rig={'kept' if armatures else 'removed'}, anim={'kept' if keep_anim else 'stripped'}")
+    if rig_kind == "unknown" and not force_flip and not forbid_flip:
+        print("[glb2fbx] ! unrecognised rig: check Mixamo's preview, and re-run with --face-flip "
+              "if it shows the model's back", file=sys.stderr)
 
 
 if __name__ == "__main__":
