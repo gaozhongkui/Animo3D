@@ -37,6 +37,39 @@ final class PoseRetargeter {
     private var charTorsoLen: Float = 1
     private var srcCaptured = false
     private var srcRestHip = simd_float3(repeating: 0)
+    /// The source take's lowest hip height, when the caller knows it. Set before the first frame.
+    var sourceHipFloorY: Float?
+
+    /// Per-bone distance from the bone to the sole beneath it, measured in the rest pose against
+    /// the real ground plane.
+    ///
+    /// Four bones, not one: the ankle and the toe of each foot. Watching the ankle alone is what
+    /// let the boots keep clipping after the first fix - point the toe or roll the ankle and the
+    /// ankle's height barely changes while the sole goes straight through the floor. Subtracting
+    /// each bone's own offset turns four bone heights into four estimates of where the sole is.
+    private var soleOffsets: [(node: SCNNode, offset: Float)] = []
+    private var plantGroundY: Float?
+
+    /// How far the lower foot may leave the ground before it is pulled back, as a fraction of torso
+    /// length. Small but not zero: a hard zero fights the hip smoothing and buzzes.
+    private let footPlantTolerance: Float = 0.02
+
+    /// How fast the correction builds while the foot is off the ground. Below 1 on purpose - at 1
+    /// the double-counting described in plantFeet() comes back through the hip blend.
+    private let plantGain: Float = 0.5
+
+    /// How fast the sole is pushed back out once it is *through* the ground. Full rate,
+    /// deliberately asymmetric: a foot a centimetre off the floor is not noticeable, a boot sunk
+    /// into it is the first thing anyone sees.
+    private let plantReleaseGain: Float = 1.0
+
+    /// Accumulated downward correction, carried between frames.
+    ///
+    /// It has to be part of the hip *target*, not applied to the hip afterwards. The hip is set with
+    /// `simd_mix(current, target, 0.5)` every frame, so a correction written straight onto the node
+    /// is halved by the next frame's blend and re-diluted forever: measured, that left half the
+    /// float still there (0.234 -> 0.171) instead of removing it.
+    private var plantOffsetY: Float = 0
     private var srcRestFrame = simd_float3x3(1)      // Source rest torso frame
     private var srcRestFrameInv = simd_float3x3(1)
     private var srcTorsoLen: Float = 1
@@ -91,6 +124,17 @@ final class PoseRetargeter {
             charTorsoLen = max(1e-3, simd_length(shC - hipC))
         }
         // Hip node plus its rest world position (translation reference)
+        // Rest pose, so every sole is on the ground by construction: whatever each bone sits above
+        // the plane now is what it will sit above its own sole for the rest of the performance.
+        plantGroundY = controller.groundY
+        if let ground = controller.groundY {
+            soleOffsets = [s.leftFoot, s.rightFoot, s.leftToe, s.rightToe].compactMap { name in
+                guard let n = controller.boneNodes[name] else { return nil }
+                return (n, n.simdWorldPosition.y - ground)
+            }
+        } else {
+            soleOffsets = []
+        }
         hipsNode = controller.boneNodes[s.hips]
         charHipsRestWorld = hipsNode?.simdWorldPosition ?? .init(repeating: 0)
         // Spine bone plus its rest world orientation (torso twist reference)
@@ -164,6 +208,9 @@ final class PoseRetargeter {
         if !srcCaptured {
             srcCaptured = true
             srcRestHip = hipC
+            // Only the vertical baseline is replaced; horizontal drift is still measured from the
+            // opening frame, which is where the character is standing.
+            if let floorY = sourceHipFloorY { srcRestHip.y = floorY }
             srcRestFrame = srcFrame
             srcRestFrameInv = srcFrame.transpose
             srcTorsoLen = max(1e-3, simd_length(shC - hipC))
@@ -173,7 +220,8 @@ final class PoseRetargeter {
         if let hips = hipsNode {
             let deltaLocal = srcRestFrameInv * (hipC - srcRestHip)      // Displacement in source torso local space
             let deltaChar = characterFrame * (deltaLocal * (charTorsoLen / srcTorsoLen))
-            let target = charHipsRestWorld + deltaChar
+            var target = charHipsRestWorld + deltaChar
+            target.y -= plantOffsetY
             hips.simdWorldPosition = simd_mix(hips.simdWorldPosition, target, simd_float3(repeating: 0.5))
         }
 
@@ -205,5 +253,58 @@ final class PoseRetargeter {
 
             r.node.simdOrientation = simd_slerp(r.node.simdOrientation, local, 0.5)
         }
+
+        plantFeet()
+    }
+
+    /// Pull the character back down until its lower foot is on the ground again.
+    ///
+    /// Hip translation and limb driving are supposed to cancel: as the source dancer rises out of a
+    /// crouch the hips go up and the legs straighten, and the feet stay planted. They only cancel
+    /// if the character's legs are the same length as the source's, which they are not - the hips
+    /// are translated by the source displacement scaled by *torso* length, and the residual is pure
+    /// float. Measured on Arms Hip Hop Dance with Erika: the lower foot sat up to 0.23 above its
+    /// rest height, about 14% of body height, for the whole dance.
+    ///
+    /// Enforcing the constraint directly is the only version of this that holds for every
+    /// (character, dance) pair. Note the cost: a take with a genuine jump has that jump flattened.
+    /// None of the current library jumps, and a character floating at knee height for 20 seconds is
+    /// a far worse artefact than a lost hop.
+    private func plantFeet() {
+        guard let hips = hipsNode, let ground = plantGroundY, !soleOffsets.isEmpty else { return }
+
+        // Height of the lowest sole above the floor. Negative means it is through the floor.
+        let lowestSole = soleOffsets.map { $0.node.simdWorldPosition.y - $0.offset }.min() ?? ground
+        let sole = lowestSole - ground
+        let tolerance = charTorsoLen * footPlantTolerance
+
+        // How far out of bounds the sole is: positive when floating above the tolerance band,
+        // negative when it is through the floor, zero inside the band.
+        let error: Float = sole > tolerance ? sole - tolerance : (sole < 0 ? sole : 0)
+        guard error != 0 else { return }
+
+        // Corrected on this frame *and* carried in the offset, which is what makes the sole land on
+        // the floor rather than approach it. Two earlier versions each got half of this:
+        //
+        //  - Offset only: the hips are re-set to the target every frame and blended 50/50, so the
+        //    correction was diluted and the sole only ever converged part-way.
+        //  - Node only, plus an offset measured against the *bone's own rest height*: that quantity
+        //    carries a systematic bias, the offset accumulated it, and the character sank into the
+        //    floor until the sign flipped and it bounced. The measurement was the bug, not the
+        //    double application - `sole` here is an absolute distance to the actual ground plane,
+        //    so applying it twice is a fixed-point iteration, not a compounding error.
+        //
+        // A positive offset lowers the character, a negative one lifts it, and both directions are
+        // needed. An earlier version clamped the offset at zero because the character "must not be
+        // lifted above the source motion" - that is precisely why the boots kept clipping, because
+        // when the retargeted pose itself puts a sole under the floor only a lift can fix it.
+        // Between fidelity to the source and not driving a boot through the ground, the ground
+        // wins: nobody notices a centimetre of licence, everybody notices clipping.
+        hips.simdWorldPosition.y -= error
+        plantOffsetY += error
+
+        // Safety rail, both ways: no clip should be able to bury or launch the character.
+        let limit = charTorsoLen * 0.5
+        plantOffsetY = min(max(plantOffsetY, -limit), limit)
     }
 }

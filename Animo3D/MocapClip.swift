@@ -16,6 +16,20 @@ struct MocapClip {
     let fps: Double
     let frames: [[simd_float3]]
 
+    /// The lowest the source dancer's hips get anywhere in the take.
+    ///
+    /// This is the baseline the retargeter translates the character's hips against. It used to use
+    /// frame 0, which meant the whole performance was measured from whatever pose the take happened
+    /// to open on. Measured on Arms Hip Hop Dance, whose first frame is a crouch: the character's
+    /// foot sat up to 0.234 above its rest height for the entire dance - 14% of body height, about
+    /// knee level - and it read as the character floating above the floor.
+    var hipFloorY: Float {
+        frames.reduce(into: Float.greatestFiniteMagnitude) { lowest, f in
+            guard f.count > 24 else { return }
+            lowest = min(lowest, (f[23].y + f[24].y) / 2)
+        }
+    }
+
     static func load(_ url: URL) -> MocapClip? {
         guard let data = try? Data(contentsOf: url),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -38,6 +52,14 @@ final class MocapPlayer {
     init(frames: [[simd_float3]], retargeter: PoseRetargeter) {
         self.frames = frames
         self.retargeter = retargeter
+    }
+
+    /// Preferred initialiser: also hands the retargeter the take's hip floor, without which the
+    /// character floats for any dance that does not open on its lowest pose.
+    convenience init(clip: MocapClip, retargeter: PoseRetargeter) {
+        self.init(frames: clip.frames, retargeter: retargeter)
+        let floorY = clip.hipFloorY
+        if floorY.isFinite { retargeter.sourceHipFloorY = floorY }
     }
 
     func start() {

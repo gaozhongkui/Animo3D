@@ -35,6 +35,8 @@ struct DanceStudioView: View {
     /// and the placement guidance comes down once it exists.
     @State private var arContainer: SCNNode?
     @State private var arPlaced = false
+    @State private var showPlacementMiss = false
+    @State private var placementMissTask: Task<Void, Never>?
     @State private var shareURL: URL?
     @State private var showShare = false
     @State private var finished: FinishedWork?      // Completion page after a recording
@@ -45,7 +47,9 @@ struct DanceStudioView: View {
     @State private var zoomChar: CharacterItem?   // Character zoom preview
     @State private var zoomDance: DanceItem?  // Dance zoom preview
     @State private var vfx = DanceVFX()         // Stage VFX
-    @State private var vfxOn = true
+    /// Effects default on where they are available at all - on low-end the row is hidden and
+    /// installVFX() refuses, so this staying true there would be a selection nothing can act on.
+    @State private var vfxOn = DeviceTier.allowsStageVFX
     @State private var vfxPreset = 0
 
     private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
@@ -389,6 +393,7 @@ struct DanceStudioView: View {
                                         arPlaced = true
                                         installVFX()      // effects only exist once there is somewhere to put them
                                     },
+                                    onPlacementMissed: { flashPlacementMiss() },
                                     holder: holder)
                 } else {
                     CharacterSceneView(controller: stage.controller,
@@ -407,14 +412,30 @@ struct DanceStudioView: View {
                     .transition(.opacity)
             }
 
+            // A tap that found no floor used to do nothing at all except print to the console. This
+            // is the answer to it: brief, centred low so it does not cover the reticle.
+            if arMode && showPlacementMiss {
+                VStack {
+                    Spacer()
+                    Text("Point at the floor, then tap")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(Capsule().fill(.black.opacity(0.55)))
+                        .padding(.bottom, 190)
+                }
+                .transition(.opacity)
+                .allowsHitTesting(false)
+            }
+
             VStack(spacing: 0) {
                 HStack {
                     circleButton("chevron.left") { back() }
-                        .opacity(recorder.isRecording ? 0 : 1) // 录制时隐藏返回键
+                        .opacity(recorder.isRecording ? 0 : 1) // hidden while recording
                     Spacer()
                     Picker("", selection: $arMode) { Text("Screen").tag(false); Text("AR").tag(true) }
                         .pickerStyle(.segmented).frame(width: 120)
-                        .opacity(recorder.isRecording ? 0 : 1) // 录制时隐藏模式切换
+                        .opacity(recorder.isRecording ? 0 : 1) // hidden while recording
                 }
                 .padding(.horizontal, 12).padding(.top, 6)
 
@@ -425,8 +446,10 @@ struct DanceStudioView: View {
                         sceneSelectionBar
                             .opacity(recorder.isRecording ? 0 : 1)
                     }
-                    vfxBar
-                        .opacity(recorder.isRecording ? 0 : 1) // 录制时隐藏特效选择
+                    if DeviceTier.allowsStageVFX {
+                        vfxBar
+                            .opacity(recorder.isRecording ? 0 : 1) // hidden while recording
+                    }
 
                     recordButton.padding(.top, 2)
                 }
@@ -555,12 +578,11 @@ struct DanceStudioView: View {
         }
         .disabled(processing)
         .onChange(of: recorder.isRecording) { recording in
-            // 当录制状态改变时，通知 SCNView 开启或关闭自动运镜
-            if recording {
-                stage.controller.startAutoOrbit()
-            } else {
-                stage.controller.stopAutoOrbit()
-            }
+            // The camera move runs the whole time now, in preview as well as in the recording, so
+            // the user is not surprised by motion that only appears in the exported clip. All this
+            // does is restart the swing from the current framing when a take begins, so a recording
+            // opens on the shot rather than halfway through a drift.
+            if recording { stage.controller.resetCameraMove() }
         }
     }
 
@@ -599,6 +621,19 @@ struct DanceStudioView: View {
         case .character: return !character.isEmpty
         case .dance:     return !dance.isEmpty
         default:         return true
+        }
+    }
+
+    /// Show the "point at the floor" hint for a moment. Retapping restarts the timer rather than
+    /// stacking hints.
+    private func flashPlacementMiss() {
+        HapticManager.light()
+        placementMissTask?.cancel()
+        withAnimation(.easeIn(duration: 0.15)) { showPlacementMiss = true }
+        placementMissTask = Task {
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.3)) { showPlacementMiss = false }
         }
     }
 
@@ -665,6 +700,13 @@ struct DanceStudioView: View {
         // confetti all hit on the same beat. Set here because this runs on every VFX change.
         stage.controller.levelProvider = { [weak music] in music?.currentLevel() ?? 0 }
         vfx.remove()
+        // No chips on low-end, so nothing to install - and nothing should sneak in through a
+        // restored selection either.
+        guard DeviceTier.allowsStageVFX else {
+            (arMode ? holder.scnView?.pointOfView?.camera : stage.controller.cameraNode?.camera)?
+                .bloomIntensity = 0
+            return
+        }
         // AR renders through ARKit's own camera and its own scene, so both the bloom target and the
         // parent node differ from the screen stage. Pointing either at the controller was why the
         // effect chips changed state but nothing appeared in AR.

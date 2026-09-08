@@ -39,6 +39,9 @@ final class Rig: BoneRig {
     let scheme = BoneScheme.mixamo
     var boneNodes: [String: SCNNode] = [:]
     var isLoaded = false
+    /// No ground in an offscreen card render, so foot planting stays off - a single frame is
+    /// applied and there is no floor for the sole to meet.
+    var groundY: Float? { nil }
 }
 
 /// The frame a dance card poses on, matching ThumbRenderer.signatureFrame.

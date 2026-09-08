@@ -132,34 +132,56 @@ struct HomeView: View {
                 studioCover(VideoDriveView())
             }
             // index.json is the only source for both carousels, so until it lands there is nothing
-            // to show. The fetch starts at app launch and keeps retrying; this covers the wait
-            // rather than leaving two empty rows on screen.
+            // to show. On a normal launch the splash holds until it arrives, so this is really the
+            // failure state - the one that needs a retry the user can press.
             .overlay { if remoteAssets.characters.isEmpty { catalogWait } }
         }
     }
 
-    /// Shown while the catalog is still on its way, and after `RemoteAssets.launchGrace` seconds
-    /// with an explicit retry - a silent empty home screen reads as a broken app.
+    /// Shown when the home screen has nothing to draw: the catalog is late, or unreachable.
+    ///
+    /// The splash covers the normal wait, so by the time anyone sees this something is wrong and the
+    /// screen's job is to say so and offer a way out. It used to be a system `ProgressView` on flat
+    /// `systemGroupedBackground` - a grey screen with a spinner, in an app that is otherwise a dark
+    /// neon stage, and shown *after* the splash had already made the user wait.
     private var catalogWait: some View {
         ZStack {
-            Color(.systemGroupedBackground).ignoresSafeArea()
-            VStack(spacing: 16) {
-                ProgressView().scaleEffect(1.3)
+            BrandLoading.ground
+
+            VStack(spacing: 14) {
+                Image(systemName: remoteAssets.state == .unavailable
+                      ? "wifi.exclamationmark" : "sparkles")
+                    .font(.system(size: 44, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.bottom, 6)
+
                 if remoteAssets.state == .unavailable {
-                    Text("Couldn't reach the content library")
-                        .font(.subheadline.weight(.semibold))
-                    Text("Check your connection - this keeps retrying on its own.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text("Can't reach the studio")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("Check your connection. This keeps trying on its own.")
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.6))
                         .multilineTextAlignment(.center)
-                    Button("Try Again") { remoteAssets.retry() }
-                        .buttonStyle(.borderedProminent)
-                        .padding(.top, 4)
+                    Button {
+                        HapticManager.light()
+                        remoteAssets.retry()
+                    } label: {
+                        Text("Try Again")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 26).padding(.vertical, 11)
+                            .background(Capsule().fill(.white))
+                    }
+                    .padding(.top, 8)
                 } else {
-                    Text("Loading your studio...")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                    Text("Loading your studio")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    BrandShimmerBar().padding(.top, 4)
                 }
             }
-            .padding(32)
+            .padding(36)
         }
     }
 

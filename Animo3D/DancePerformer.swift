@@ -108,7 +108,7 @@ final class DancePerformer: ObservableObject {
 
         guard let dance, !dance.isEmpty else { return true }
         guard let clip = await clip(for: dance) else { return false }
-        player = MocapPlayer(frames: clip.frames, retargeter: rt)
+        player = MocapPlayer(clip: clip, retargeter: rt)
         player?.start()
         loadedDance = dance
         NSLog("[Performer] %@: %@ performing %@ (%d frames)", owner, character, dance, clip.frames.count)

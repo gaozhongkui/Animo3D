@@ -333,12 +333,64 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     private weak var sunLight: SCNLight?
     private(set) var feetY: Float = 0   // World Y of feet (for VFX ground positioning)
 
-    // --- 自动运镜变量 ---
-    var isAutoOrbiting = false
-    var orbitAngle: Float = 0
+    /// BoneRig: the plane the retargeter plants the feet against. Only meaningful once a ground
+    /// has been built, which is also the only time planting matters.
+    var groundY: Float? { (groundEnabled || contactShadowOnly) && isLoaded ? feetY : nil }
+    /// Where the character actually stands. The camera move orbits this, not the world origin -
+    /// `normalizeOrientation` squares the model up but does not centre it, so orbiting (0,·,0) put
+    /// the camera on a circle around a point the performer was not standing on.
+    private(set) var stageCenter = simd_float3(repeating: 0)
+
+    /// Slow camera move. On during preview as well as recording, so what the user watches while
+    /// choosing is what the recording will look like.
+    ///
+    /// It used to be an unbounded `angle += 0.008`, a full turn every 26 seconds - which carried the
+    /// camera round to the performer's back, and on the club stage straight through the LED wall and
+    /// the crowd. It is a bounded swing now: a slow arc either side of wherever the shot was framed,
+    /// with the distance breathing on a longer period so it does not feel like a turntable.
+    var isAutoOrbiting = true
+    private var orbitClock: Float = 0
+    /// Azimuth and radius of the framing `setupFrontCamera` chose, captured on the first frame so
+    /// the move starts exactly where the shot already is and never snaps.
+    private var orbitBaseAzimuth: Float?
+    private var orbitBaseRadius: Float = 0
+
+    /// How far either side of the original framing the camera swings, in radians (about 14 deg).
+    private let orbitSwing: Float = 0.25
 
     func startAutoOrbit() { isAutoOrbiting = true }
     func stopAutoOrbit() { isAutoOrbiting = false }
+    func resetCameraMove() { orbitBaseAzimuth = nil; orbitClock = 0 }
+
+    /// Advance the camera move by one frame. Called from the renderer delegate.
+    func stepCameraMove() {
+        guard isAutoOrbiting, let cam = cameraNode, modelHeight > 0 else { return }
+
+        let dx = cam.simdPosition.x - stageCenter.x
+        let dz = cam.simdPosition.z - stageCenter.z
+        if orbitBaseAzimuth == nil {
+            let r = sqrt(dx * dx + dz * dz)
+            guard r > 1e-4 else { return }
+            orbitBaseAzimuth = atan2(dx, dz)
+            orbitBaseRadius = r
+        }
+        guard let base = orbitBaseAzimuth else { return }
+
+        orbitClock += 1.0 / 30.0                     // the display link runs at 30
+        let azimuth = base + sin(orbitClock * 0.20) * orbitSwing
+        // Distance breathes on a longer period than the swing, so the two never line up into an
+        // obvious loop.
+        let radius = orbitBaseRadius * (1 + sin(orbitClock * 0.13) * 0.05)
+
+        SCNTransaction.begin()
+        SCNTransaction.animationDuration = 0
+        cam.simdPosition.x = stageCenter.x + sin(azimuth) * radius
+        cam.simdPosition.z = stageCenter.z + cos(azimuth) * radius
+        cam.look(at: SCNVector3(stageCenter.x,
+                                feetY + modelHeight * 0.48,
+                                stageCenter.z))
+        SCNTransaction.commit()
+    }
 
     /// Ground: Visible floor (with slight reflection) + a soft contact shadow always visible under feet to eliminate "floating" sensation.
     private func setupGround(_ root: SCNNode) {
@@ -405,7 +457,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         let floor = SCNFloor()
         // Glossy near-black dance floor. Unlit on purpose: SCNFloor is infinite, so letting the
         // stage spots hit it turns the whole frame into a wash; the visible light is the additive
-        // pool instead. The reflection是 what sells the club stage, so it stays - gated by
+        // pool instead. The reflection is what sells the club stage, so it stays - gated by
         // DeviceTier, since a reflection re-renders the entire scene.
         floor.reflectivity = DeviceTier.floorReflectivity > 0 ? 0.35 : 0
         floor.reflectionFalloffEnd = CGFloat(max(modelHeight, 0.1) * 1.4)
@@ -438,7 +490,8 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         scene.rootNode.addChildNode(bnode)
         contactShadow = bnode
 
-        setupStageRig(feetY: minY, center: simd_float3(cx, 0, cz))
+        stageCenter = simd_float3(cx, 0, cz)
+        setupStageRig(feetY: minY, center: stageCenter)
     }
 
     /// Club-stage set, built procedurally: an LED back wall, a lighting truss with fixtures,
@@ -1080,21 +1133,7 @@ struct CharacterSceneView: UIViewRepresentable {
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
             controller.driveStage()
 
-            // --- 电影级自动运镜：在录制时缓慢旋转镜头 ---
-            if controller.isAutoOrbiting, let cam = controller.cameraNode {
-                controller.orbitAngle += 0.008 // 每帧微小旋转
-                let radius: Float = controller.groundEnabled ? (controller.modelHeight * 2.25) : (controller.modelHeight * 1.9)
-                let px = sin(controller.orbitAngle) * radius
-                let pz = cos(controller.orbitAngle) * radius
-
-                // 平滑更新摄像机位置，保持注视角色
-                SCNTransaction.begin()
-                SCNTransaction.animationDuration = 0
-                cam.simdPosition.x = px
-                cam.simdPosition.z = pz
-                cam.look(at: SCNVector3(0, controller.feetY + controller.modelHeight * 0.48, 0))
-                SCNTransaction.commit()
-            }
+            controller.stepCameraMove()
         }
 
         /// Fires once, after SceneKit has actually put a frame on screen.
@@ -1300,29 +1339,30 @@ struct CharacterSceneView: UIViewRepresentable {
 
     static let crowdTextures: (bodies: UIImage, glow: UIImage) = makeCrowd()
 
-    /// 专业摄影棚环境贴图：模拟多灯箱布光，提供高级的高光反射
+    /// Studio environment map: soft boxes on a dark ground, which is what puts a readable
+    /// specular streak on armour and eyes rather than a single blown highlight.
     static let studioEnvironment: UIImage = {
         let size = CGSize(width: 512, height: 256)
         return UIGraphicsImageRenderer(size: size).image { ctx in
             let c = ctx.cgContext
-            // 1. 基础深色背景
+            // Dark ground
             c.setFillColor(UIColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 1).cgColor)
             c.fill(CGRect(origin: .zero, size: size))
 
-            // 2. 模拟顶部大灯箱
+            // Overhead soft box
             let topGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
                                     colors: [UIColor.white.withAlphaComponent(0.3).cgColor, UIColor.clear.cgColor] as CFArray,
                                     locations: [0, 1])!
             c.drawLinearGradient(topGrad, start: .zero, end: CGPoint(x: 0, y: size.height * 0.4), options: [])
 
-            // 3. 模拟左右两侧的专业长条灯（Softbox）
-            // 这能在写实模型（如盔甲、眼神）上产生非常漂亮的反射条
+            // Strip lights either side - these are what draw the long reflections down armour
+            // and catch the eyes.
             c.setShadow(offset: .zero, blur: 20, color: UIColor.white.cgColor)
             c.setFillColor(UIColor.white.withAlphaComponent(0.8).cgColor)
-            c.fill(CGRect(x: 40, y: 40, width: 20, height: 180)) // 左侧灯管
-            c.fill(CGRect(x: 450, y: 40, width: 20, height: 180)) // 右侧灯管
+            c.fill(CGRect(x: 40, y: 40, width: 20, height: 180))    // left strip
+            c.fill(CGRect(x: 450, y: 40, width: 20, height: 180))   // right strip
 
-            // 4. 底部微弱回光
+            // Faint bounce off the floor
             let bottomGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
                                        colors: [UIColor(red: 0.2, green: 0.15, blue: 0.3, alpha: 1).cgColor, UIColor.clear.cgColor] as CFArray,
                                        locations: [0, 1])!

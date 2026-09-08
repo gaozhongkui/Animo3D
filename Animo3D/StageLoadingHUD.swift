@@ -2,13 +2,23 @@
 //  StageLoadingHUD.swift
 //  Animo3D
 //
-//  The mask shown while a stage is being assembled. Lifted out of DanceStudioView, which had grown
-//  to hold the performer, the whole three-step wizard, three grids and this.
+//  The mask over the stage while it is being assembled.
 //
-//  It has two states, and the difference matters to the user: a download has a real percentage and
-//  an unknown wait, while a local asset only has to be parsed and mounted. Reporting "downloading"
-//  for the built-in character - which is what happened while every asset URL in the shipped index
-//  was a placeholder - reads as a broken network rather than a busy device.
+//  It has two states, and the difference matters: a download has a real percentage and an unknown
+//  wait, while a local asset only has to be parsed and mounted. Reporting "downloading" for the
+//  built-in character - which is what happened while every asset URL in the shipped index was a
+//  placeholder - reads as a broken network rather than a busy device.
+//
+//  Two things about the look, both of which it got wrong before:
+//
+//  - The ground was full-screen `.ultraThinMaterial`. Frosted glass over a nearly black stage is
+//    grey, so the app's most colourful screen was covered by its dullest. It uses the stage's own
+//    palette now, from `BrandLoading`.
+//  - It invented its own spinner - a rotating trimmed circle with a `sparkles` badge in the middle -
+//    while the splash was doing something else entirely. Both now speak `BrandShimmerBar`.
+//
+//  The copy changed too. "Optimizing 3D Render Engine..." is a sentence written for the person who
+//  built the renderer; nobody waiting to watch a character dance is reassured by it.
 //
 
 import SwiftUI
@@ -17,93 +27,77 @@ struct StageLoadingHUD: View {
     /// Download progress of the slowest asset in flight, or nil when nothing is downloading.
     let progress: Double?
 
-    @State private var spinning = false
+    @State private var pulse = false
 
     var body: some View {
         ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .ignoresSafeArea()
+            BrandLoading.ground
 
-            // Soft colour wash behind the spinner.
-            ZStack {
-                Circle()
-                    .fill(Color.accentColor.opacity(0.15))
-                    .frame(width: 300, height: 300)
-                    .blur(radius: 50)
-                    .offset(x: -100, y: -150)
+            VStack(spacing: 26) {
+                mark
+                VStack(spacing: 10) {
+                    Text(progress == nil ? "Setting the stage" : "Getting the assets")
+                        .font(.system(size: 21, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
 
-                Circle()
-                    .fill(Color.purple.opacity(0.15))
-                    .frame(width: 300, height: 300)
-                    .blur(radius: 50)
-                    .offset(x: 100, y: 150)
-            }
-
-            VStack(spacing: 28) {
-                spinner
-                VStack(spacing: 12) {
                     if let progress {
-                        downloadState(progress)
+                        percentBar(progress)
                     } else {
-                        preparingState
+                        BrandShimmerBar()
+                        Text("Lights, floor, and your dancer")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.55))
                     }
                 }
             }
+            .padding(40)
         }
-        .onAppear { spinning = true }
-        .transition(.opacity.combined(with: .scale(scale: 1.1)))
+        .transition(.opacity)
+        .onAppear { pulse = true }
     }
 
-    private var spinner: some View {
+    /// A soft breathing halo instead of a rotating ring: nothing here is measuring anything, so a
+    /// dial that goes round and round claims more than it knows.
+    private var mark: some View {
         ZStack {
             Circle()
-                .stroke(Color.white.opacity(0.1), lineWidth: 4)
-                .frame(width: 80, height: 80)
-
-            Circle()
-                .trim(from: 0, to: 0.3)
-                .stroke(
-                    LinearGradient(colors: [Color.accentColor, .purple], startPoint: .leading, endPoint: .trailing),
-                    style: StrokeStyle(lineWidth: 4, lineCap: .round)
-                )
-                .frame(width: 80, height: 80)
-                .rotationEffect(.degrees(spinning ? 360 : 0))
-                .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: spinning)
+                .fill(LinearGradient(colors: [BrandLoading.cyan, .purple],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+                .frame(width: 128, height: 128)
+                .blur(radius: 30)
+                .opacity(pulse ? 0.62 : 0.32)
+                .scaleEffect(pulse ? 1.06 : 0.94)
+                .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: pulse)
 
             Image(systemName: "sparkles")
-                .font(.system(size: 30, weight: .bold))
-                .foregroundStyle(LinearGradient(colors: [Color.accentColor, .white], startPoint: .top, endPoint: .bottom))
+                .font(.system(size: 44, weight: .bold))
+                .foregroundStyle(
+                    LinearGradient(colors: [.white, Color(red: 0.78, green: 0.90, blue: 1.0)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
         }
     }
 
-    private func downloadState(_ p: Double) -> some View {
-        Group {
-            Text("Downloading Assets")
-                .font(.system(size: 20, weight: .black, design: .rounded))
-                .tracking(1)
-
-            ProgressView(value: p)
-                .progressViewStyle(.linear)
-                .tint(Color.accentColor)
-                .frame(width: 200)
-                .scaleEffect(x: 1, y: 1.5, anchor: .center)
+    /// A real measurement gets a real bar, with the number beside it rather than under it - the
+    /// value and the bar are the same fact, and splitting them across two lines read as two.
+    private func percentBar(_ p: Double) -> some View {
+        VStack(spacing: 8) {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.14))
+                    Capsule()
+                        .fill(LinearGradient(colors: [BrandLoading.cyan, BrandLoading.pink],
+                                             startPoint: .leading, endPoint: .trailing))
+                        .frame(width: max(4, geo.size.width * p))
+                        .animation(.easeOut(duration: 0.25), value: p)
+                }
+            }
+            .frame(width: 190, height: 5)
 
             Text("\(Int(p * 100))%")
-                .font(.system(size: 14, weight: .bold, design: .monospaced))
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var preparingState: some View {
-        Group {
-            Text("Preparing Stage")
-                .font(.system(size: 20, weight: .black, design: .rounded))
-                .tracking(1)
-
-            Text("Optimizing 3D Render Engine...")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.7))
+                .monospacedDigit()
         }
     }
 }

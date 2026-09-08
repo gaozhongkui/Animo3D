@@ -59,6 +59,9 @@ protocol BoneRig: AnyObject {
     var scheme: BoneScheme { get }
     var boneNodes: [String: SCNNode] { get }
     var isLoaded: Bool { get }
+    /// World Y of the ground the character stands on, or nil when there is no ground to stand on
+    /// (offscreen thumbnail renders). Foot planting needs the real plane, not a bone's rest height.
+    var groundY: Float? { get }
 }
 
 /// The named bones the retargeter and the framing code need, in one place.
@@ -70,6 +73,11 @@ struct BoneScheme {
     let leftShoulder: String
     let rightShoulder: String
     let leftFoot: String
+    let rightFoot: String
+    /// Toe bones. A pointed toe drops the sole well below the ankle, so planting that watches only
+    /// the foot bone reads level while the boot is already through the floor.
+    let leftToe: String
+    let rightToe: String
     let spine: String   // Spine bone that drives torso twist and lean (between hips and shoulders)
     // Used for the torso frame
     let leftArm: String
@@ -82,7 +90,9 @@ struct BoneScheme {
         bones: MixamoBoneMap.bones,
         hips: "mixamorig_Hips", head: "mixamorig_Head",
         leftShoulder: "mixamorig_LeftShoulder", rightShoulder: "mixamorig_RightShoulder",
-        leftFoot: "mixamorig_LeftFoot", spine: "mixamorig_Spine",
+        leftFoot: "mixamorig_LeftFoot", rightFoot: "mixamorig_RightFoot",
+        leftToe: "mixamorig_LeftToeBase", rightToe: "mixamorig_RightToeBase",
+        spine: "mixamorig_Spine",
         leftArm: "mixamorig_LeftArm", rightArm: "mixamorig_RightArm",
         leftUpLeg: "mixamorig_LeftUpLeg", rightUpLeg: "mixamorig_RightUpLeg")
 

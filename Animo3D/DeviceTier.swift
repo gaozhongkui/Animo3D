@@ -28,6 +28,16 @@ enum DeviceTier {
     /// Low-end devices do not run "live dancing" (LiveDanceView) on the dance selection cards; a static pose image is used instead.
     static var allowsLiveDanceCards: Bool { !isLowEnd }
 
+    /// Stage VFX (the Halo / Stardust / Hearts / Sparks chips): hidden entirely on low-end.
+    ///
+    /// Not a taste call - on low-end `bloomIntensity` is 0, and these presets are pure additive
+    /// light points whose visibility *is* the bloom ("the glow comes from bloom", VFXPreset 3). With
+    /// bloom off and the birth rate at `particleScale`, tapping a chip changed almost nothing on
+    /// screen, so the row read as a broken control. A row that is not there is better than a row
+    /// that does nothing. (The alternative would be giving VFX its own bloom budget on low-end;
+    /// that trades frame time for the feature, which is the trade the tier system exists to avoid.)
+    static var allowsStageVFX: Bool { !isLowEnd }
+
     /// Live stage floor reflection: off on low-end. A reflection renders the whole scene one extra time, so like shadows it is a major cost.
     static var floorReflectivity: CGFloat { isLowEnd ? 0 : 0.16 }
 

@@ -44,8 +44,8 @@ struct WorkDetailView: View {
                     guard justSaved else { return }
                     withAnimation(.spring(response: 0.4)) { showSavedBanner = true }
 
-                    // --- 核心优化：智能好评引导 ---
-                    // 仅在作品保存成功后的 1 秒，当用户正在回看自己满意的作品时弹出
+                    // Review prompt, one second after a successful save - while the user is
+                    // looking at something they just made and are pleased with.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                         if let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
                             SKStoreReviewController.requestReview(in: scene)

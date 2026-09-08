@@ -19,12 +19,16 @@ struct ARCharacterView: UIViewRepresentable {
     /// Called with the character's container once it is standing in the world, so the caller can
     /// hang effects off it and take its placement guidance down.
     var onPlaced: ((SCNNode) -> Void)? = nil
+    /// Called when a tap found no floor, so the caller can say so instead of leaving the user
+    /// tapping a screen that never answers.
+    var onPlacementMissed: (() -> Void)? = nil
     var holder: SceneHolder? = nil
     /// true = land on the floor after scanning the ground; false = no ground detection, place directly in front of the camera (for quick validation).
     var detectGround: Bool = true
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(controller: controller, onAttach: onAttach, onPlaced: onPlaced, detectGround: detectGround)
+        Coordinator(controller: controller, onAttach: onAttach, onPlaced: onPlaced,
+                    onPlacementMissed: onPlacementMissed, detectGround: detectGround)
     }
 
     func makeUIView(context: Context) -> ARSCNView {
@@ -41,8 +45,8 @@ struct ARCharacterView: UIViewRepresentable {
             config.planeDetection = detectGround ? [.horizontal] : []
             config.environmentTexturing = .automatic
 
-            // 开启人像遮挡 (People Occlusion)
-            // 需要 A12 芯片及以上机型，iOS 13+ 支持基本遮挡，但 iOS 16+ 的深度信息更精准
+            // People Occlusion, so a real person can pass in front of the character.
+            // Needs an A12 or newer; iOS 16's depth is markedly more accurate than iOS 13's.
             if ARWorldTrackingConfiguration.supportsFrameSemantics(.personSegmentationWithDepth) {
                 config.frameSemantics.insert(.personSegmentationWithDepth)
                 print("[AR] People Occlusion enabled")
@@ -53,35 +57,28 @@ struct ARCharacterView: UIViewRepresentable {
             arView.session.run(config)
 
             if detectGround {
-                let coaching = ARCoachingOverlayView()
-                coaching.session = arView.session
-                coaching.goal = .horizontalPlane
-                coaching.activatesAutomatically = true
-                coaching.translatesAutoresizingMaskIntoConstraints = false
-                arView.addSubview(coaching)
-                NSLayoutConstraint.activate([
-                    coaching.topAnchor.constraint(equalTo: arView.topAnchor),
-                    coaching.bottomAnchor.constraint(equalTo: arView.bottomAnchor),
-                    coaching.leadingAnchor.constraint(equalTo: arView.leadingAnchor),
-                    coaching.trailingAnchor.constraint(equalTo: arView.trailingAnchor),
-                ])
-
+                // No ARCoachingOverlayView here. It was added as a full-screen subview with
+                // `activatesAutomatically = true`, so whenever a plane had not been found yet - which
+                // is exactly when the user is tapping to try - it sat on top of the ARSCNView and
+                // swallowed every touch before the tap recogniser below could see it. That is the
+                // "no plane found, and tapping does nothing" report: one symptom, one cause.
+                // The app already has its own guidance (ARCoachView), which is non-interactive.
                 let tap = UITapGestureRecognizer(target: context.coordinator,
                                                  action: #selector(Coordinator.handleTap(_:)))
                 arView.addGestureRecognizer(tap)
 
-                // --- 新增手势支持 ---
-                // 缩放
+                // Move, scale and rotate the placed character.
+                // Scale
                 let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
                 arView.addGestureRecognizer(pinch)
 
-                // 旋转
+                // Rotate
                 let rotate = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRotate(_:)))
                 arView.addGestureRecognizer(rotate)
 
-                // 拖拽平移
+                // Drag to move
                 let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
-                pan.maximumNumberOfTouches = 1 // 确保不与两指手势冲突
+                pan.maximumNumberOfTouches = 1   // one finger only, so it cannot fight the two-finger gestures
                 arView.addGestureRecognizer(pan)
             }
         }
@@ -100,21 +97,29 @@ struct ARCharacterView: UIViewRepresentable {
         private let controller: CharacterSceneController
         private let onAttach: (() -> Void)?
         private let onPlaced: ((SCNNode) -> Void)?
+        private let onPlacementMissed: (() -> Void)?
         private let detectGround: Bool
         private weak var arView: ARSCNView?
         private var container: SCNNode?      // Carries the character: scaling + sole alignment
         private var reticle: SCNNode?        // Ground reticle
         private var planeNodes: [UUID: SCNNode] = [:]
         private(set) var placed = false
+        /// Whether the screen centre is currently over a usable floor. Published so the SwiftUI
+        /// guidance can say "tap to place" only when a tap will actually do something.
+        private(set) var hasFloor = false
+        /// The scale the character was placed at. The pinch limits are relative to this, so they
+        /// mean the same thing whatever size the model came in at.
+        private(set) var placedScale: Float = 1
         /// How far the character was pushed down so its feet sit on the container origin. Kept so
         /// leaving AR can put it back - the screen stage shares the same node.
         private var groundOffset: Float = 0
 
         init(controller: CharacterSceneController, onAttach: (() -> Void)?,
-             onPlaced: ((SCNNode) -> Void)?, detectGround: Bool) {
+             onPlaced: ((SCNNode) -> Void)?, onPlacementMissed: (() -> Void)?, detectGround: Bool) {
             self.controller = controller
             self.onAttach = onAttach
             self.onPlaced = onPlaced
+            self.onPlacementMissed = onPlacementMissed
             self.detectGround = detectGround
         }
 
@@ -233,11 +238,11 @@ struct ARCharacterView: UIViewRepresentable {
         /// off-main: the character was placed, but the view never re-rendered and its placement
         /// guidance stayed on screen.
         private func notifyPlaced(_ node: SCNNode) {
-            // --- 触感反馈：角色落地 ---
-            HapticManager.medium()
+            HapticManager.medium()          // one tick as the character lands
 
-            // --- 视觉优化：淡入与缩放动画 ---
+            // Fade and scale in, so it arrives rather than appearing.
             let finalScale = node.simdScale
+            placedScale = max(finalScale.x, 0.0001)
             node.simdScale = .zero
             node.opacity = 0
 
@@ -281,17 +286,50 @@ struct ARCharacterView: UIViewRepresentable {
             reticle = node
         }
 
-        /// Each frame, attach the reticle to the ground hit by the screen center.
+        /// Floor distances that count as a place someone meant to point at.
+        ///
+        /// An `.estimatedPlane` raycast with few feature points will happily return a hit tens of
+        /// metres away, and placing there put the character somewhere the user never aimed - it then
+        /// reads as "I tapped far away and it appeared right in front", because a character 30m off
+        /// is a speck and the next tap lands somewhere else entirely. Anything outside this range is
+        /// treated as no hit at all.
+        private static let placementRange: ClosedRange<Float> = 0.35...6.0
+
+        /// One raycast, used by both the reticle and the tap, so what the reticle shows is exactly
+        /// where a tap lands. They used to differ - the reticle only ever asked for an estimated
+        /// plane while the tap preferred real plane geometry - so the two could resolve to different
+        /// surfaces at different distances.
+        private func floorHit(at point: CGPoint, in arView: ARSCNView) -> ARRaycastResult? {
+            let targets: [ARRaycastQuery.Target] = [.existingPlaneGeometry, .estimatedPlane]
+            guard let camera = arView.session.currentFrame?.camera.transform else { return nil }
+            let eye = simd_float3(camera.columns.3.x, camera.columns.3.y, camera.columns.3.z)
+
+            for target in targets {
+                guard let q = arView.raycastQuery(from: point, allowing: target, alignment: .horizontal),
+                      let hit = arView.session.raycast(q).first else { continue }
+                let p = simd_float3(hit.worldTransform.columns.3.x,
+                                    hit.worldTransform.columns.3.y,
+                                    hit.worldTransform.columns.3.z)
+                if Self.placementRange.contains(simd_distance(p, eye)) { return hit }
+            }
+            return nil
+        }
+
+        /// Each frame, attach the reticle to the ground under the screen centre.
+        ///
+        /// The reticle being visible is the contract: it means a tap will land, and its absence
+        /// means a tap will not. `handleTap` checks the same thing rather than guessing.
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
             guard detectGround, !placed, let arView, let reticle else { return }
             let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
-            guard let q = arView.raycastQuery(from: center, allowing: .estimatedPlane, alignment: .horizontal),
-                  let hit = arView.session.raycast(q).first else {
+            guard let hit = floorHit(at: center, in: arView) else {
                 reticle.isHidden = true
+                hasFloor = false
                 return
             }
             reticle.simdWorldTransform = hit.worldTransform
             reticle.isHidden = false
+            hasFloor = true
         }
 
         private func lowestY(of root: SCNNode, in c: SCNNode) -> Float {
@@ -309,65 +347,82 @@ struct ARCharacterView: UIViewRepresentable {
 
         // MARK: Gesture Handlers
 
+        /// How far the character may be scaled, as a multiple of the size it was placed at.
+        ///
+        /// Unbounded before: a pinch could shrink it to nothing or blow it up past the far plane,
+        /// with no way back other than replacing it.
+        private static let scaleRange: ClosedRange<Float> = 0.35...3.0
+
         @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
             guard let container, placed else { return }
-            if g.state == .changed {
-                let s = Float(g.scale)
-                container.simdScale *= s
-                g.scale = 1.0 // 增量缩放
-
-                // --- 触感反馈：缩放过程中 ---
-                HapticManager.light()
+            guard g.state == .changed else {
+                // One tick at the start and one at the end, which is what a gesture should feel
+                // like. Firing on every `.changed` ran the motor continuously for the whole pinch.
+                if g.state == .began || g.state == .ended { HapticManager.light() }
+                return
             }
+            let proposed = container.simdScale.x * Float(g.scale)
+            let clamped = min(max(proposed, placedScale * Self.scaleRange.lowerBound),
+                              placedScale * Self.scaleRange.upperBound)
+            container.simdScale = simd_float3(repeating: clamped)
+            g.scale = 1.0                       // incremental
         }
 
         @objc func handleRotate(_ g: UIRotationGestureRecognizer) {
             guard let container, placed else { return }
-            if g.state == .changed {
-                container.simdEulerAngles.y -= Float(g.rotation)
-                g.rotation = 0 // 增量旋转
-
-                // --- 触感反馈：旋转过程中 ---
-                HapticManager.light()
+            guard g.state == .changed else {
+                if g.state == .began || g.state == .ended { HapticManager.light() }
+                return
             }
+            container.simdEulerAngles.y -= Float(g.rotation)
+            g.rotation = 0                      // incremental
         }
 
         @objc func handlePan(_ g: UIPanGestureRecognizer) {
             guard let arView, let container, placed else { return }
             let pt = g.location(in: arView)
 
-            // 沿平面滑动移动
+            // Slide along the detected floor. An existing plane is preferred; an estimated one is
+            // the fallback while ARKit is still resolving the surface.
             let query = arView.raycastQuery(from: pt, allowing: .existingPlaneGeometry, alignment: .horizontal)
                 ?? arView.raycastQuery(from: pt, allowing: .estimatedPlane, alignment: .horizontal)
 
             if let q = query, let hit = arView.session.raycast(q).first {
-                // 平移时不改变旋转和缩放
+                // Position only: rotation and scale are the other two gestures' business.
                 container.simdWorldPosition = simd_float3(hit.worldTransform.columns.3.x,
-                                                         hit.worldTransform.columns.3.y,
-                                                         hit.worldTransform.columns.3.z)
+                                                          hit.worldTransform.columns.3.y,
+                                                          hit.worldTransform.columns.3.z)
             }
         }
 
         // MARK: Tap to place -> Create ARAnchor
         @objc func handleTap(_ g: UITapGestureRecognizer) {
             guard let arView else { return }
-            let pt = g.location(in: arView)
-            let query = arView.raycastQuery(from: pt, allowing: .existingPlaneGeometry, alignment: .horizontal)
-                ?? arView.raycastQuery(from: pt, allowing: .estimatedPlane, alignment: .horizontal)
-            guard let q = query, let hit = arView.session.raycast(q).first else {
-                print("[AR] tap at \(pt) hit no surface - keep scanning")
-                return
-            }
             guard container != nil else {
                 // setup() ran before the model finished installing, so there is nothing to place.
                 print("[AR] tap ignored: no character container (model was not ready at setup)")
                 return
             }
+            let pt = g.location(in: arView)
+            guard let hit = floorHit(at: pt, in: arView) else {
+                // Silent before: a tap that found nothing printed to the console and the user was
+                // left tapping a screen that never responded.
+                print("[AR] tap at \(pt) found no floor within range")
+                onPlacementMissed?()
+                return
+            }
             let camera = arView.session.currentFrame?.camera.transform ?? matrix_identity_float4x4
             let transform = facingCamera(hit.worldTransform, from: camera)
-            // Already placed = move: direct translation; Not yet placed = add anchor
+
             if placed, let container {
+                // Position and yaw only. Assigning `simdWorldTransform` also wrote the matrix's
+                // scale, and `facingCamera` returns a unit-scale matrix - so every tap-to-move
+                // silently threw away the `1.3 / modelHeight` normalisation and the character
+                // jumped in size, which reads as it lurching towards the camera.
+                let keptScale = container.simdScale
                 container.simdWorldTransform = transform
+                container.simdScale = keptScale
+                HapticManager.light()
             } else {
                 let anchor = ARAnchor(name: "placement", transform: transform)
                 arView.session.add(anchor: anchor)

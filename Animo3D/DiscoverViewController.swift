@@ -84,9 +84,29 @@ final class DiscoverViewController: UIViewController {
 
     private func loadInitialData() {
         nextUrl = nil
-        models = []
-        collectionView.reloadData()
+        // Cached page first, request second. This controller is rebuilt on every switch onto the
+        // tab, and clearing the array here meant every switch flashed an empty grid with a spinner
+        // over content the user had just been looking at.
+        showCachedPage()
         fetchPage()
+    }
+
+    /// Put whatever is cached for the current query/category on screen immediately.
+    ///
+    /// Returns whether anything was shown, which is what decides between a full-screen spinner and
+    /// a silent refresh underneath existing content.
+    @discardableResult
+    private func showCachedPage() -> Bool {
+        let key = DiscoverFeedCache.key(query: currentQuery, category: currentCategory)
+        guard let page = DiscoverFeedCache.shared.page(for: key) else {
+            models = []
+            collectionView.reloadData()
+            return false
+        }
+        models = page.models
+        nextUrl = page.nextUrl
+        collectionView.reloadData()
+        return true
     }
 
     @objc private func refreshData() {
@@ -106,8 +126,9 @@ final class DiscoverViewController: UIViewController {
             // Cancel the in-flight load immediately, so the new category request wins
             fetchTask?.cancel()
             nextUrl = nil
-            models = []
-            collectionView.reloadData()
+            // Each query/category has its own cache slot, so switching category can also show
+            // something straight away rather than blanking the grid.
+            showCachedPage()
             fetchPage()
         }
     }
@@ -122,6 +143,9 @@ final class DiscoverViewController: UIViewController {
         isFetching = true
 
         let requestingNext = nextUrl
+        // The full-screen indicator is only for an empty grid. With a cached page showing, the
+        // refresh happens underneath it - covering content the user is already reading with a
+        // spinner is the thing this whole change is meant to stop.
         if models.isEmpty && !isRefreshing {
             activityIndicator.startAnimating()
         } else if requestingNext != nil {
@@ -138,6 +162,12 @@ final class DiscoverViewController: UIViewController {
                 await MainActor.run {
                     if requestingNext == nil {
                         self.models = resp.results
+                        // Only the first page is cached; later pages are scroll state, not the
+                        // thing that has to be on screen the instant the tab appears.
+                        DiscoverFeedCache.shared.store(
+                            models: resp.results, nextUrl: resp.next,
+                            for: DiscoverFeedCache.key(query: self.currentQuery,
+                                                       category: self.currentCategory))
                     } else {
                         self.models.append(contentsOf: resp.results)
                     }
