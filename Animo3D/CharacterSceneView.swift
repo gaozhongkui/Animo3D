@@ -283,7 +283,11 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             // Must start beyond the performer (roughly 2.3 body heights from the camera) or the
             // fog washes the character out along with the ground.
             let near: Float = backgroundType == .sky ? 3.0 : 2.2
-            let far: Float = backgroundType == .sky ? 9.0 : 6.5
+            // Sky mode fades over a much longer run than the studio. At `h * 9` everything past
+            // the performer was already horizon-coloured, which left nowhere to put a distant
+            // skyline - anything far enough away to read as distant was also erased. The plaza is
+            // `h * 30` to its edge, so it still ends inside the fog and its far edge never shows.
+            let far: Float = backgroundType == .sky ? 22.0 : 6.5
             scene.fogStartDistance = CGFloat(h * near)
             scene.fogEndDistance = CGFloat(h * far)
             scene.fogDensityExponent = 1.5
@@ -303,6 +307,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     private var floorNode: SCNNode?
     private var contactShadow: SCNNode?
     private var stageRig: SCNNode?              // Spotlight beams + floor light pool (studio stage only)
+    private var skylineNode: SCNNode?           // Distant buildings and trees (sky background only)
 
     /// Music energy for the stage rig, supplied by the player. Same source the particle VFX use.
     var levelProvider: (() -> Float)?
@@ -399,12 +404,77 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         SCNTransaction.commit()
     }
 
+    /// A ring of distant skyline standing on the plaza.
+    ///
+    /// Sky mode had nothing between the sky and the ground. The dome carries a treeline, but it is
+    /// painted at infinity and never moves, so as the camera swings the scene read as a figure on an
+    /// empty grey plain under a photograph. Geometry a couple of dozen metres out parallaxes against
+    /// the dome, and that parallax is what actually says "there is a world here".
+    ///
+    /// Built by hand rather than from `SCNCylinder`: a cylinder has caps, and a one-element
+    /// `materials` array is reused across all three, so the skyline texture was painted over the top
+    /// cap too - a translucent lid drawn straight across the sky. A ring of quads has no caps to
+    /// get wrong, and its UVs are written here, so the repeat count is exact instead of being
+    /// negotiated with a primitive's own texture mapping.
+    ///
+    /// Distance is set against the fog, which is the only thing making anything here look far away:
+    /// sky mode fades from `h * 3` to `h * 22`, so at `h * 13` the ring comes out a little under
+    /// half washed toward the horizon colour. Past `h * 22` it would be erased outright; much closer
+    /// and no amount of haze stops it reading as a wall at the edge of the plaza.
+    private func addSkyline(feetY: Float, height h: Float) {
+        skylineNode?.removeFromParentNode()
+
+        let radius = h * 13
+        let band = h * 3.2
+        let repeats: Float = 4          // how many times the strip goes round
+        let segments = 96
+
+        var verts: [SCNVector3] = [], norms: [SCNVector3] = [], uvs: [CGPoint] = []
+        var idx: [Int32] = []
+        for i in 0...segments {
+            let t = Float(i) / Float(segments)
+            let a = t * 2 * .pi
+            let x = sin(a) * radius, z = cos(a) * radius
+            let inward = SCNVector3(-sin(a), 0, -cos(a))
+            verts.append(SCNVector3(x, band, z));  norms.append(inward)
+            verts.append(SCNVector3(x, 0, z));     norms.append(inward)
+            uvs.append(CGPoint(x: CGFloat(t * repeats), y: 0))    // v = 0 is the top of the strip
+            uvs.append(CGPoint(x: CGFloat(t * repeats), y: 1))
+            if i < segments {
+                let b = Int32(i * 2)
+                idx += [b, b + 1, b + 3, b, b + 3, b + 2]
+            }
+        }
+        let geo = SCNGeometry(sources: [SCNGeometrySource(vertices: verts),
+                                        SCNGeometrySource(normals: norms),
+                                        SCNGeometrySource(textureCoordinates: uvs)],
+                              elements: [SCNGeometryElement(indices: idx, primitiveType: .triangles)])
+
+        let m = SCNMaterial()
+        m.lightingModel = .constant     // it is a silhouette; lighting it would defeat that
+        m.diffuse.contents = CharacterSceneView.skylineTexture
+        m.diffuse.wrapS = .repeat
+        m.diffuse.wrapT = .clamp
+        m.isDoubleSided = true          // the camera is inside the ring, so winding is moot
+        m.writesToDepthBuffer = false   // nothing should ever be clipped by the horizon
+        m.blendMode = .alpha
+        geo.materials = [m]
+
+        let node = SCNNode(geometry: geo)
+        node.simdPosition = simd_float3(stageCenter.x, feetY, stageCenter.z)
+        node.castsShadow = false
+        node.renderingOrder = -20
+        scene.rootNode.addChildNode(node)
+        skylineNode = node
+    }
+
     /// Ground: Visible floor (with slight reflection) + a soft contact shadow always visible under feet to eliminate "floating" sensation.
     private func setupGround(_ root: SCNNode) {
         guard groundEnabled || contactShadowOnly else {
             floorNode?.removeFromParentNode(); floorNode = nil
             contactShadow?.removeFromParentNode(); contactShadow = nil
             stageRig?.removeFromParentNode(); stageRig = nil
+            skylineNode?.removeFromParentNode(); skylineNode = nil
             return
         }
         // World Y of feet + horizontal range
@@ -453,6 +523,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             gm.diffuse.contentsTransform = SCNMatrix4MakeScale(110, 110, 1)   // ~0.55m slabs
             gm.lightingModel = .lambert
             gm.isDoubleSided = false
+
             let gnode = SCNNode(geometry: ground)
             gnode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
             gnode.simdPosition = simd_float3(0, minY, 0)
@@ -498,6 +569,14 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         contactShadow = bnode
 
         stageCenter = simd_float3(cx, 0, cz)
+        // After stageCenter: the ring is centred on where the performer stands, not on the origin,
+        // and the camera move orbits the same point - so the two stay concentric and the skyline
+        // does not drift across the frame as the shot swings.
+        if backgroundType == .sky {
+            addSkyline(feetY: minY, height: max(modelHeight, 0.1))
+        } else {
+            skylineNode?.removeFromParentNode(); skylineNode = nil
+        }
         setupStageRig(feetY: minY, center: stageCenter)
     }
 
@@ -1408,6 +1487,90 @@ struct CharacterSceneView: UIViewRepresentable {
     /// Sampled from the source photograph by `tools/make_sky.py`, which prints the value whenever
     /// it rebuilds the dome; paste it here after changing the photo.
     static let skyHorizon: (Double, Double, Double) = (0.65, 0.74, 0.78)
+
+    /// The skyline strip: buildings and trees in silhouette, tiled around the horizon ring.
+    ///
+    /// `v = 0` is the top of the strip and `v = 1` the base, matching the UVs `addSkyline` writes,
+    /// so everything is drawn standing on the bottom edge of the image.
+    ///
+    /// Colours sit near `skyHorizon` rather than at black: distant objects are washed out by the air
+    /// in front of them, and a hard black skyline reads as a cut-out pasted onto the photo. Alpha
+    /// falls off toward the top of each shape for the same reason - the higher a distant object, the
+    /// more haze between it and the eye. Shapes are kept narrow and numerous; a handful of wide ones
+    /// reads as a nearby fence however pale it is painted.
+    static let skylineTexture: UIImage = {
+        let w = 2048, h = 256
+        let size = CGSize(width: w, height: h)
+        let hz = skyHorizon
+
+        var seed: UInt64 = 0x5C0FFEE          // fixed, so the skyline is the same every launch
+        func rnd() -> CGFloat {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return CGFloat((seed >> 33) % 100_000) / 100_000
+        }
+
+        return UIGraphicsImageRenderer(size: size).image { ctx in
+            let c = ctx.cgContext
+            c.clear(CGRect(origin: .zero, size: size))
+
+            /// One silhouette, filled with a vertical haze gradient over the whole strip height.
+            /// Gradient over the strip, not over the shape: two buildings of different heights whose
+            /// tops shaded identically would both read as the same distance away.
+            func fill(_ path: CGPath, tint: CGFloat) {
+                c.saveGState()
+                c.addPath(path)
+                c.clip()
+                let lo = UIColor(red: CGFloat(hz.0) * tint, green: CGFloat(hz.1) * (tint + 0.03),
+                                 blue: CGFloat(hz.2) * (tint + 0.10), alpha: 0.95).cgColor
+                let hi = UIColor(red: CGFloat(hz.0) * (tint + 0.22), green: CGFloat(hz.1) * (tint + 0.26),
+                                 blue: CGFloat(hz.2) * (tint + 0.34), alpha: 0.60).cgColor
+                let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                   colors: [hi, lo] as CFArray, locations: [0, 1])!
+                c.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+                c.restoreGState()
+            }
+
+            // Two passes of buildings: a paler set further back, then a nearer, darker set over it.
+            // One row of boxes all at the same depth is what makes a procedural skyline look like a
+            // barcode; overlapping roof lines are most of what sells depth here.
+            for pass in 0..<2 {
+                let far = pass == 0
+                let tint: CGFloat = far ? 0.62 : 0.40
+                var x: CGFloat = -60
+                while x < size.width + 60 {
+                    let bw = (far ? 22 : 30) + rnd() * (far ? 46 : 62)
+                    let bh = (far ? 46 : 62) + rnd() * (far ? 74 : 118)
+                    let rect = CGRect(x: x, y: size.height - bh, width: bw, height: bh)
+                    let p = CGMutablePath()
+                    p.addRect(rect)
+                    // A few get a setback or a mast, so the roofline is not a row of flat lids.
+                    if rnd() < 0.3 {
+                        let iw = bw * (0.24 + rnd() * 0.3)
+                        p.addRect(CGRect(x: rect.midX - iw / 2, y: rect.minY - 10 - rnd() * 30,
+                                         width: iw, height: 24))
+                    }
+                    fill(p, tint: tint)
+                    x += bw + (far ? 3 : 6) + rnd() * (far ? 20 : 40)
+                }
+            }
+
+            // Tree clumps along the base, in front of everything: they hide the row of foundations,
+            // which is the one line a viewer would read as the bottom edge of a flat image.
+            var tx: CGFloat = -40
+            while tx < size.width + 40 {
+                let r = 30 + rnd() * 34
+                let p = CGMutablePath()
+                for k in 0..<3 {
+                    let ox = CGFloat(k - 1) * r * 0.68
+                    let rr = r * (k == 1 ? 1 : 0.78)
+                    p.addEllipse(in: CGRect(x: tx + ox - rr, y: size.height - rr * 1.45,
+                                            width: rr * 2, height: rr * 2))
+                }
+                fill(p, tint: 0.34)
+                tx += r * 1.15 + rnd() * 30
+            }
+        }
+    }()
 
     /// Fallback dome, used only when `sky_dome.jpg` is missing: a plain vertical gradient ending on
     /// `skyHorizon`. Deliberately plain - a procedural sunset was tried here, and because the camera
