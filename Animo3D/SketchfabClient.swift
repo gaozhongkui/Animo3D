@@ -68,20 +68,18 @@ final class SketchfabClient {
     static let shared = SketchfabClient()
     private let session = URLSession.shared
 
-    // Dedicated for large file downloads: bypasses system proxies (like sing-box), uses timeout, avoids connection hang.
-    private lazy var dlSession: URLSession = {
-        let cfg = URLSessionConfiguration.ephemeral
-        cfg.connectionProxyDictionary = [:]
-        cfg.timeoutIntervalForRequest = 60
-        cfg.timeoutIntervalForResource = 180
-        cfg.waitsForConnectivity = true
-        return URLSession(configuration: cfg)
-    }()
+    /// Large downloads go through this, not `session`: it reports progress, and its own
+    /// configuration bypasses system proxies (a sing-box proxy was hanging the connection outright).
+    private let downloader = ProgressiveDownloader()
 
     // Built-in API Token (base64, only for simple obfuscation, not encrypted).
     private var apiToken: String {
         let b64 = "MzZmOGNlNDIwNmQ5NDk5OWEyNmI3MzIxZWM2NDBkMDU="
         return String(data: Data(base64Encoded: b64) ?? Data(), encoding: .utf8) ?? ""
+    }
+
+    private static func fileSize(_ url: URL) -> Int64 {
+        ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int64) ?? 0
     }
 
     /// Get temporary USDZ download URL for the model (download interface requires auth; link expires in ~5 mins, use immediately).
@@ -116,22 +114,20 @@ final class SketchfabClient {
         if FileManager.default.fileExists(atPath: dest.path) {
             // Already cached: report it complete against its own size, so the caller shows 100%
             // rather than a fraction of an unknown total.
-            let n = (try? FileManager.default.attributesOfItem(atPath: dest.path)[.size] as? Int64) ?? 0
-            onProgress?(n ?? 0, n ?? 0)
+            let n = Self.fileSize(dest)
+            onProgress?(n, n)
             return dest
         }
 
         let remote = try await fetchUSDZURL(uid: uid)
-        // Use download task with progress (dedicated dlSession bypasses system proxy to avoid connection hang).
-        let req = URLRequest(url: remote)
-        let delegate = onProgress.map { DownloadProgressDelegate(onProgress: $0) }
-        let (tmp, response) = try await dlSession.download(for: req, delegate: delegate)
+        let response = try await downloader.download(URLRequest(url: remote), to: dest,
+                                                     onProgress: onProgress)
         let code = (response as? HTTPURLResponse)?.statusCode ?? -1
         guard (200...299).contains(code) else { throw SketchfabError.httpError(code) }
-        try? FileManager.default.removeItem(at: dest)
-        try FileManager.default.moveItem(at: tmp, to: dest)
-        let n = (try? FileManager.default.attributesOfItem(atPath: dest.path)[.size] as? Int64) ?? 0
-        onProgress?(n ?? 0, n ?? 0)
+        // A last call at the real size: the final progress callback can land a chunk short of the
+        // total, which leaves the ring parked at 99%.
+        let n = Self.fileSize(dest)
+        onProgress?(n, n)
         return dest
     }
 
@@ -201,21 +197,93 @@ final class SketchfabClient {
 }
 
 /// Download progress delegate: callbacks 0…1 progress to main thread (for progress bar).
-private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
-    private let onProgress: (Int64, Int64?) -> Void
-    init(onProgress: @escaping (Int64, Int64?) -> Void) { self.onProgress = onProgress }
+/// A download that actually reports progress.
+///
+/// The obvious way to write this is `URLSession.download(for:delegate:)`, which takes a delegate
+/// and is what this used to do - and it is why the community model's progress ring sat at zero all
+/// the way through a download that was working fine. That call accepts the delegate and then never
+/// sends it `didWriteData`. Measured against a 20MB file: **0** callbacks through the task
+/// delegate, **106** through a session delegate on a plain `downloadTask`.
+///
+/// So the session owns the delegate, and a continuation turns the callbacks back into one `await`.
+/// One downloader is shared by every download; jobs are keyed by task identifier, since a session
+/// delegate is told about every task on the session rather than about one.
+private final class ProgressiveDownloader: NSObject, URLSessionDownloadDelegate {
+    private struct Job {
+        let dest: URL
+        let onProgress: ((Int64, Int64?) -> Void)?
+        let cont: CheckedContinuation<URLResponse, Error>
+    }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+    private var jobs: [Int: Job] = [:]
+    private let lock = NSLock()
+
+    private lazy var session: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.connectionProxyDictionary = [:]      // ignore a system proxy; sing-box hung the connection
+        cfg.timeoutIntervalForRequest = 60
+        cfg.timeoutIntervalForResource = 180
+        cfg.waitsForConnectivity = true
+        return URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
+    }()
+
+    /// Downloads to `dest`, replacing whatever is there, and returns the response so the caller can
+    /// judge the status code.
+    func download(_ req: URLRequest, to dest: URL,
+                  onProgress: ((Int64, Int64?) -> Void)?) async throws -> URLResponse {
+        try await withCheckedThrowingContinuation { cont in
+            let task = session.downloadTask(with: req)
+            lock.lock()
+            jobs[task.taskIdentifier] = Job(dest: dest, onProgress: onProgress, cont: cont)
+            lock.unlock()
+            task.resume()
+        }
+    }
+
+    /// Claims a job. Whichever callback gets it resumes the continuation, and the other then finds
+    /// nothing - which is what keeps a completion and an error from resuming the same continuation
+    /// twice, a trap rather than a warning.
+    private func claim(_ id: Int) -> Job? {
+        lock.lock(); defer { lock.unlock() }
+        return jobs.removeValue(forKey: id)
+    }
+
+    func urlSession(_ session: URLSession, downloadTask task: URLSessionDownloadTask,
                     didWriteData bytesWritten: Int64,
                     totalBytesWritten: Int64,
                     totalBytesExpectedToWrite: Int64) {
+        lock.lock()
+        let onProgress = jobs[task.taskIdentifier]?.onProgress
+        lock.unlock()
+        guard let onProgress else { return }
         // -1 is NSURLSessionTransferSizeUnknown: reported as nil rather than swallowed, so the UI
         // can show bytes received instead of a fraction that would be a lie.
         let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil
-        DispatchQueue.main.async { self.onProgress(totalBytesWritten, total) }
+        DispatchQueue.main.async { onProgress(totalBytesWritten, total) }
     }
 
-    // When using async download(for:delegate:), the file is returned by system API, no need to handle saving here.
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                    didFinishDownloadingTo location: URL) {}
+    func urlSession(_ session: URLSession, downloadTask task: URLSessionDownloadTask,
+                    didFinishDownloadingTo location: URL) {
+        guard let job = claim(task.taskIdentifier) else { return }
+        let response = task.response ?? URLResponse()
+        let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+        // The system deletes `location` the moment this returns, so the file is moved here or not
+        // at all. Only for a 2xx: this callback fires for a 404 as well, and its body is the error
+        // page, which would otherwise be cached under the model's own name and loaded as a model.
+        if (200...299).contains(code) {
+            do {
+                try? FileManager.default.removeItem(at: job.dest)
+                try FileManager.default.moveItem(at: location, to: job.dest)
+            } catch {
+                job.cont.resume(throwing: error)
+                return
+            }
+        }
+        job.cont.resume(returning: response)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let error, let job = claim(task.taskIdentifier) else { return }
+        job.cont.resume(throwing: error)
+    }
 }
