@@ -29,11 +29,15 @@ struct StaticARView: UIViewRepresentable {
     var targetHeight: Float = 1.0
     var onPlaced: (() -> Void)? = nil
     var onPlacementMissed: (() -> Void)? = nil
+    /// Every tap on the view, whether or not it placed anything. `onPlaced` and
+    /// `onPlacementMissed` between them miss the one case where feedback matters most: a model that
+    /// failed to load leaves nothing to place, so neither fires and the screen looks inert.
+    var onTapped: (() -> Void)? = nil
     var holder: SceneHolder? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(url: url, targetHeight: targetHeight,
-                    onPlaced: onPlaced, onPlacementMissed: onPlacementMissed)
+        Coordinator(url: url, targetHeight: targetHeight, onPlaced: onPlaced,
+                    onPlacementMissed: onPlacementMissed, onTapped: onTapped)
     }
 
     func makeUIView(context: Context) -> ARSCNView {
@@ -82,6 +86,7 @@ struct StaticARView: UIViewRepresentable {
         private let targetHeight: Float
         private let onPlaced: (() -> Void)?
         private let onPlacementMissed: (() -> Void)?
+        private let onTapped: (() -> Void)?
 
         private weak var arView: ARSCNView?
         private var container: SCNNode?
@@ -90,12 +95,13 @@ struct StaticARView: UIViewRepresentable {
         private(set) var placed = false
         private var placedScale: Float = 1
 
-        init(url: URL, targetHeight: Float,
-             onPlaced: (() -> Void)?, onPlacementMissed: (() -> Void)?) {
+        init(url: URL, targetHeight: Float, onPlaced: (() -> Void)?,
+             onPlacementMissed: (() -> Void)?, onTapped: (() -> Void)?) {
             self.url = url
             self.targetHeight = targetHeight
             self.onPlaced = onPlaced
             self.onPlacementMissed = onPlacementMissed
+            self.onTapped = onTapped
         }
 
         func setup(_ arView: ARSCNView) {
@@ -114,15 +120,21 @@ struct StaticARView: UIViewRepresentable {
             let c = SCNNode()
             c.addChildNode(model)
 
-            // Normalise to `targetHeight`, then sit the base on the container origin. Both steps
-            // read the geometry rather than the file's metadata: community USDZs routinely declare
-            // units they were not authored in.
-            let lo = ARPlacement.lowestY(of: model, in: c)
-            let span = modelHeight(of: model, in: c)
-            if span > 0.0001 {
-                let s = targetHeight / span
+            // Fit inside a `targetHeight` cube, then sit the base on the container origin. Both
+            // steps measure the model rather than trusting the file's declared units: community
+            // USDZs routinely say centimetres and mean something else.
+            //
+            // The divisor is the *largest* axis, not the height. Normalising height alone is fine
+            // for a person, whose height is their largest axis anyway, but a dragon is far wider
+            // than it is tall - making it a metre tall gave it a 3.6 m wingspan, which does not
+            // fit in a room. "Fits in a 1 m cube" holds for both.
+            let (lo, hi) = ARPlacement.visibleBounds(of: model, in: c)
+            let extent = hi - lo
+            let longest = max(extent.x, max(extent.y, extent.z))
+            if longest > 0.0001 {
+                let s = targetHeight / longest
                 model.simdScale = simd_float3(repeating: s)
-                model.simdPosition.y -= lo * s
+                model.simdPosition.y -= lo.y * s
             }
             container = c
             ARPlacement.addShadowCatcher(to: c, size: targetHeight)
@@ -131,23 +143,6 @@ struct StaticARView: UIViewRepresentable {
             let r = ARPlacement.makeReticle()
             arView.scene.rootNode.addChildNode(r)
             reticle = r
-        }
-
-        private func modelHeight(of root: SCNNode, in space: SCNNode) -> Float {
-            var lo = Float.greatestFiniteMagnitude, hi = -Float.greatestFiniteMagnitude
-            root.enumerateHierarchy { node, _ in
-                guard node.geometry != nil else { return }
-                let (a, b) = node.boundingBox
-                for x in [Float(a.x), Float(b.x)] {
-                    for y in [Float(a.y), Float(b.y)] {
-                        for z in [Float(a.z), Float(b.z)] {
-                            let p = node.simdConvertPosition(simd_float3(x, y, z), to: space)
-                            lo = min(lo, p.y); hi = max(hi, p.y)
-                        }
-                    }
-                }
-            }
-            return hi - lo
         }
 
         // MARK: Reticle
@@ -203,6 +198,7 @@ struct StaticARView: UIViewRepresentable {
         // MARK: Gestures
 
         @objc func handleTap(_ g: UITapGestureRecognizer) {
+            onTapped?()          // before every early return below
             guard let arView, container != nil else { return }
             let pt = g.location(in: arView)
             guard let hit = ARPlacement.floorHit(at: pt, in: arView) else {

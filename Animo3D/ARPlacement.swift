@@ -129,21 +129,58 @@ enum ARPlacement {
         return node
     }
 
-    /// The lowest point of a node's geometry, expressed in `space`. Used to sit a model on the
-    /// container's origin so its base lands on the floor rather than through it.
-    static func lowestY(of root: SCNNode, in space: SCNNode) -> Float {
-        var minY = Float.greatestFiniteMagnitude
+    /// The bounds of what a model actually looks like, expressed in `space`.
+    ///
+    /// **Skinned meshes are measured from their bones, not their geometry.** `SCNNode.boundingBox`
+    /// on a skinned mesh describes the vertex data as authored, before the skeleton moves any of
+    /// it - and for a rigged model exported through Sketchfab's USDZ converter that box bears no
+    /// relation to where the creature is. Measured on "Black Dragon with Idle Animation", the
+    /// geometry boxes claim 3537 x 544 x 3537 units with the lowest point 542 units *below* the
+    /// author's ground plane; the bones say 2749 x 766 x 1924 sitting exactly on y = 0. Every way
+    /// of reading the geometry boxes gives the same wrong answer, SceneKit's own hierarchy box
+    /// included, because they are all reading the same authored data.
+    ///
+    /// That wrong answer is what made animated community models invisible in AR: normalising a
+    /// 544-unit "height" to one metre scaled the model by 0.0018, which turned the author's
+    /// backdrop plane into a 6.5 m slab a metre in front of the camera and left the creature
+    /// somewhere inside it.
+    ///
+    /// Bones also sidestep props the author bundled in - a backdrop plane is not part of the
+    /// creature and should not set its scale.
+    static func visibleBounds(of root: SCNNode, in space: SCNNode) -> (lo: simd_float3, hi: simd_float3) {
+        var lo = simd_float3(repeating: .greatestFiniteMagnitude)
+        var hi = -lo
+
+        var sawBones = false
+        root.enumerateHierarchy { node, _ in
+            guard let skinner = node.skinner else { return }
+            for bone in skinner.bones {
+                let p = bone.simdConvertPosition(.zero, to: space)
+                lo = min(lo, p); hi = max(hi, p)
+                sawBones = true
+            }
+        }
+        if sawBones { return (lo, hi) }
+
+        // No skeleton: the geometry boxes are the authored shape and are the right thing to read.
         root.enumerateHierarchy { node, _ in
             guard node.geometry != nil else { return }
             let (a, b) = node.boundingBox
             for x in [Float(a.x), Float(b.x)] {
                 for y in [Float(a.y), Float(b.y)] {
                     for z in [Float(a.z), Float(b.z)] {
-                        minY = min(minY, node.simdConvertPosition(simd_float3(x, y, z), to: space).y)
+                        let p = node.simdConvertPosition(simd_float3(x, y, z), to: space)
+                        lo = min(lo, p); hi = max(hi, p)
                     }
                 }
             }
         }
-        return minY
+        return (lo, hi)
+    }
+
+    /// The lowest point of a model, expressed in `space`. Used to sit it on the container's origin
+    /// so its base lands on the floor rather than through it.
+    static func lowestY(of root: SCNNode, in space: SCNNode) -> Float {
+        visibleBounds(of: root, in: space).lo.y
     }
 }

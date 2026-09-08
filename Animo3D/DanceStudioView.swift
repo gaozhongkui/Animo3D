@@ -35,6 +35,8 @@ struct DanceStudioView: View {
     /// and the placement guidance comes down once it exists.
     @State private var arContainer: SCNNode?
     @State private var arPlaced = false
+    /// Read once, at init, so the panel does not vanish mid-session the moment the flag is written.
+    @State private var showCoach = !ARCoachView.hasBeenSeen
     @State private var showPlacementMiss = false
     @State private var placementMissTask: Task<Void, Never>?
     @State private var shareURL: URL?
@@ -388,6 +390,15 @@ struct DanceStudioView: View {
     }
 
     // MARK: Step 4 - perform
+    /// The coaching panel goes away on the user's first tap - hit or miss - and does not come back
+    /// in later sessions. A tap is proof the instruction was read; leaving the panel up until
+    /// placement succeeds meant it stayed longest exactly when placement was failing.
+    private func retireCoach() {
+        ARCoachView.hasBeenSeen = true
+        guard showCoach else { return }
+        withAnimation(.easeOut(duration: 0.25)) { showCoach = false }
+    }
+
     private var performStep: some View {
         ZStack {
             Group {
@@ -397,9 +408,10 @@ struct DanceStudioView: View {
                                     onPlaced: { node in
                                         arContainer = node
                                         arPlaced = true
+                                        retireCoach()
                                         installVFX()      // effects only exist once there is somewhere to put them
                                     },
-                                    onPlacementMissed: { flashPlacementMiss() },
+                                    onPlacementMissed: { retireCoach(); flashPlacementMiss() },
                                     holder: holder)
                 } else {
                     CharacterSceneView(controller: stage.controller,
@@ -413,7 +425,7 @@ struct DanceStudioView: View {
 
             // Placement guidance, up only until the character is standing. The condition used to be
             // just `arMode`, so this panel sat over the camera feed for the whole session.
-            if arMode && !arPlaced {
+            if arMode && !arPlaced && showCoach {
                 ARCoachView()
                     .transition(.opacity)
             }
@@ -708,6 +720,17 @@ struct DanceStudioView: View {
 
 /// AR coaching component: Displayed when the user has not placed the character.
 struct ARCoachView: View {
+    /// Shown on the first AR session and then never again.
+    ///
+    /// It explains a gesture - aim at the floor, tap - which is the kind of thing a person needs
+    /// told once. Showing it on every entry means the panel is in the way of the shot for everyone
+    /// who already knows, and it is the single largest thing on screen.
+    private static let seenKey = "ar_coach_seen"
+    static var hasBeenSeen: Bool {
+        get { UserDefaults.standard.bool(forKey: seenKey) }
+        set { UserDefaults.standard.set(newValue, forKey: seenKey) }
+    }
+
     @State private var isAnimating = false
 
     var body: some View {

@@ -26,6 +26,8 @@ struct StaticARScreen: View {
     @ObservedObject private var pro = ProStore.shared
 
     @State private var placed = false
+    /// Read once, at init: writing the flag must not make the panel disappear mid-render.
+    @State private var showCoach = !ARCoachView.hasBeenSeen
     @State private var finished: FinishedWork?
     @State private var showMiss = false
     @State private var missTask: Task<Void, Never>?
@@ -37,10 +39,11 @@ struct StaticARScreen: View {
             StaticARView(url: url,
                          onPlaced: { placed = true },
                          onPlacementMissed: { flashMiss() },
+                         onTapped: { retireCoach() },
                          holder: holder)
                 .ignoresSafeArea()
 
-            if !placed {
+            if !placed && showCoach {
                 ARCoachView()
                     .transition(.opacity)
             }
@@ -115,6 +118,14 @@ struct StaticARScreen: View {
             .frame(width: 80, height: 80)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: recorder.isRecording)
         }
+    }
+
+    /// The panel is instruction, and one tap is proof it was read. It also does not come back in
+    /// later sessions - `ARCoachView.hasBeenSeen` is per install.
+    private func retireCoach() {
+        ARCoachView.hasBeenSeen = true
+        guard showCoach else { return }
+        withAnimation(.easeOut(duration: 0.25)) { showCoach = false }
     }
 
     /// Say something when a tap found no floor. Silence was the previous answer, and it left the
