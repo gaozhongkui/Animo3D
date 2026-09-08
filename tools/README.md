@@ -43,14 +43,25 @@ python3 tools/glb_to_fbx.py tools/glb/*.glb -o out/       # 批量
 - **剔除无材质的辅助网格。** 每个 VRoid 导出都带一个 `Icosphere`(42 顶点、无材质、以原点为中心
   半径 1)。它会主导包围盒,导致按它算落地时**把角色整体抬高了 1 米**,Mixamo 会对着空气绑骨架。
 - **缩放烘进网格 + 脚底归到原点。** glTF 是米、FBX 是厘米,而 Mixamo 是从地面往上建骨架的。
+- **源模型背对镜头时转 180°。** Mixamo 预览和绑定的是朝 FBX **+Z** 的角色。而 VRM 朝 glTF +Z,
+  被 Blender 的 glTF 导入器映射成 Blender +Y,再经标准 FBX 导出映射成 **−Z** —— 正好反了,
+  所以每个 VRoid 上传都是背对着 Mixamo,**那 6 个绑定标记点会全放到错误的一侧**。
+  这比"看着别扭"严重,是会导致绑定结果错误的。Mixamo 自己的模型本来朝向就对,不会被动。
+
+  判别依据是**骨骼名**(`J_Bip_*` = VRM、`mixamorig*` = Mixamo),在剥掉骨架**之前**读。
+  几何依据在这里行不通:"脚趾朝前"对 T-pose 成立、对已摆姿势的模型失效 —— 实测同为 Mixamo 骨架,
+  T-pose 的 X Bot 指向 −Y,而处于跳舞姿势的 Strut Walking 指向 +Y,两者矛盾。
+  识别不出的骨架不会被转,但会打印警告;用 `--face-flip` / `--no-face-flip` 手动覆盖。
 
 上传前先看一眼输出,要盯的是身高合理(1.2~2.2m)、脚底约 0、贴图数非零:
 
 ```
 24386148582032405.fbx  2.8 MB  3 mesh, 27429 tris, 15 textures, 15 mats rebuilt,
                                1 helpers dropped, height 1.67, feet at -0.000,
-                               rig=removed, anim=stripped
+                               src rig=vrm, faced=turned, rig=removed, anim=stripped
 ```
+
+`faced=turned` 表示做了朝向翻转;`faced=as-is` 表示判定为本来就朝对了。
 
 ### 第 2 步 · Mixamo(唯一需要手工操作的环节)
 
@@ -59,6 +70,9 @@ python3 tools/glb_to_fbx.py tools/glb/*.glb -o out/       # 批量
 
 - **格式:FBX Binary** —— 不要 FBX ASCII,不要 glTF
 - **姿势:With Skin** —— "Without Skin" 是给纯动画下载用的,这条管线会直接拒绝那种文件
+
+**上传后先看一眼 Mixamo 的预览:应该是正脸。** 如果看到的是后脑勺,说明朝向判别在这个模型上没生效,
+用 `--face-flip` 重新转一遍再传。背对着放标记点会得到一个绑错的骨架,而那要等到进 App 跳起来才看得出。
 
 **下载后先改成你想要的名字再进下一步** —— 文件名会同时成为角色的显示名和资源 key。
 
@@ -84,6 +98,18 @@ bone roll,而重定向器是从骨骼**自身轴向**读取每根肢体的静止
 
 脚本会对两种常见错误直接报错:*no armature* 说明下载时选了 "Without Skin";
 *mesh is not bound to the armature* 说明绑定没成功。
+
+> **另一条没有实现的路(仅备忘)**
+>
+> VRoid 模型自带完整骨架和蒙皮,唯一不能用的原因是骨骼名。而 VRM 的人形骨骼是固定标准,
+> 和 `BoneScheme.mixamo` 需要的 19 根是严格一对一的 —— 已实测确认全部存在
+> (`J_Bip_C_Hips`、`J_Bip_L_UpperArm`、`J_Bip_L_ToeBase` …)。
+> 所以理论上可以**离线改骨骼名**,保留原生蒙皮、完全跳过 Mixamo,把 7 次手工操作变成 1 条命令。
+>
+> 可行性有历史证据:项目里原来就有 `BoneScheme.vrm`,`PoseRetargeter` 当时就是用 Mixamo 的
+> mocap 位置数据驱动 VRoid 骨骼的,而重定向器是 body-frame 局部坐标系、与骨骼朝向无关的设计。
+>
+> **目前没有实现**,记在这里是因为它影响排期判断:如果角色数量继续增长,这条路省掉的手工成本是线性的。
 
 ### 第 4 步 · 纹理压缩(别跳过)
 

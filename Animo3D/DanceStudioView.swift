@@ -225,7 +225,10 @@ struct DanceStudioView: View {
                     }
                 }
             }
-            .padding(.horizontal).padding(.bottom, 20)
+            // Top padding is not decoration: a card's selection stroke, its shadow and (on the
+            // dance grid) its 1.03 scale all extend past its own bounds, and with the grid flush
+            // against the scroll view's top edge the first row had all three clipped off.
+            .padding(.horizontal).padding(.top, 12).padding(.bottom, 20)
         }
     }
 
@@ -311,7 +314,10 @@ struct DanceStudioView: View {
                     }
                 }
             }
-            .padding(.horizontal).padding(.bottom, 20)
+            // Top padding is not decoration: a card's selection stroke, its shadow and (on the
+            // dance grid) its 1.03 scale all extend past its own bounds, and with the grid flush
+            // against the scroll view's top edge the first row had all three clipped off.
+            .padding(.horizontal).padding(.top, 12).padding(.bottom, 20)
         }
     }
 
