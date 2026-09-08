@@ -72,29 +72,32 @@ enum HapticManager {
 // MARK: - Cache Management
 
 enum StorageManager {
+    /// Reports on, and clears, the downloaded community models. Both used to reach into
+    /// `Caches/sketchfab_usdz` by hand, in two places, with the path spelled out each time - so
+    /// when the models moved out of Caches the settings row would have gone on reporting "0 KB"
+    /// about an empty directory while the real files sat elsewhere. One source of truth now.
     static func getCacheSize() -> String {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let dir = caches.appendingPathComponent("sketchfab_usdz")
-
-        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else {
+        let fm = FileManager.default
+        let dir = SketchfabClient.modelsDirectory
+        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else {
             return "0 KB"
         }
-
-        var totalSize: Int64 = 0
-        for file in files {
-            let attrs = try? file.resourceValues(forKeys: [.fileSizeKey])
-            totalSize += Int64(attrs?.fileSize ?? 0)
+        let total = files.reduce(Int64(0)) {
+            $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
         }
-
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useAll]
         formatter.countStyle = .file
-        return formatter.string(fromByteCount: totalSize)
+        return formatter.string(fromByteCount: total)
     }
 
     static func clearCache() {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let dir = caches.appendingPathComponent("sketchfab_usdz")
-        try? FileManager.default.removeItem(at: dir)
+        let fm = FileManager.default
+        let dir = SketchfabClient.modelsDirectory
+        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+        // The files, not the directory: `modelsDirectory` is a `static let` that created and
+        // configured it once, so removing it would leave every later download writing into a
+        // directory that no longer exists.
+        for file in files { try? fm.removeItem(at: file) }
     }
 }

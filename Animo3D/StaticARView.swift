@@ -20,6 +20,8 @@ import SwiftUI
 import ARKit
 import SceneKit
 
+enum StaticViewMode { case ar, turntable }
+
 struct StaticARView: UIViewRepresentable {
     /// A local USDZ (or SCN) file, already downloaded.
     let url: URL
@@ -32,6 +34,13 @@ struct StaticARView: UIViewRepresentable {
     /// the user opened the model to see. 1.6 m puts a human at near life size and still fits a
     /// dragon in a living room, and the pinch range either side of it spans 0.56 m to 4.8 m.
     var targetHeight: Float = 1.6
+    /// `.ar` puts the model on the real floor; `.turntable` spins it against a plain background.
+    ///
+    /// The turntable is not only a fallback for devices without ARKit - it is a mode the user can
+    /// pick, and it is how you tell the two halves of this screen apart. If a model looks right on
+    /// the turntable and wrong in AR, the model and its download are fine and the problem is
+    /// placement; if it looks wrong in both, it is the file or the way it is being loaded.
+    var mode: StaticViewMode = .ar
     var onPlaced: (() -> Void)? = nil
     var onPlacementMissed: (() -> Void)? = nil
     /// Every tap on the view, whether or not it placed anything. `onPlaced` and
@@ -58,7 +67,7 @@ struct StaticARView: UIViewRepresentable {
         arView.delegate = context.coordinator
         context.coordinator.setup(arView)
 
-        if ARWorldTrackingConfiguration.isSupported {
+        if mode == .ar, ARWorldTrackingConfiguration.isSupported {
             arView.session.run(ARPlacement.makeConfiguration())
 
             let c = context.coordinator
@@ -72,6 +81,16 @@ struct StaticARView: UIViewRepresentable {
             let pan = UIPanGestureRecognizer(target: c, action: #selector(Coordinator.handlePan(_:)))
             pan.maximumNumberOfTouches = 1
             arView.addGestureRecognizer(pan)
+        } else {
+            // Either the user asked for the turntable, or this device has no ARKit - which includes
+            // the Simulator, where `isSupported` is false, no session runs, there is no camera feed
+            // and none of the gesture recognisers above are even registered. Without this branch
+            // the screen was blank forever: the model starts hidden and is only revealed on
+            // placement, which can never happen.
+            //
+            // `ARSCNView` is an `SCNView`, so it renders an ordinary scene perfectly well; the
+            // model sits at the origin and spins instead of standing on a real floor.
+            context.coordinator.showTurntable(in: arView)
         }
 
         holder?.scnView = arView
@@ -147,8 +166,15 @@ struct StaticARView: UIViewRepresentable {
                 }
             }
 
-            // Before measuring anything: a backdrop slab would both drive the scale and then sit
-            // on the real floor as a dark plate.
+            // First, before anything touches the GPU: a community model's textures are whatever
+            // the author exported, and 2048s add up to more memory than a phone running ARKit has
+            // to spare. 1024 on a normal device, 512 where memory is already tight.
+            let cap = DeviceTier.isLowEnd ? 512 : 1024
+            let shrunk = ARPlacement.shrinkTextures(in: model, maxPixel: cap)
+            if shrunk > 0 { print("[StaticAR] capped \(shrunk) texture(s) at \(cap)px") }
+
+            // Then: a backdrop slab would both drive the scale and then sit on the real floor as a
+            // dark plate.
             let stripped = ARPlacement.stripBackdrops(from: model)
             if stripped > 0 { print("[StaticAR] dropped \(stripped) backdrop mesh(es)") }
 
@@ -178,6 +204,35 @@ struct StaticARView: UIViewRepresentable {
             let r = ARPlacement.makeReticle()
             arView.scene.rootNode.addChildNode(r)
             reticle = r
+        }
+
+        /// Show the model on a slow turntable, for when there is no AR session to place it in.
+        func showTurntable(in arView: ARSCNView) {
+            guard let container else { return }
+            reticle?.removeFromParentNode(); reticle = nil
+
+            container.isHidden = false
+            container.simdPosition = .zero
+            arView.scene.rootNode.addChildNode(container)
+
+            let camera = SCNNode()
+            camera.camera = SCNCamera()
+            camera.camera?.zNear = 0.01
+            // Framed off the model's own size, so a dragon and a figurine are both in shot.
+            let reach = max(targetHeight, 0.1) * 1.9
+            camera.simdPosition = simd_float3(0, targetHeight * 0.55, reach)
+            camera.look(at: SCNVector3(0, targetHeight * 0.38, 0))
+            arView.scene.rootNode.addChildNode(camera)
+            arView.pointOfView = camera
+            arView.backgroundColor = .black
+            arView.allowsCameraControl = true      // drag to look around, since there is no walking
+
+            container.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 18)))
+
+            placed = true                          // the shutter and the recorder behave as normal
+            if Thread.isMainThread { onPlaced?() }
+            else { DispatchQueue.main.async { self.onPlaced?() } }
+            onCoaching?(false)
         }
 
         // MARK: Session health

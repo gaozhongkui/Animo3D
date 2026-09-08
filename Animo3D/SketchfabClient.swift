@@ -78,6 +78,80 @@ final class SketchfabClient {
         return String(data: Data(base64Encoded: b64) ?? Data(), encoding: .utf8) ?? ""
     }
 
+    // MARK: - Where downloaded models live
+
+    /// Downloaded models are kept in Application Support, **not** in Caches.
+    ///
+    /// Caches is where they used to live, and iOS is entitled to delete anything in it whenever the
+    /// device is short of space - without telling the app, and between launches. A model is 16-17MB,
+    /// so a handful of them is exactly the kind of thing the system reclaims first. That is the
+    /// "I already downloaded this, why is it downloading again" report: the file really was gone.
+    ///
+    /// Application Support is not purged. It is excluded from backup instead, because these are
+    /// re-downloadable copies of someone else's files and have no business in the user's iCloud
+    /// backup - which is the one legitimate reason Caches looked like the right place.
+    static let modelsDirectory: URL = {
+        let fm = FileManager.default
+        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        var dir = base.appendingPathComponent("community_models", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? dir.setResourceValues(values)
+
+        // One-time move of anything the old build left in Caches, so nobody re-downloads a model
+        // they already have just because it changed address.
+        let old = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("sketchfab_usdz", isDirectory: true)
+        if let stale = try? fm.contentsOfDirectory(at: old, includingPropertiesForKeys: nil) {
+            for file in stale {
+                let target = dir.appendingPathComponent(file.lastPathComponent)
+                if !fm.fileExists(atPath: target.path) { try? fm.moveItem(at: file, to: target) }
+            }
+            try? fm.removeItem(at: old)
+        }
+        return dir
+    }()
+
+    /// How much disk the downloaded models may take before the oldest are dropped.
+    ///
+    /// Unbounded before: every model the user opened in AR stayed for good, so an evening of
+    /// browsing turned into hundreds of megabytes that only a manual "Clear Cache" tap would
+    /// release. Least-recently-used, by modification date, which `cachedModel` touches on a hit.
+    private static let modelsBudget: Int64 = 500 * 1024 * 1024
+
+    /// The local copy of a model, if it is on disk. Touching it on the way out is what makes the
+    /// eviction below least-recently-*used* rather than oldest-downloaded.
+    static func cachedModel(uid: String) -> URL? {
+        let url = modelsDirectory.appendingPathComponent("\(uid).usdz")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        var values = URLResourceValues()
+        values.contentModificationDate = Date()
+        var touched = url
+        try? touched.setResourceValues(values)
+        return url
+    }
+
+    /// Drop the least recently used models until the directory is back inside its budget.
+    private static func enforceBudget() {
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey]
+        guard let files = try? fm.contentsOfDirectory(at: modelsDirectory,
+                                                      includingPropertiesForKeys: keys) else { return }
+        var entries: [(url: URL, size: Int64, date: Date)] = files.compactMap {
+            guard let v = try? $0.resourceValues(forKeys: Set(keys)) else { return nil }
+            return ($0, Int64(v.fileSize ?? 0), v.contentModificationDate ?? .distantPast)
+        }
+        var total = entries.reduce(Int64(0)) { $0 + $1.size }
+        guard total > modelsBudget else { return }
+        entries.sort { $0.date < $1.date }              // oldest first
+        for entry in entries where total > modelsBudget {
+            try? fm.removeItem(at: entry.url)
+            total -= entry.size
+            NSLog("[Sketchfab] evicted %@", entry.url.lastPathComponent)
+        }
+    }
+
     private static func fileSize(_ url: URL) -> Int64 {
         ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int64) ?? 0
     }
@@ -107,16 +181,13 @@ final class SketchfabClient {
     /// fraction and simply returned early in that case, so the ring sat at 0% for the whole download
     /// and then jumped to 100%. The caller needs to know the difference to show something honest.
     func downloadUSDZ(uid: String, onProgress: ((Int64, Int64?) -> Void)? = nil) async throws -> URL {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let dir = caches.appendingPathComponent("sketchfab_usdz", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dest = dir.appendingPathComponent("\(uid).usdz")
-        if FileManager.default.fileExists(atPath: dest.path) {
-            // Already cached: report it complete against its own size, so the caller shows 100%
+        let dest = Self.modelsDirectory.appendingPathComponent("\(uid).usdz")
+        if let cached = Self.cachedModel(uid: uid) {
+            // Already on disk: report it complete against its own size, so the caller shows 100%
             // rather than a fraction of an unknown total.
-            let n = Self.fileSize(dest)
+            let n = Self.fileSize(cached)
             onProgress?(n, n)
-            return dest
+            return cached
         }
 
         let remote = try await fetchUSDZURL(uid: uid)
@@ -127,6 +198,7 @@ final class SketchfabClient {
         // A last call at the real size: the final progress callback can land a chunk short of the
         // total, which leaves the ring parked at 99%.
         let n = Self.fileSize(dest)
+        Self.enforceBudget()
         onProgress?(n, n)
         return dest
     }

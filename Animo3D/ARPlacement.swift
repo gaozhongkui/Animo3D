@@ -58,6 +58,77 @@ enum ARPlacement {
         return nil
     }
 
+    /// Caps the texture resolution of a community model, in place.
+    ///
+    /// This is the other half of "animated community models come up blank", and the half that only
+    /// shows on a real device. "Black Dragon with Idle Animation" ships fifteen distinct maps, most
+    /// of them 2048x2048: **155 MB** of decompressed RGBA, nearer 205 MB once SceneKit builds
+    /// mipmaps - for one model, on top of the app, ARKit's camera pipeline and the recorder. On a
+    /// 2-3 GB device that is either a jetsam kill (the app vanishes to the home screen) or a failed
+    /// texture upload (geometry draws untextured, or not at all). Both look like "blank" to the
+    /// person holding the phone. Capped at 1024 the same model needs 55 MB; at 512, 14 MB.
+    ///
+    /// Nothing in the app limited this before. A community model is whatever a stranger uploaded,
+    /// so the ceiling has to be imposed here rather than hoped for.
+    ///
+    /// **The textures are inside the archive.** SceneKit does not extract them - it points each
+    /// material property at the `.usdz` itself with the byte range in the query string,
+    /// `file:///…/model.usdz?offset=5433280&size=137471`. Handing that URL to ImageIO does not
+    /// work: it ignores the query and sees a zip. So the range is read directly and decoded from
+    /// memory, and decoded *at* the reduced size - the obvious load-then-redraw would allocate the
+    /// full 16 MB bitmap first, which is the spike being avoided.
+    @discardableResult
+    static func shrinkTextures(in root: SCNNode, maxPixel: Int) -> Int {
+        var cache: [String: UIImage] = [:]      // one map is used by several materials
+        var shrunk = 0
+
+        /// The bytes a `…usdz?offset=N&size=M` URL refers to.
+        func embeddedData(_ url: URL) -> Data? {
+            guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                  let items = comps.queryItems,
+                  let offset = items.first(where: { $0.name == "offset" })?.value.flatMap(UInt64.init),
+                  let size = items.first(where: { $0.name == "size" })?.value.flatMap(Int.init),
+                  let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: url.path))
+            else { return nil }
+            defer { try? handle.close() }
+            try? handle.seek(toOffset: offset)
+            return try? handle.read(upToCount: size)
+        }
+
+        func downsample(_ url: URL) -> UIImage? {
+            if let hit = cache[url.absoluteString] { return hit }
+            // A plain file URL (a model stored unarchived) still works: fall back to the whole file.
+            let data = embeddedData(url) ?? (try? Data(contentsOf: URL(fileURLWithPath: url.path)))
+            guard let data, let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+            let opts: [CFString: Any] = [
+                kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+            ]
+            guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
+            let image = UIImage(cgImage: cg)
+            cache[url.absoluteString] = image
+            return image
+        }
+
+        root.enumerateHierarchy { node, _ in
+            for material in node.geometry?.materials ?? [] {
+                let properties = [material.diffuse, material.metalness, material.roughness,
+                                  material.normal, material.ambientOcclusion, material.emission,
+                                  material.specular, material.selfIllumination,
+                                  material.transparent, material.multiply, material.reflective,
+                                  material.displacement]
+                for property in properties {
+                    guard let url = property.contents as? URL else { continue }
+                    guard let small = downsample(url) else { continue }
+                    property.contents = small
+                    shrunk += 1
+                }
+            }
+        }
+        return shrunk
+    }
+
     /// Removes the backdrop slabs authors bundle with their models.
     ///
     /// This is the rest of "the animated model shows up blank". Scaling was only half of it: with

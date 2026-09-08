@@ -14,6 +14,7 @@
 //  watermark, same place in My Works.
 //
 
+import ARKit
 import SwiftUI
 
 struct StaticARScreen: View {
@@ -32,6 +33,9 @@ struct StaticARScreen: View {
     /// the overlay is full-screen, and two sets of instructions at once is worse than either.
     @State private var coaching = true
     @State private var trackingHint: String?
+    /// Which way the model is being shown. AR by default; the turntable is one tap away, and works
+    /// on devices and in situations where AR does not.
+    @State private var mode: StaticViewMode = ARWorldTrackingConfiguration.isSupported ? .ar : .turntable
     @State private var finished: FinishedWork?
     @State private var showMiss = false
     @State private var missTask: Task<Void, Never>?
@@ -41,23 +45,28 @@ struct StaticARScreen: View {
             Color.black.ignoresSafeArea()
 
             StaticARView(url: url,
+                         mode: mode,
                          onPlaced: { placed = true },
                          onPlacementMissed: { flashMiss() },
                          onTapped: { retireCoach() },
                          onCoaching: { coaching = $0 },
                          onTrackingHint: { trackingHint = $0 },
                          holder: holder)
+                // Rebuilds the whole view when the mode changes, the way the dance stage swaps its
+                // AR and screen renderers. The two set the scene up differently enough that
+                // mutating one into the other would leave a session running with nothing to place.
+                .id(mode)
                 .ignoresSafeArea()
 
             // Own guidance only once Apple's is done: it covers scanning, this covers the tap.
-            if !placed && showCoach && !coaching {
+            if mode == .ar && !placed && showCoach && !coaching {
                 ARCoachView()
                     .transition(.opacity)
             }
 
             // Why tracking is unhealthy, when it is. Suppressed while the overlay is up, because
             // the overlay says the same things better.
-            if let trackingHint, !coaching, !placed {
+            if let trackingHint, mode == .ar, !coaching, !placed {
                 VStack {
                     Spacer()
                     Text(trackingHint)
@@ -96,6 +105,15 @@ struct StaticARScreen: View {
                     // Also hidden under the scanning overlay, which draws its own full-screen UI.
                     .opacity(recorder.isRecording || coaching ? 0 : 1)
                     Spacer()
+                    if ARWorldTrackingConfiguration.isSupported {
+                        Picker("", selection: $mode) {
+                            Text("3D").tag(StaticViewMode.turntable)
+                            Text("AR").tag(StaticViewMode.ar)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 110)
+                        .opacity(recorder.isRecording ? 0 : 1)
+                    }
                 }
                 .padding(.horizontal, 16).padding(.top, 8)
 
