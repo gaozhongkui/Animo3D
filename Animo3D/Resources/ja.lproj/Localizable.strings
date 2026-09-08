@@ -154,3 +154,4 @@
 "Preparing character…" = "キャラクターを準備中…";
 "Source" = "ソース";
 "Step %lld of 3" = "ステップ %lld / 3";
+"Drag to rotate, pinch to zoom" = "ドラッグで回転、ピンチで拡大";

@@ -308,6 +308,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     private var contactShadow: SCNNode?
     private var stageRig: SCNNode?              // Spotlight beams + floor light pool (studio stage only)
     private var skylineNode: SCNNode?           // Distant buildings and trees (sky background only)
+    private var inlayNode: SCNNode?             // Stone medallion under the performer (sky only)
 
     /// Music energy for the stage rig, supplied by the player. Same source the particle VFX use.
     var levelProvider: (() -> Float)?
@@ -475,6 +476,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             contactShadow?.removeFromParentNode(); contactShadow = nil
             stageRig?.removeFromParentNode(); stageRig = nil
             skylineNode?.removeFromParentNode(); skylineNode = nil
+            inlayNode?.removeFromParentNode(); inlayNode = nil
             return
         }
         // World Y of feet + horizontal range
@@ -508,6 +510,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         }
 
         floorNode?.removeFromParentNode()
+        inlayNode?.removeFromParentNode(); inlayNode = nil
 
         if backgroundType == .sky {
             // A big finite plane rather than SCNFloor. SCNFloor's texture coordinates are its own
@@ -520,7 +523,15 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             gm.diffuse.contents = Self.plazaTexture
             gm.diffuse.wrapS = .repeat
             gm.diffuse.wrapT = .repeat
-            gm.diffuse.contentsTransform = SCNMatrix4MakeScale(110, 110, 1)   // ~0.55m slabs
+            // 55 repeats of a 4x4 block: the same ~0.45m slab as before, now with sixteen of
+            // them per tile instead of four.
+            gm.diffuse.contentsTransform = SCNMatrix4MakeScale(55, 55, 1)
+            // Anisotropic filtering, which a ground plane cannot do without. Seen almost edge-on,
+            // isotropic mips have to blur along the short axis as hard as along the long one, so
+            // the mid-distance turned to grey mush while the near slabs shimmered as the camera
+            // moved. This is the single cheapest thing that made the paving look like paving.
+            gm.diffuse.mipFilter = .linear
+            gm.diffuse.maxAnisotropy = 8
             gm.lightingModel = .lambert
             gm.isDoubleSided = false
 
@@ -529,6 +540,24 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             gnode.simdPosition = simd_float3(0, minY, 0)
             scene.rootNode.addChildNode(gnode)
             floorNode = gnode
+
+            // The medallion, centred on the performer rather than on the origin. Its own node so it
+            // is torn down with the floor and rebuilt at the right place when the character changes.
+            let inlay = SCNPlane(width: CGFloat(h * 5), height: CGFloat(h * 5))
+            let im = inlay.firstMaterial!
+            im.diffuse.contents = Self.plazaInlayTexture
+            im.lightingModel = .lambert          // lit with the paving, so it takes the same sun
+            im.isDoubleSided = false
+            im.writesToDepthBuffer = false       // it is a decal on a plane 2mm below it
+            let inode = SCNNode(geometry: inlay)
+            inode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
+            inode.simdPosition = simd_float3(cx, minY + 0.002, cz)
+            inode.renderingOrder = 1             // after the paving, before the contact shadow
+            inode.castsShadow = false
+            // Parented to the root, not to the floor: the floor node is rotated flat, so a child
+            // of it would be rotated twice and positioned in that rotated frame.
+            scene.rootNode.addChildNode(inode)
+            inlayNode = inode
         } else {
 
         // Floor: Slightly brighter than background color + slight reflection, forming a clear "ground" reference
@@ -564,7 +593,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         let bnode = SCNNode(geometry: blob)
         bnode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)          // Tiled on the ground
         bnode.simdPosition = simd_float3(cx, minY + 0.003, cz)
-        bnode.renderingOrder = 1                                     // Drawn above the floor
+        bnode.renderingOrder = 2                                     // Above the floor and the inlay
         scene.rootNode.addChildNode(bnode)
         contactShadow = bnode
 
@@ -956,25 +985,132 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         }
     }()
 
-    /// Outdoor paving: light stone tiles with soft joints and a little block-to-block variation.
-    /// The variation matters - perfectly uniform tiles still read as a printed board.
+    /// Outdoor paving, one tile of a 4x4 block of slabs.
+    ///
+    /// Three things are doing the work, and the ground looked like graph paper without any of them:
+    ///
+    /// - **A 4x4 block, with a per-slab shade drawn from a counter rather than a repeating list.**
+    ///   The old texture was 2x2 with four hand-picked shades, so the same little checker repeated
+    ///   110 times across the plaza and the eye picked the period straight out of the frame.
+    /// - **A chamfer on every slab** - a lighter edge along the top and left, darker along the
+    ///   bottom and right. That is the only cue that a slab is a block of stone with a thickness
+    ///   rather than a rectangle of paint, and it costs two strokes per slab.
+    /// - **Grain.** Flat fills stay flat under the fog no matter what colour they are.
+    ///
+    /// Joints are drawn by filling the whole texture with the joint colour and insetting the slabs
+    /// on top, which gives them a real width. The inset is per-slab, so the joint at the texture
+    /// border is half from each side and tiles seamlessly.
     private static let plazaTexture: UIImage = {
-        let side: CGFloat = 256
+        let side: CGFloat = 512
+        let n = 4                                     // slabs per axis
+        let cell = side / CGFloat(n)
         let s = CGSize(width: side, height: side)
+
+        var seed: UInt64 = 0x9E3779B9
+        func rnd() -> CGFloat {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return CGFloat((seed >> 33) % 100_000) / 100_000
+        }
+
         return UIGraphicsImageRenderer(size: s).image { ctx in
             let c = ctx.cgContext
-            // Joint colour fills the texture; the tiles are then drawn inset on top of it, which
-            // gives joints of a real width. Thin hairline joints average away to flat grey at
-            // this camera distance - which is exactly what made the ground read as a blank board.
-            c.setFillColor(UIColor(red: 0.58, green: 0.61, blue: 0.65, alpha: 1).cgColor)
+            // Joint: a shade darker and a touch warmer than the slabs, so the grid reads as a
+            // shadowed gap rather than as a drawn line.
+            c.setFillColor(UIColor(red: 0.545, green: 0.560, blue: 0.585, alpha: 1).cgColor)
             c.fill(CGRect(origin: .zero, size: s))
+
             let inset: CGFloat = 5
-            let shades: [CGFloat] = [0.0, -0.075, 0.05, -0.035]
-            for (i, d) in shades.enumerated() {
-                let col = CGFloat(i % 2), row = CGFloat(i / 2)
-                c.setFillColor(UIColor(red: 0.70 + d, green: 0.72 + d, blue: 0.75 + d, alpha: 1).cgColor)
-                c.fill(CGRect(x: col * side / 2 + inset, y: row * side / 2 + inset,
-                              width: side / 2 - inset * 2, height: side / 2 - inset * 2))
+            for row in 0..<n {
+                for col in 0..<n {
+                    let d = (rnd() - 0.5) * 0.14      // per-slab shade
+                    let r = CGRect(x: CGFloat(col) * cell + inset, y: CGFloat(row) * cell + inset,
+                                   width: cell - inset * 2, height: cell - inset * 2)
+                    c.setFillColor(UIColor(red: 0.705 + d, green: 0.720 + d,
+                                           blue: 0.740 + d, alpha: 1).cgColor)
+                    c.fill(r)
+
+                    // Chamfer. Light where the sky falls on the bevel, dark on the far side.
+                    c.setLineWidth(3)
+                    c.setStrokeColor(UIColor(white: 1, alpha: 0.20).cgColor)
+                    c.beginPath()
+                    c.move(to: CGPoint(x: r.minX, y: r.maxY))
+                    c.addLine(to: CGPoint(x: r.minX, y: r.minY))
+                    c.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+                    c.strokePath()
+                    c.setStrokeColor(UIColor(white: 0, alpha: 0.13).cgColor)
+                    c.beginPath()
+                    c.move(to: CGPoint(x: r.maxX, y: r.minY))
+                    c.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+                    c.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+                    c.strokePath()
+                }
+            }
+
+            // Grain over everything, joints included: stone is not a flat fill, and mip levels
+            // average this into a slight tonal noise that keeps the mid-distance from going
+            // completely dead.
+            for _ in 0..<9000 {
+                let x = rnd() * side, y = rnd() * side
+                let w = 1 + rnd() * 1.6
+                c.setFillColor(UIColor(white: rnd() < 0.5 ? 0 : 1, alpha: 0.045 + rnd() * 0.05).cgColor)
+                c.fill(CGRect(x: x, y: y, width: w, height: w))
+            }
+        }
+    }()
+
+    /// The inlay the performer stands on: a shallow stone medallion set into the paving.
+    ///
+    /// This is the difference between a stage and a car park. The plaza is 30 body-heights to its
+    /// edge in every direction and identical all the way out, so there was nothing in the lower two
+    /// thirds of the frame saying where the subject was - the camera swing read as drifting over
+    /// paving rather than as circling a stage. A disc centred on the performer gives the shot a
+    /// centre, and its rim gives the swing something to move against.
+    ///
+    /// Stone-toned rather than lit: sky mode is daylight, and a glowing ring here would look like a
+    /// prop from the club stage that got left outdoors.
+    private static let plazaInlayTexture: UIImage = {
+        let side: CGFloat = 512
+        let s = CGSize(width: side, height: side)
+        let mid = CGPoint(x: side / 2, y: side / 2)
+        let rgb = CGColorSpaceCreateDeviceRGB()
+
+        return UIGraphicsImageRenderer(size: s).image { ctx in
+            let c = ctx.cgContext
+            c.clear(CGRect(origin: .zero, size: s))
+
+            /// `v` is a multiple of the paving's own colour and `a` is alpha, because the inlay is
+            /// composited over the paving: the grain and joints underneath stay faintly visible, so
+            /// it reads as stone cut into the plaza rather than as a disc laid on top of it.
+            ///
+            /// The whole range is within +/- 15% of the paving. A first pass went much darker and
+            /// the medallion read as a pit the performer was standing in - it covers most of the
+            /// lower frame, so anything with real contrast becomes the subject of the shot.
+            func stone(_ v: CGFloat, _ a: CGFloat) -> CGColor {
+                UIColor(red: 0.705 * v, green: 0.720 * v, blue: 0.740 * v, alpha: a).cgColor
+            }
+
+            // A shade cooler under the performer, opening to a brighter band at the rim - the way a
+            // polished inlay catches the sky around its edge. Alpha falls to nothing over the last
+            // few percent of the radius; a hard edge against the paving reads as a decal.
+            let body = CGGradient(colorsSpace: rgb,
+                                  colors: [stone(0.86, 0.45), stone(0.95, 0.45),
+                                           stone(1.10, 0.55), stone(1.10, 0)] as CFArray,
+                                  locations: [0, 0.55, 0.955, 1])!
+            c.drawRadialGradient(body, startCenter: mid, startRadius: 0,
+                                 endCenter: mid, endRadius: side / 2, options: [])
+
+            // Two cut rings. Thin, and paler than the stone either side, which is what a chamfered
+            // groove in bright daylight actually looks like.
+            for (rf, lw, alpha) in [(0.955 as CGFloat, 5 as CGFloat, 0.50 as CGFloat),
+                                    (0.62, 3, 0.34)] {
+                c.setLineWidth(lw)
+                c.setStrokeColor(UIColor(white: 1, alpha: alpha).cgColor)
+                c.strokeEllipse(in: CGRect(x: mid.x - side / 2 * rf, y: mid.y - side / 2 * rf,
+                                           width: side * rf, height: side * rf))
+                c.setLineWidth(lw * 0.7)
+                c.setStrokeColor(UIColor(white: 0, alpha: alpha * 0.30).cgColor)
+                c.strokeEllipse(in: CGRect(x: mid.x - side / 2 * rf + lw, y: mid.y - side / 2 * rf + lw,
+                                           width: side * rf - lw * 2, height: side * rf - lw * 2))
             }
         }
     }()

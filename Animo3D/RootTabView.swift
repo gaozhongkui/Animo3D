@@ -154,6 +154,10 @@ struct ModelDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showShare = false
     @State private var show3DPreview = false
+    /// The same embed, filling the screen. A separate presentation rather than an in-place resize:
+    /// the preview lives inside the scroll view, and growing it there would push the page around and
+    /// still leave it boxed in by the safe area.
+    @State private var fullscreenPreview = false
 
     @State private var arLoading = false
     /// Bytes received, and the expected total when the server declares one. Kept as bytes rather
@@ -171,6 +175,39 @@ struct ModelDetailView: View {
         var id: String { url.absoluteString }
     }
 
+    /// The Sketchfab embed with two of its viewer options set.
+    ///
+    /// `autostart=1` skips the poster-and-play-button step. The user has already said what they
+    /// want by tapping the image, and a second tap on a play button to load the same thing is a
+    /// step that only exists because the default embed is built for a web page it does not control.
+    ///
+    /// `ui_infos=0` removes the viewer's own name-and-author card from the top left, which sat
+    /// directly under this page's close button and under the fullscreen title. Attribution is not
+    /// lost: the Sketchfab watermark stays (`ui_watermark` is deliberately left alone), the page
+    /// carries a SKETCHFAB badge, and Source Page links to the model on their site.
+    ///
+    /// Everything else is left at the author's settings - the camera framing included, which is why
+    /// some models open smaller than the viewport and the fullscreen screen says to pinch.
+    private var embedURL: URL? {
+        guard var c = URLComponents(string: model.embedUrl) else { return nil }
+        c.queryItems = (c.queryItems ?? []) + [URLQueryItem(name: "autostart", value: "1"),
+                                               URLQueryItem(name: "ui_infos", value: "0"),
+                                               URLQueryItem(name: "ui_hint", value: "0")]
+        return c.url
+    }
+
+    /// The small dark circular buttons that float over the preview. Two of them now, so the
+    /// styling is in one place rather than copied.
+    private func previewChip(_ system: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: system)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(10)
+                .background(.black.opacity(0.6), in: Circle())
+        }
+    }
+
     private var arFraction: Double? {
         guard let total = arTotal, total > 0 else { return nil }
         return min(1, max(0, Double(arReceived) / Double(total)))
@@ -184,7 +221,7 @@ struct ModelDetailView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     // Top main display area: Default static image, tap to open interactive 3D
                     ZStack(alignment: .bottom) {
-                        if show3DPreview, let url = URL(string: model.embedUrl) {
+                        if show3DPreview, let url = embedURL {
                             ZStack {
                                 // The web view is transparent, so this placeholder covers the few
                                 // seconds the embed needs to load instead of flashing a blank box.
@@ -196,14 +233,16 @@ struct ModelDetailView: View {
                                 .frame(height: 400)
                                 .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
                                 .overlay(alignment: .topTrailing) {
-                                    Button { show3DPreview = false } label: {
-                                        Image(systemName: "photo.fill")
-                                            .font(.system(size: 12, weight: .bold))
-                                            .foregroundStyle(.white)
-                                            .padding(10)
-                                            .background(.black.opacity(0.6), in: Circle())
-                                            .padding(16)
+                                    // Expand first, then back-to-image: the order matches how often
+                                    // each is wanted. 400pt is enough to recognise a model and not
+                                    // enough to inspect one, which is what the expand is for.
+                                    HStack(spacing: 8) {
+                                        previewChip("arrow.up.left.and.arrow.down.right") {
+                                            fullscreenPreview = true
+                                        }
+                                        previewChip("photo.fill") { show3DPreview = false }
                                     }
+                                    .padding(16)
                                 }
                         } else {
                             // A scaled-to-fill image reports its own oversized width, which used to
@@ -322,6 +361,11 @@ struct ModelDetailView: View {
         }
         .fullScreenCover(item: $arReady) { ready in
             StaticARScreen(url: ready.url, title: model.name)
+        }
+        .fullScreenCover(isPresented: $fullscreenPreview) {
+            if let url = embedURL {
+                FullscreenPreviewScreen(url: url, title: model.name)
+            }
         }
         .sheet(isPresented: $showShare) {
             ShareSheet(items: ["Check out this 3D model: \(model.name)", URL(string: model.viewerUrl)!])

@@ -154,3 +154,4 @@
 "Preparing character…" = "캐릭터 준비 중…";
 "Source" = "원본";
 "Step %lld of 3" = "%lld/3단계";
+"Drag to rotate, pinch to zoom" = "드래그로 회전, 핀치로 확대";
