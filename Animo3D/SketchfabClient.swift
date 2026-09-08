@@ -102,14 +102,22 @@ final class SketchfabClient {
     }
 
     /// Download USDZ to cache directory (named by uid, reuses if already exists). Returns local file URL.
-    /// onProgress returns 0…1 download progress (on main thread), used to show progress bar.
-    func downloadUSDZ(uid: String, onProgress: ((Double) -> Void)? = nil) async throws -> URL {
+    /// Reports download progress on the main thread as `(received, total)` bytes.
+    ///
+    /// `total` is nil when the server does not say - Sketchfab hands out an S3 redirect, and without
+    /// a Content-Length `totalBytesExpectedToWrite` is -1. The old callback reported a single 0…1
+    /// fraction and simply returned early in that case, so the ring sat at 0% for the whole download
+    /// and then jumped to 100%. The caller needs to know the difference to show something honest.
+    func downloadUSDZ(uid: String, onProgress: ((Int64, Int64?) -> Void)? = nil) async throws -> URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let dir = caches.appendingPathComponent("sketchfab_usdz", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let dest = dir.appendingPathComponent("\(uid).usdz")
         if FileManager.default.fileExists(atPath: dest.path) {
-            onProgress?(1)
+            // Already cached: report it complete against its own size, so the caller shows 100%
+            // rather than a fraction of an unknown total.
+            let n = (try? FileManager.default.attributesOfItem(atPath: dest.path)[.size] as? Int64) ?? 0
+            onProgress?(n ?? 0, n ?? 0)
             return dest
         }
 
@@ -122,7 +130,8 @@ final class SketchfabClient {
         guard (200...299).contains(code) else { throw SketchfabError.httpError(code) }
         try? FileManager.default.removeItem(at: dest)
         try FileManager.default.moveItem(at: tmp, to: dest)
-        onProgress?(1)
+        let n = (try? FileManager.default.attributesOfItem(atPath: dest.path)[.size] as? Int64) ?? 0
+        onProgress?(n ?? 0, n ?? 0)
         return dest
     }
 
@@ -193,16 +202,17 @@ final class SketchfabClient {
 
 /// Download progress delegate: callbacks 0…1 progress to main thread (for progress bar).
 private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
-    private let onProgress: (Double) -> Void
-    init(onProgress: @escaping (Double) -> Void) { self.onProgress = onProgress }
+    private let onProgress: (Int64, Int64?) -> Void
+    init(onProgress: @escaping (Int64, Int64?) -> Void) { self.onProgress = onProgress }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didWriteData bytesWritten: Int64,
                     totalBytesWritten: Int64,
                     totalBytesExpectedToWrite: Int64) {
-        guard totalBytesExpectedToWrite > 0 else { return }
-        let p = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
-        DispatchQueue.main.async { self.onProgress(min(max(p, 0), 1)) }
+        // -1 is NSURLSessionTransferSizeUnknown: reported as nil rather than swallowed, so the UI
+        // can show bytes received instead of a fraction that would be a lie.
+        let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil
+        DispatchQueue.main.async { self.onProgress(totalBytesWritten, total) }
     }
 
     // When using async download(for:delegate:), the file is returned by system API, no need to handle saving here.

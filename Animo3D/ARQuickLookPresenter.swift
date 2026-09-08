@@ -15,15 +15,26 @@ final class ARQuickLookPresenter: NSObject, QLPreviewControllerDataSource {
     static let shared = ARQuickLookPresenter()
     private var item: PreviewItem?   // Needs a strong reference: QLPreviewController's dataSource is weak
 
-    /// A downloaded local USDZ -> lightweight in-app 3D preview (opaque at runtime, low memory).
-    /// High-memory devices (4GB+) additionally get an "AR" button in the preview that jumps to the system Quick Look for real-world placement;
-    /// low-memory devices (such as the 3GB iPhone X) do not offer AR, so a heavy model plus AR cannot blow past the memory limit and reboot the device.
+    /// A downloaded local USDZ -> lightweight in-app 3D preview, with an "AR" button that hands off
+    /// to the system Quick Look for real-world placement.
+    ///
+    /// The AR button used to be hidden entirely below 4GB of RAM, which meant every 3GB device -
+    /// an iPhone X, XR or 8, i.e. exactly the iOS 16 phones this build still supports - had no way
+    /// to reach AR from the community feed at all. "AR does not show up" was that gate, not a
+    /// failure.
+    ///
+    /// The gate was protecting against a real crash, but it was aimed at the wrong thing: what
+    /// blows past the memory limit and reboots the phone is `USDZOpacityFixer`'s **re-export**,
+    /// which loads the whole textured model and re-encodes it. That function already refuses to run
+    /// below 4GB or above 20MB on its own - its comment even says slight translucency beats
+    /// rebooting the phone - so the safe split is to always offer AR and let the fixer decide for
+    /// itself whether to touch the file.
     func presentPreview(url: URL, title: String) {
-        let ram = ProcessInfo.processInfo.physicalMemory
-        let onAR: (() -> Void)? = ram >= 4_000_000_000 ? { [weak self] in
-            let display = USDZOpacityFixer.makeOpaqueIfNeeded(url)   // Only high-memory devices re-export
+        let onAR: (() -> Void)? = { [weak self] in
+            // No-op on low-memory devices and large files; see USDZOpacityFixer.
+            let display = USDZOpacityFixer.makeOpaqueIfNeeded(url)
             self?.present(url: display, title: title)
-        } : nil
+        }
         let host = UIHostingController(rootView:
             ModelPreviewView(url: url, title: title, onOpenAR: onAR))
         host.modalPresentationStyle = .fullScreen

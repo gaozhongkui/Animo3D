@@ -125,7 +125,7 @@ struct ARCharacterView: UIViewRepresentable {
 
         func setup(_ arView: ARSCNView) {
             self.arView = arView
-            addLights(to: arView)
+            ARPlacement.addLights(to: arView)
             onAttach?()
 
             guard let root = controller.characterRoot else {
@@ -140,18 +140,20 @@ struct ARCharacterView: UIViewRepresentable {
             c.scale = SCNVector3(s, s, s)
             c.addChildNode(root)
             // The feet land at the container origin (so the feet are on the ground when placed, not buried in the floor)
-            let minY = lowestY(of: root, in: c)
+            let minY = ARPlacement.lowestY(of: root, in: c)
             if minY.isFinite {
                 root.simdPosition.y -= minY
                 groundOffset = minY
             }
             container = c
-            addShadowCatcher(to: c, height: h)
+            ARPlacement.addShadowCatcher(to: c, size: h)
 
             if detectGround {
                 c.isHidden = true          // Display only after placement; don't attach to scene yet, attach to anchor node during placement
                 placed = false
-                addReticle(arView)
+                let r = ARPlacement.makeReticle()
+                arView.scene.rootNode.addChildNode(r)
+                reticle = r
             } else {
                 c.simdPosition = simd_float3(0, -0.8, -1.6)
                 c.isHidden = false
@@ -162,76 +164,8 @@ struct ARCharacterView: UIViewRepresentable {
             print("[AR] model ready height=\(h) scale=\(s) groundOffset=\(minY) detectGround=\(detectGround)")
         }
 
-        /// A modest, predictable rig. Environment texturing needs an A12 and a settled probe, so
-        /// without these the character can come out black on older devices or right after launch.
-        private func addLights(to arView: ARSCNView) {
-            guard arView.scene.rootNode.childNode(withName: "ar_lights", recursively: false) == nil else { return }
-            let holder = SCNNode()
-            holder.name = "ar_lights"
 
-            let ambient = SCNNode()
-            ambient.light = SCNLight()
-            ambient.light?.type = .ambient
-            ambient.light?.intensity = 260
-            holder.addChildNode(ambient)
 
-            let sun = SCNNode()
-            let l = SCNLight()
-            l.type = .directional
-            l.intensity = 420
-            // Always on here, unlike the screen stage: without the contact shadow the character
-            // does not read as standing on the real floor at all.
-            l.castsShadow = true
-            l.shadowMode = .deferred
-            l.shadowColor = UIColor(white: 0, alpha: 0.4)
-            l.shadowRadius = 6
-            l.shadowSampleCount = DeviceTier.shadowSampleCount
-            sun.light = l
-            sun.eulerAngles = SCNVector3(-Float.pi / 2.4, Float.pi / 10, 0)
-            holder.addChildNode(sun)
-
-            arView.scene.rootNode.addChildNode(holder)
-        }
-
-        /// An invisible disc under the feet that exists only to catch the character's shadow.
-        ///
-        /// The rig already casts one, but after placement the only other geometry in the scene -
-        /// the detected plane visualisations - is hidden, so the shadow fell on nothing and the
-        /// character read as a sticker floating over the camera feed. Writing no colour keeps the
-        /// real floor visible through it while still receiving the shadow.
-        private func addShadowCatcher(to container: SCNNode, height h: Float) {
-            let size = CGFloat(max(h, 0.8) * 1.8)
-            let plane = SCNPlane(width: size, height: size)
-            let m = plane.firstMaterial!
-            m.lightingModel = .constant
-            m.diffuse.contents = UIColor.white
-            m.colorBufferWriteMask = []
-            m.writesToDepthBuffer = false
-            let node = SCNNode(geometry: plane)
-            node.eulerAngles.x = -Float.pi / 2
-            node.castsShadow = false
-            node.renderingOrder = -10
-            container.addChildNode(node)
-        }
-
-        /// Yaw the placement so the character looks at the viewer.
-        ///
-        /// A horizontal raycast returns a transform aligned to the world axes, not to wherever the
-        /// user happens to be standing, so the character was just as likely to be placed with its
-        /// back turned. Only the Y rotation is taken - tilting a dancer would look wrong.
-        private func facingCamera(_ hit: simd_float4x4, from camera: simd_float4x4) -> simd_float4x4 {
-            let target = simd_float3(hit.columns.3.x, hit.columns.3.y, hit.columns.3.z)
-            let eye = simd_float3(camera.columns.3.x, camera.columns.3.y, camera.columns.3.z)
-            var d = eye - target
-            d.y = 0
-            guard simd_length(d) > 1e-4 else { return hit }
-            // The character faces +Z once normalizeOrientation has squared it up, which is why the
-            // screen stage parks its camera on the +Z side.
-            let yaw = atan2(d.x, d.z)
-            var t = matrix_identity_float4x4
-            t.columns.3 = hit.columns.3
-            return t * simd_float4x4(simd_quatf(angle: yaw, axis: simd_float3(0, 1, 0)))
-        }
 
         /// ARSCNViewDelegate callbacks arrive on SceneKit's renderer thread, so the placement result
         /// has to be handed back on the main thread. Calling straight through left SwiftUI state set
@@ -271,49 +205,7 @@ struct ARCharacterView: UIViewRepresentable {
             controller.reattachToScreenScene()
         }
 
-        // MARK: Reticle
-        private func addReticle(_ arView: ARSCNView) {
-            let ring = SCNTorus(ringRadius: 0.14, pipeRadius: 0.006)
-            ring.firstMaterial?.diffuse.contents = UIColor.systemGreen
-            ring.firstMaterial?.lightingModel = .constant
-            let node = SCNNode(geometry: ring)
-            let dot = SCNNode(geometry: SCNSphere(radius: 0.012))
-            dot.geometry?.firstMaterial?.diffuse.contents = UIColor.systemGreen
-            dot.geometry?.firstMaterial?.lightingModel = .constant
-            node.addChildNode(dot)
-            node.isHidden = true
-            arView.scene.rootNode.addChildNode(node)
-            reticle = node
-        }
 
-        /// Floor distances that count as a place someone meant to point at.
-        ///
-        /// An `.estimatedPlane` raycast with few feature points will happily return a hit tens of
-        /// metres away, and placing there put the character somewhere the user never aimed - it then
-        /// reads as "I tapped far away and it appeared right in front", because a character 30m off
-        /// is a speck and the next tap lands somewhere else entirely. Anything outside this range is
-        /// treated as no hit at all.
-        private static let placementRange: ClosedRange<Float> = 0.35...6.0
-
-        /// One raycast, used by both the reticle and the tap, so what the reticle shows is exactly
-        /// where a tap lands. They used to differ - the reticle only ever asked for an estimated
-        /// plane while the tap preferred real plane geometry - so the two could resolve to different
-        /// surfaces at different distances.
-        private func floorHit(at point: CGPoint, in arView: ARSCNView) -> ARRaycastResult? {
-            let targets: [ARRaycastQuery.Target] = [.existingPlaneGeometry, .estimatedPlane]
-            guard let camera = arView.session.currentFrame?.camera.transform else { return nil }
-            let eye = simd_float3(camera.columns.3.x, camera.columns.3.y, camera.columns.3.z)
-
-            for target in targets {
-                guard let q = arView.raycastQuery(from: point, allowing: target, alignment: .horizontal),
-                      let hit = arView.session.raycast(q).first else { continue }
-                let p = simd_float3(hit.worldTransform.columns.3.x,
-                                    hit.worldTransform.columns.3.y,
-                                    hit.worldTransform.columns.3.z)
-                if Self.placementRange.contains(simd_distance(p, eye)) { return hit }
-            }
-            return nil
-        }
 
         /// Each frame, attach the reticle to the ground under the screen centre.
         ///
@@ -322,7 +214,7 @@ struct ARCharacterView: UIViewRepresentable {
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
             guard detectGround, !placed, let arView, let reticle else { return }
             let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
-            guard let hit = floorHit(at: center, in: arView) else {
+            guard let hit = ARPlacement.floorHit(at: center, in: arView) else {
                 reticle.isHidden = true
                 hasFloor = false
                 return
@@ -332,26 +224,9 @@ struct ARCharacterView: UIViewRepresentable {
             hasFloor = true
         }
 
-        private func lowestY(of root: SCNNode, in c: SCNNode) -> Float {
-            var minY = Float.greatestFiniteMagnitude
-            root.enumerateHierarchy { node, _ in
-                guard node.geometry != nil else { return }
-                let (a, b) = node.boundingBox
-                for x in [Float(a.x), Float(b.x)] { for y in [Float(a.y), Float(b.y)] { for z in [Float(a.z), Float(b.z)] {
-                    let p = node.simdConvertPosition(simd_float3(x, y, z), to: c)
-                    minY = min(minY, p.y)
-                }}}
-            }
-            return minY
-        }
 
         // MARK: Gesture Handlers
 
-        /// How far the character may be scaled, as a multiple of the size it was placed at.
-        ///
-        /// Unbounded before: a pinch could shrink it to nothing or blow it up past the far plane,
-        /// with no way back other than replacing it.
-        private static let scaleRange: ClosedRange<Float> = 0.35...3.0
 
         @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
             guard let container, placed else { return }
@@ -362,8 +237,8 @@ struct ARCharacterView: UIViewRepresentable {
                 return
             }
             let proposed = container.simdScale.x * Float(g.scale)
-            let clamped = min(max(proposed, placedScale * Self.scaleRange.lowerBound),
-                              placedScale * Self.scaleRange.upperBound)
+            let clamped = min(max(proposed, placedScale * ARPlacement.scaleRange.lowerBound),
+                              placedScale * ARPlacement.scaleRange.upperBound)
             container.simdScale = simd_float3(repeating: clamped)
             g.scale = 1.0                       // incremental
         }
@@ -404,7 +279,7 @@ struct ARCharacterView: UIViewRepresentable {
                 return
             }
             let pt = g.location(in: arView)
-            guard let hit = floorHit(at: pt, in: arView) else {
+            guard let hit = ARPlacement.floorHit(at: pt, in: arView) else {
                 // Silent before: a tap that found nothing printed to the console and the user was
                 // left tapping a screen that never responded.
                 print("[AR] tap at \(pt) found no floor within range")
@@ -412,7 +287,7 @@ struct ARCharacterView: UIViewRepresentable {
                 return
             }
             let camera = arView.session.currentFrame?.camera.transform ?? matrix_identity_float4x4
-            let transform = facingCamera(hit.worldTransform, from: camera)
+            let transform = ARPlacement.facingCamera(hit.worldTransform, from: camera)
 
             if placed, let container {
                 // Position and yaw only. Assigning `simdWorldTransform` also wrote the matrix's
