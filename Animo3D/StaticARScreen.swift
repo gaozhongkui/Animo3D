@@ -32,6 +32,7 @@ struct StaticARScreen: View {
     /// True while Apple's scanning overlay owns the screen. Everything of the app's own hides -
     /// the overlay is full-screen, and two sets of instructions at once is worse than either.
     @State private var coaching = true
+    @State private var loadFailed = false
     @State private var trackingHint: String?
     /// Which way the model is being shown. AR by default; the turntable is one tap away, and works
     /// on devices and in situations where AR does not.
@@ -44,19 +45,23 @@ struct StaticARScreen: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            StaticARView(url: url,
-                         mode: mode,
-                         onPlaced: { placed = true },
-                         onPlacementMissed: { flashMiss() },
-                         onTapped: { retireCoach() },
-                         onCoaching: { coaching = $0 },
-                         onTrackingHint: { trackingHint = $0 },
-                         holder: holder)
-                // Rebuilds the whole view when the mode changes, the way the dance stage swaps its
-                // AR and screen renderers. The two set the scene up differently enough that
-                // mutating one into the other would leave a session running with nothing to place.
-                .id(mode)
-                .ignoresSafeArea()
+            if mode == .ar {
+                StaticARView(url: url,
+                             onPlaced: { placed = true },
+                             onPlacementMissed: { flashMiss() },
+                             onTapped: { retireCoach() },
+                             onCoaching: { coaching = $0 },
+                             onTrackingHint: { trackingHint = $0 },
+                             onLoadFailed: { loadFailed = true },
+                             holder: holder)
+                    .ignoresSafeArea()
+            } else {
+                // A plain SCNView. See TurntableView for why it cannot be the ARSCNView.
+                TurntableView(url: url,
+                              onLoaded: { ok in placed = ok; loadFailed = !ok; coaching = false },
+                              holder: holder)
+                    .ignoresSafeArea()
+            }
 
             // Own guidance only once Apple's is done: it covers scanning, this covers the tap.
             if mode == .ar && !placed && showCoach && !coaching {
@@ -79,6 +84,20 @@ struct StaticARScreen: View {
                         .padding(.bottom, 150)
                 }
                 .transition(.opacity)
+                .allowsHitTesting(false)
+            }
+
+            if loadFailed {
+                VStack(spacing: 10) {
+                    Image(systemName: "cube.transparent")
+                        .font(.system(size: 34))
+                        .foregroundStyle(.white.opacity(0.5))
+                    Text("This model could not be opened")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                }
                 .allowsHitTesting(false)
             }
 

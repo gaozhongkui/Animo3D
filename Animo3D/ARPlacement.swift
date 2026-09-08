@@ -58,6 +58,63 @@ enum ARPlacement {
         return nil
     }
 
+    /// Loads a community model and gets it ready to show, wherever it is going to be shown.
+    ///
+    /// Both the AR screen and the turntable need exactly this sequence, and it is a sequence where
+    /// order matters - textures capped before anything touches the GPU, the backdrop dropped before
+    /// the scale is measured from what is left. Having it in one place is what stops the two paths
+    /// from disagreeing about what the model is, which is the whole point of being able to compare
+    /// them when something looks wrong.
+    ///
+    /// Returns a container node whose origin is the model's footprint centre at floor level, so the
+    /// caller can drop it straight onto a plane or onto the turntable's origin.
+    static func loadCommunityModel(url: URL, fitting targetSize: Float) -> SCNNode? {
+        guard let loaded = try? SCNScene(url: url, options: [.convertToYUp: true]) else {
+            print("[CommunityModel] cannot open \(url.lastPathComponent)")
+            return nil
+        }
+        let model = SCNNode()
+        for child in loaded.rootNode.childNodes { model.addChildNode(child) }
+
+        // Whatever the author baked in, on a loop. An imported clip plays once and stops, which for
+        // an idle reads as the model freezing a few seconds after it appears.
+        var clips = 0
+        model.enumerateHierarchy { node, _ in
+            for key in node.animationKeys {
+                guard let player = node.animationPlayer(forKey: key) else { continue }
+                player.animation.repeatCount = .greatestFiniteMagnitude
+                player.animation.autoreverses = false
+                player.play()
+                clips += 1
+            }
+        }
+
+        let cap = DeviceTier.isLowEnd ? 512 : 1024
+        let shrunk = shrinkTextures(in: model, maxPixel: cap)
+        let dropped = stripBackdrops(from: model)
+
+        let container = SCNNode()
+        container.addChildNode(model)
+
+        let (lo, hi) = visibleBounds(of: model, in: container)
+        let extent = hi - lo
+        let longest = max(extent.x, max(extent.y, extent.z))
+        if longest > 0.0001 {
+            let scale = targetSize / longest
+            model.simdScale = simd_float3(repeating: scale)
+            model.simdPosition.y -= lo.y * scale
+            // Centre the footprint on the origin too, so it does not stand off to one side of
+            // wherever it was placed.
+            model.simdPosition.x -= (lo.x + hi.x) / 2 * scale
+            model.simdPosition.z -= (lo.z + hi.z) / 2 * scale
+        }
+
+        print("[CommunityModel] \(url.lastPathComponent): \(clips) clip(s), "
+              + "\(shrunk) texture(s) capped at \(cap)px, \(dropped) backdrop(s) dropped, "
+              + "fitted to \(targetSize)m")
+        return container
+    }
+
     /// Caps the texture resolution of a community model, in place.
     ///
     /// This is the other half of "animated community models come up blank", and the half that only

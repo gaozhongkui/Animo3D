@@ -209,13 +209,23 @@ final class SketchfabClient {
             return try await performFetch(url: url)
         }
 
-        // Construct initial URL
-        var components = URLComponents(string: "https://api.sketchfab.com/v3/models")!
+        // Text search and plain browsing are different endpoints.
+        //
+        // `/v3/models` lists and filters; it accepts a `q` but does not rank by it, so searching
+        // through it returned nonsense - asking for "Black Dragon with Idle Animation" came back
+        // with "Shapes for construction" and "09092022_DAndrea_P2_Plan_02", zero likes each. The
+        // search field looked broken because every result was unrelated to what was typed.
+        // `/v3/search?type=models` is the ranked one, and returns that dragon as the first hit.
+        let isSearching = !(query ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+        let endpoint = isSearching ? "https://api.sketchfab.com/v3/search"
+                                   : "https://api.sketchfab.com/v3/models"
+        var components = URLComponents(string: endpoint)!
         var queryItems = [
             URLQueryItem(name: "type", value: "models"),
-            URLQueryItem(name: "downloadable", value: "true"),
-            URLQueryItem(name: "sort_by", value: "-likeCount")
+            URLQueryItem(name: "downloadable", value: "true")
         ]
+        // Relevance is the right order for a search; popularity is the right order for a browse.
+        if !isSearching { queryItems.append(URLQueryItem(name: "sort_by", value: "-likeCount")) }
 
         // Handle category filtering (using categories parameter supported by official API)
         let categoryMap: [String: String] = [

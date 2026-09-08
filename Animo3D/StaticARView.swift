@@ -52,12 +52,17 @@ struct StaticARView: UIViewRepresentable {
     var onCoaching: ((Bool) -> Void)? = nil
     /// A short reason tracking is unhealthy, or nil when it is fine.
     var onTrackingHint: ((String?) -> Void)? = nil
+    /// The model could not be opened. Reported rather than swallowed: before this the screen simply
+    /// stayed empty with a reticle and no explanation, which is indistinguishable from "AR is
+    /// broken" to the person holding the phone.
+    var onLoadFailed: (() -> Void)? = nil
     var holder: SceneHolder? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(url: url, targetHeight: targetHeight, onPlaced: onPlaced,
                     onPlacementMissed: onPlacementMissed, onTapped: onTapped,
-                    onCoaching: onCoaching, onTrackingHint: onTrackingHint)
+                    onCoaching: onCoaching, onTrackingHint: onTrackingHint,
+                    onLoadFailed: onLoadFailed)
     }
 
     func makeUIView(context: Context) -> ARSCNView {
@@ -81,16 +86,6 @@ struct StaticARView: UIViewRepresentable {
             let pan = UIPanGestureRecognizer(target: c, action: #selector(Coordinator.handlePan(_:)))
             pan.maximumNumberOfTouches = 1
             arView.addGestureRecognizer(pan)
-        } else {
-            // Either the user asked for the turntable, or this device has no ARKit - which includes
-            // the Simulator, where `isSupported` is false, no session runs, there is no camera feed
-            // and none of the gesture recognisers above are even registered. Without this branch
-            // the screen was blank forever: the model starts hidden and is only revealed on
-            // placement, which can never happen.
-            //
-            // `ARSCNView` is an `SCNView`, so it renders an ordinary scene perfectly well; the
-            // model sits at the origin and spins instead of standing on a real floor.
-            context.coordinator.showTurntable(in: arView)
         }
 
         holder?.scnView = arView
@@ -112,6 +107,7 @@ struct StaticARView: UIViewRepresentable {
         private let onTapped: (() -> Void)?
         private let onCoaching: ((Bool) -> Void)?
         private let onTrackingHint: ((String?) -> Void)?
+        private let onLoadFailed: (() -> Void)?
 
         private weak var arView: ARSCNView?
         private var container: SCNNode?
@@ -124,7 +120,8 @@ struct StaticARView: UIViewRepresentable {
 
         init(url: URL, targetHeight: Float, onPlaced: (() -> Void)?,
              onPlacementMissed: (() -> Void)?, onTapped: (() -> Void)?,
-             onCoaching: ((Bool) -> Void)?, onTrackingHint: ((String?) -> Void)?) {
+             onCoaching: ((Bool) -> Void)?, onTrackingHint: ((String?) -> Void)?,
+             onLoadFailed: (() -> Void)?) {
             self.url = url
             self.targetHeight = targetHeight
             self.onPlaced = onPlaced
@@ -132,70 +129,16 @@ struct StaticARView: UIViewRepresentable {
             self.onTapped = onTapped
             self.onCoaching = onCoaching
             self.onTrackingHint = onTrackingHint
+            self.onLoadFailed = onLoadFailed
         }
 
         func setup(_ arView: ARSCNView) {
             self.arView = arView
             ARPlacement.addLights(to: arView)
 
-            guard let loaded = try? SCNScene(url: url, options: [.convertToYUp: true]) else {
-                print("[StaticAR] cannot open \(url.lastPathComponent)")
+            guard let c = ARPlacement.loadCommunityModel(url: url, fitting: targetHeight) else {
+                onLoadFailed?()
                 return
-            }
-            let model = SCNNode()
-            for child in loaded.rootNode.childNodes { model.addChildNode(child) }
-
-            // Play whatever the author baked in, on a loop.
-            //
-            // This used to call `removeAllAnimations()`, on the assumption behind this file's name:
-            // community models are the rigless ones, the dancing is our retargeter's job. That is
-            // wrong for a large slice of the feed - "Black Dragon with Idle Animation" arrives with
-            // a 696-bone skeleton and a clip called `Dragon_Idle`, and stripping it left a model
-            // standing frozen when the animation is the thing the user picked it for. It costs
-            // nothing to keep: it is the author's own clip driving the author's own skeleton, with
-            // no retargeting involved.
-            //
-            // The loop has to be set explicitly - an imported clip plays once and then stops, which
-            // for an idle reads as the model freezing a few seconds after it appears.
-            model.enumerateHierarchy { n, _ in
-                for key in n.animationKeys {
-                    guard let player = n.animationPlayer(forKey: key) else { continue }
-                    player.animation.repeatCount = .greatestFiniteMagnitude
-                    player.animation.autoreverses = false
-                    player.play()
-                }
-            }
-
-            // First, before anything touches the GPU: a community model's textures are whatever
-            // the author exported, and 2048s add up to more memory than a phone running ARKit has
-            // to spare. 1024 on a normal device, 512 where memory is already tight.
-            let cap = DeviceTier.isLowEnd ? 512 : 1024
-            let shrunk = ARPlacement.shrinkTextures(in: model, maxPixel: cap)
-            if shrunk > 0 { print("[StaticAR] capped \(shrunk) texture(s) at \(cap)px") }
-
-            // Then: a backdrop slab would both drive the scale and then sit on the real floor as a
-            // dark plate.
-            let stripped = ARPlacement.stripBackdrops(from: model)
-            if stripped > 0 { print("[StaticAR] dropped \(stripped) backdrop mesh(es)") }
-
-            let c = SCNNode()
-            c.addChildNode(model)
-
-            // Fit inside a `targetHeight` cube, then sit the base on the container origin. Both
-            // steps measure the model rather than trusting the file's declared units: community
-            // USDZs routinely say centimetres and mean something else.
-            //
-            // The divisor is the *largest* axis, not the height. Normalising height alone is fine
-            // for a person, whose height is their largest axis anyway, but a dragon is far wider
-            // than it is tall - making it a metre tall gave it a 3.6 m wingspan, which does not
-            // fit in a room. "Fits in a 1 m cube" holds for both.
-            let (lo, hi) = ARPlacement.visibleBounds(of: model, in: c)
-            let extent = hi - lo
-            let longest = max(extent.x, max(extent.y, extent.z))
-            if longest > 0.0001 {
-                let s = targetHeight / longest
-                model.simdScale = simd_float3(repeating: s)
-                model.simdPosition.y -= lo.y * s
             }
             container = c
             ARPlacement.addShadowCatcher(to: c, size: targetHeight)
@@ -204,35 +147,6 @@ struct StaticARView: UIViewRepresentable {
             let r = ARPlacement.makeReticle()
             arView.scene.rootNode.addChildNode(r)
             reticle = r
-        }
-
-        /// Show the model on a slow turntable, for when there is no AR session to place it in.
-        func showTurntable(in arView: ARSCNView) {
-            guard let container else { return }
-            reticle?.removeFromParentNode(); reticle = nil
-
-            container.isHidden = false
-            container.simdPosition = .zero
-            arView.scene.rootNode.addChildNode(container)
-
-            let camera = SCNNode()
-            camera.camera = SCNCamera()
-            camera.camera?.zNear = 0.01
-            // Framed off the model's own size, so a dragon and a figurine are both in shot.
-            let reach = max(targetHeight, 0.1) * 1.9
-            camera.simdPosition = simd_float3(0, targetHeight * 0.55, reach)
-            camera.look(at: SCNVector3(0, targetHeight * 0.38, 0))
-            arView.scene.rootNode.addChildNode(camera)
-            arView.pointOfView = camera
-            arView.backgroundColor = .black
-            arView.allowsCameraControl = true      // drag to look around, since there is no walking
-
-            container.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 18)))
-
-            placed = true                          // the shutter and the recorder behave as normal
-            if Thread.isMainThread { onPlaced?() }
-            else { DispatchQueue.main.async { self.onPlaced?() } }
-            onCoaching?(false)
         }
 
         // MARK: Session health
