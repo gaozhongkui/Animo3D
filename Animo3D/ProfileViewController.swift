@@ -5,6 +5,7 @@
 //  Me page: Clean, modern gallery style with a premium feel.
 //
 
+import SafariServices
 import UIKit
 import SwiftUI
 
@@ -178,7 +179,17 @@ final class ProfileViewController: UIViewController {
         snap.appendItems([
             .setting(id: "pro", icon: "crown.fill", color: 0xFF9500, title: L("Subscription"), subtitle: L("Manage Perks")),
             .setting(id: "cache", icon: "trash.fill", color: 0xFF3B30, title: L("Clear Cache"), subtitle: StorageManager.getCacheSize()),
-            .setting(id: "about", icon: "info.circle.fill", color: 0x007AFF, title: L("About Livo"), subtitle: "v1.0.0"),
+            // Legal, reachable from the profile as well as from the paywall. App Review wants
+            // both documents findable from inside the app, and a user looking for them looks in
+            // settings, not on a purchase screen they may never open.
+            .setting(id: "terms", icon: "doc.text.fill", color: 0x5856D6,
+                     title: L("Terms of Service"), subtitle: ""),
+            .setting(id: "privacy", icon: "hand.raised.fill", color: 0x34C759,
+                     title: L("Privacy Policy"), subtitle: ""),
+            // Version read from the bundle. It was the literal "v1.0.0", which stops being true at
+            // the first release and is exactly the field a user quotes in a bug report.
+            .setting(id: "about", icon: "info.circle.fill", color: 0x007AFF,
+                     title: L("About Livo"), subtitle: Self.versionString),
         ], toSection: .more)
         dataSource.apply(snap, animatingDifferences: false)
     }
@@ -197,6 +208,26 @@ final class ProfileViewController: UIViewController {
         let host = UIHostingController(rootView: PaywallView { [weak self] in self?.dismiss(animated: true) })
         present(host, animated: true)
     }
+
+    static let termsURL = URL(string: "https://sites.google.com/view/livo3dtermsofservice")!
+    static let privacyURL = URL(string: "https://sites.google.com/view/livo3dprivacypolicy")!
+
+    static var versionString: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "v\(short) (\(build))"
+    }
+
+    /// Legal pages open in a Safari sheet rather than being handed to the Safari app. Leaving the
+    /// app to read the terms and having to find your way back is a worse trip than a sheet you
+    /// dismiss, and `SFSafariViewController` gets the reader-mode, share and font controls for free.
+    private func openLegal(_ url: URL) {
+        HapticManager.light()
+        let vc = SFSafariViewController(url: url)
+        vc.preferredControlTintColor = .systemBlue
+        present(vc, animated: true)
+    }
 }
 
 extension ProfileViewController: UICollectionViewDelegate {
@@ -207,11 +238,24 @@ extension ProfileViewController: UICollectionViewDelegate {
         case .pro: openPaywall()
         case .work(let url): openWork(url)
         case .setting(let id, _, _, _, _):
-            if id == "cache" {
+            // Every row now does something. "pro" and "about" were both dead taps: the switch only
+            // ever handled "cache", so two of the three rows looked interactive and were not.
+            switch id {
+            case "cache":
                 HapticManager.medium()
                 StorageManager.clearCache()
                 HapticManager.success()
                 reload()
+            case "pro":
+                openPaywall()
+            case "terms":
+                openLegal(Self.termsURL)
+            case "privacy":
+                openLegal(Self.privacyURL)
+            case "about":
+                HapticManager.light()
+            default:
+                break
             }
         default: break
         }
@@ -227,6 +271,10 @@ private final class CleanHeaderCell: UICollectionViewCell {
     private let avatarGradient = CAGradientLayer()
     private let avatarSymbol = UIImageView(image: UIImage(systemName: "figure.dance"))
     private let glassOverlay = UIView()
+
+    private var worksValue: UILabel?
+    private var viewsValue: UILabel?
+    private var daysValue: UILabel?
 
     private let nameLabel = UILabel()
     private let bioLabel = UILabel()
@@ -325,14 +373,25 @@ private final class CleanHeaderCell: UICollectionViewCell {
     private func setupStats() {
         statsStack.axis = .horizontal; statsStack.distribution = .fillEqually; statsStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(statsStack)
-        statsStack.addArrangedSubview(statItem(v: "15", l: L("Works")))
-        statsStack.addArrangedSubview(statItem(v: "1.2k", l: L("Likes")))
-        statsStack.addArrangedSubview(statItem(v: "9", l: L("Days")))
+        // Built here and refilled in configure(): the cell is reused, and these change while the
+        // app is running - a new recording, another community model opened.
+        statsStack.addArrangedSubview(statItem(v: "0", l: L("Works"), ref: &worksValue))
+        statsStack.addArrangedSubview(statItem(v: "0", l: L("Viewed"), ref: &viewsValue))
+        statsStack.addArrangedSubview(statItem(v: "0", l: L("Days"), ref: &daysValue))
     }
 
-    private func statItem(v: String, l: String) -> UIView {
+    /// Fill in the real numbers. Called from configure, which runs on every reload, so opening the
+    /// tab after recording something shows the new count.
+    private func applyStats() {
+        worksValue?.text = UsageStats.works.formattedAbbreviated
+        viewsValue?.text = UsageStats.communityViews.formattedAbbreviated
+        daysValue?.text = String(UsageStats.daysActive)
+    }
+
+    private func statItem(v: String, l: String, ref: inout UILabel?) -> UIView {
         let view = UIView()
         let vL = UILabel(); vL.text = v; vL.font = .roundedFont(ofSize: 22, weight: .bold); vL.textAlignment = .center; vL.translatesAutoresizingMaskIntoConstraints = false
+        ref = vL
         let lL = UILabel(); lL.text = l; lL.font = .systemFont(ofSize: 12); lL.textColor = .secondaryLabel; lL.textAlignment = .center; lL.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(vL); view.addSubview(lL)
         NSLayoutConstraint.activate([
@@ -343,6 +402,7 @@ private final class CleanHeaderCell: UICollectionViewCell {
     }
     func configure(name: String, bio: String) {
         nameLabel.text = name; bioLabel.text = bio
+        applyStats()
     }
     required init?(coder: NSCoder) { fatalError() }
 }

@@ -23,10 +23,15 @@ import SceneKit
 struct StaticARView: UIViewRepresentable {
     /// A local USDZ (or SCN) file, already downloaded.
     let url: URL
-    /// Roughly how tall the model should stand, in metres. Community models arrive at wildly
-    /// different scales - some authored in centimetres, some the size of a building - so the file's
-    /// own units cannot be trusted and it is normalised to something a room can hold.
-    var targetHeight: Float = 1.0
+    /// How large the model may be, in metres, along its longest axis. Community models arrive at
+    /// wildly different scales - some authored in centimetres, some the size of a building - so the
+    /// file's own units cannot be trusted and it is normalised to something a room can hold.
+    ///
+    /// 1.6 m, not 1 m. At 1 m a person comes out waist-high and a wide creature comes out tiny: the
+    /// dragon's metre of wingspan left it 28 cm tall, which reads as a toy rather than as the thing
+    /// the user opened the model to see. 1.6 m puts a human at near life size and still fits a
+    /// dragon in a living room, and the pinch range either side of it spans 0.56 m to 4.8 m.
+    var targetHeight: Float = 1.6
     var onPlaced: (() -> Void)? = nil
     var onPlacementMissed: (() -> Void)? = nil
     /// Every tap on the view, whether or not it placed anything. `onPlaced` and
@@ -120,8 +125,32 @@ struct StaticARView: UIViewRepresentable {
             }
             let model = SCNNode()
             for child in loaded.rootNode.childNodes { model.addChildNode(child) }
-            model.removeAllAnimations()
-            model.enumerateChildNodes { n, _ in n.removeAllAnimations() }
+
+            // Play whatever the author baked in, on a loop.
+            //
+            // This used to call `removeAllAnimations()`, on the assumption behind this file's name:
+            // community models are the rigless ones, the dancing is our retargeter's job. That is
+            // wrong for a large slice of the feed - "Black Dragon with Idle Animation" arrives with
+            // a 696-bone skeleton and a clip called `Dragon_Idle`, and stripping it left a model
+            // standing frozen when the animation is the thing the user picked it for. It costs
+            // nothing to keep: it is the author's own clip driving the author's own skeleton, with
+            // no retargeting involved.
+            //
+            // The loop has to be set explicitly - an imported clip plays once and then stops, which
+            // for an idle reads as the model freezing a few seconds after it appears.
+            model.enumerateHierarchy { n, _ in
+                for key in n.animationKeys {
+                    guard let player = n.animationPlayer(forKey: key) else { continue }
+                    player.animation.repeatCount = .greatestFiniteMagnitude
+                    player.animation.autoreverses = false
+                    player.play()
+                }
+            }
+
+            // Before measuring anything: a backdrop slab would both drive the scale and then sit
+            // on the real floor as a dark plate.
+            let stripped = ARPlacement.stripBackdrops(from: model)
+            if stripped > 0 { print("[StaticAR] dropped \(stripped) backdrop mesh(es)") }
 
             let c = SCNNode()
             c.addChildNode(model)

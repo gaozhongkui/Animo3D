@@ -248,6 +248,12 @@ final class ModelCell: UICollectionViewCell {
         containerView.layer.shadowOpacity = 0.1
         containerView.layer.shadowOffset = CGSize(width: 0, height: 4)
         containerView.layer.shadowRadius = 10
+        // The shape is set in layoutSubviews. Leaving `shadowPath` nil makes Core Animation derive
+        // the shadow from the blurred alpha of the whole rendered subtree, which is why the cards
+        // did not all have the same shadow: it changed shape at the image's bottom edge, and it was
+        // recomputed whenever the layer's content changed - so a card's shadow visibly shifted the
+        // moment its thumbnail arrived. It is also an offscreen pass per cell, every frame of a
+        // scroll, for a shape that never varies.
 
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
@@ -301,6 +307,10 @@ final class ModelCell: UICollectionViewCell {
     override func layoutSubviews() {
         super.layoutSubviews()
         gradientLayer.frame = imageView.bounds
+        // One rounded rect, matching the card exactly, so every cell casts the same shadow no
+        // matter what is inside it or whether the image has loaded yet.
+        containerView.layer.shadowPath = UIBezierPath(roundedRect: containerView.bounds,
+                                                      cornerRadius: containerView.layer.cornerRadius).cgPath
     }
 
     func configure(with model: SketchfabModel) {

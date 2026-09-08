@@ -359,6 +359,11 @@ struct ModelDetailView: View {
             // problem - it pushed a page that fits into being scrollable.
             .scrollBounceBehavior(.basedOnSize)
         }
+        .onAppear {
+            // Counted here rather than on the list cell: appearing in a scrolling grid is not the
+            // same as looking at something, and the profile stat is meant to mean "models I looked at".
+            UsageStats.recordCommunityView()
+        }
         .fullScreenCover(item: $arReady) { ready in
             StaticARScreen(url: ready.url, title: model.name)
         }

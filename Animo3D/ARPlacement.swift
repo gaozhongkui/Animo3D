@@ -58,6 +58,69 @@ enum ARPlacement {
         return nil
     }
 
+    /// Removes the backdrop slabs authors bundle with their models.
+    ///
+    /// This is the rest of "the animated model shows up blank". Scaling was only half of it: with
+    /// the scale taken from the dragon's own skeleton, the *plane* the author parked it on - 3537
+    /// units across and 6 units thick, twelve triangles - came out as a 1.29 m dark plate with a
+    /// 28 cm dragon standing in the middle of it. Rendered offscreen it covers 8% of the frame and
+    /// almost all of that is plate; held up in a room at arm's length it is a dark slab lying on
+    /// the floor, and the thing the user came to see is a few centimetres tall on top of it.
+    ///
+    /// The test is deliberately narrow, because deleting geometry from someone's model is not
+    /// something to do on a hunch. A node has to be all four of:
+    ///
+    /// - part of a model that **has a skeleton** - the creature is the rigged part, so anything
+    ///   unrigged is scenery or a prop;
+    /// - **not skinned** itself;
+    /// - **flat** - its thinnest axis under 3% of its longest. The dragon's plane is 0.18%. A sword
+    ///   or a hat is nowhere near this;
+    /// - **as big as the creature** - at least 60% of the skeleton's own footprint. A prop held in
+    ///   a hand is a fraction of it.
+    ///
+    /// Nothing that describes a real part of a character passes all four.
+    @discardableResult
+    static func stripBackdrops(from root: SCNNode) -> Int {
+        var slo = simd_float3(repeating: .greatestFiniteMagnitude); var shi = -slo
+        var hasSkeleton = false
+        root.enumerateHierarchy { node, _ in
+            guard let skinner = node.skinner else { return }
+            for bone in skinner.bones {
+                let p = bone.simdConvertPosition(.zero, to: root)
+                slo = min(slo, p); shi = max(shi, p); hasSkeleton = true
+            }
+        }
+        guard hasSkeleton else { return 0 }
+        let rigFootprint = max(shi.x - slo.x, shi.z - slo.z)
+        guard rigFootprint > 0 else { return 0 }
+
+        // Collected first: removing nodes while enumerating the hierarchy mutates what is being
+        // walked.
+        var doomed: [SCNNode] = []
+        root.enumerateHierarchy { node, _ in
+            guard node.geometry != nil, node.skinner == nil else { return }
+            let (a, b) = node.boundingBox
+            var lo = simd_float3(repeating: .greatestFiniteMagnitude); var hi = -lo
+            for x in [Float(a.x), Float(b.x)] {
+                for y in [Float(a.y), Float(b.y)] {
+                    for z in [Float(a.z), Float(b.z)] {
+                        let p = node.simdConvertPosition(simd_float3(x, y, z), to: root)
+                        lo = min(lo, p); hi = max(hi, p)
+                    }
+                }
+            }
+            let e = hi - lo
+            let longest = max(e.x, max(e.y, e.z))
+            let thinnest = min(e.x, min(e.y, e.z))
+            guard longest > 0 else { return }
+            let isFlat = thinnest < longest * 0.03
+            let isAsBigAsTheCreature = max(e.x, e.z) >= rigFootprint * 0.6
+            if isFlat && isAsBigAsTheCreature { doomed.append(node) }
+        }
+        for node in doomed { node.removeFromParentNode() }
+        return doomed.count
+    }
+
     /// The session configuration both AR screens run.
     ///
     /// It was duplicated in each of them, which is how they drifted: neither ever asked for LiDAR
@@ -272,9 +335,12 @@ enum ARPlacement {
                 sawBones = true
             }
         }
-        if sawBones { return (lo, hi) }
+        // A skeleton whose bones are all coincident measures nothing, and the caller would then
+        // skip normalisation entirely and place the model at whatever scale the file declared.
+        if sawBones, simd_reduce_max(hi - lo) > 1e-4 { return (lo, hi) }
+        lo = simd_float3(repeating: .greatestFiniteMagnitude); hi = -lo
 
-        // No skeleton: the geometry boxes are the authored shape and are the right thing to read.
+        // No usable skeleton: the geometry boxes are the authored shape and the right thing to read.
         root.enumerateHierarchy { node, _ in
             guard node.geometry != nil else { return }
             let (a, b) = node.boundingBox
