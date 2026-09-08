@@ -306,11 +306,28 @@ final class ModelCell: UICollectionViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+
+        // Both of these are raw CALayer property changes, and CALayer animates those by default -
+        // `shadowPath` and `frame` each have a 0.25s implicit action. Set from inside a layout pass
+        // that the collection view is already animating (and `reloadData` gives every visible cell
+        // one), they animate too: the shadow grows into place and the gradient slides, every
+        // refresh. That is the shadow "changing size" - it was never the wrong size, it was
+        // interpolating to the right one in front of the user. UIKit sets no implicit animations on
+        // views, only on layers touched by hand, which is why nothing else in the cell does this.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+
         gradientLayer.frame = imageView.bounds
+
         // One rounded rect, matching the card exactly, so every cell casts the same shadow no
         // matter what is inside it or whether the image has loaded yet.
-        containerView.layer.shadowPath = UIBezierPath(roundedRect: containerView.bounds,
-                                                      cornerRadius: containerView.layer.cornerRadius).cgPath
+        let path = UIBezierPath(roundedRect: containerView.bounds,
+                                cornerRadius: containerView.layer.cornerRadius).cgPath
+        if containerView.layer.shadowPath != path {
+            containerView.layer.shadowPath = path
+        }
+
+        CATransaction.commit()
     }
 
     func configure(with model: SketchfabModel) {
