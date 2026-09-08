@@ -72,13 +72,15 @@ struct StaticARScreen: View {
 
                 Spacer()
 
-                // The shutter only appears once there is something to film. Offering it over an
-                // empty room would record a clip of the floor.
-                if placed {
-                    recordButton
-                        .padding(.bottom, 34)
-                        .transition(.opacity)
-                }
+                // Always present, the way the dance stage's shutter is. It used to appear only
+                // once `placed` was true, on the reasoning that filming an empty room is not worth
+                // a button - which was wrong twice over: it makes the control vanish exactly when
+                // placement is not working (no plane found, a room too dark, a community USDZ that
+                // failed to open), leaving a screen with no shutter and no explanation for why;
+                // and the user can see the viewfinder, so whether there is anything worth filming
+                // is their call, not this screen's.
+                recordButton
+                    .padding(.bottom, 34)
             }
         }
         .fullScreenCover(item: $finished) { work in

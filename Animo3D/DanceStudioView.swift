@@ -141,7 +141,7 @@ struct DanceStudioView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(titles[step.rawValue])
                         .font(.system(size: 20, weight: .bold, design: .rounded))
-                    Text("Step \(step.rawValue + 1) of 4")
+                    Text(String(format: L("Step %lld of 4"), step.rawValue + 1))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

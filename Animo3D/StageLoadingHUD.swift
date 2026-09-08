@@ -94,7 +94,7 @@ struct StageLoadingHUD: View {
             }
             .frame(width: 190, height: 5)
 
-            Text("\(Int(p * 100))%")
+            Text(String(format: L("%d%%"), Int(p * 100)))
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.7))
                 .monospacedDigit()

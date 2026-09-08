@@ -72,19 +72,25 @@ struct PaywallView: View {
                             }
                         }.padding(.horizontal, 24)
 
-                        // Price Hint
-                        if let product = lifetimeProduct {
-                            VStack(spacing: 4) {
-                                Text(product.displayPrice)
-                                    .font(.system(size: 28, weight: .black, design: .rounded))
-                                Text("One-time payment · Forever yours")
-                                    .font(.subheadline).foregroundStyle(.secondary)
+                        // Price, but only for someone who could still buy. An owner was being
+                        // shown a price - or, when StoreKit had nothing to offer, an "App Store
+                        // unavailable" error - for a thing they already own; and with the price
+                        // block gone the line landed under the bottom bar's translucent scrim and
+                        // showed through the button.
+                        if !store.isPro {
+                            if let product = lifetimeProduct {
+                                VStack(spacing: 4) {
+                                    Text(product.displayPrice)
+                                        .font(.system(size: 28, weight: .black, design: .rounded))
+                                    Text("One-time payment · Forever yours")
+                                        .font(.subheadline).foregroundStyle(.secondary)
+                                }
+                                .padding(.top, 10)
+                            } else if store.loadFailed {
+                                Text("App Store unavailable").foregroundStyle(.secondary)
+                            } else {
+                                ProgressView()
                             }
-                            .padding(.top, 10)
-                        } else if store.loadFailed {
-                            Text("App Store unavailable").foregroundStyle(.secondary)
-                        } else {
-                            ProgressView()
                         }
                     }
                     .padding(.bottom, 160)
@@ -108,38 +114,50 @@ struct PaywallView: View {
 
     private var purchaseArea: some View {
         VStack(spacing: 16) {
-            if store.isPro {
-                Label("Pro Version Unlocked", systemImage: "checkmark.seal.fill")
-                    .font(.headline).foregroundStyle(Color(rgb: 0x6366F1))
-                    .frame(maxWidth: .infinity).padding(.vertical, 18)
-                    .background(Color(rgb: 0x6366F1).opacity(0.1), in: Capsule())
-            } else {
-                Button {
-                    if let p = lifetimeProduct { Task { await store.purchase(p) } }
-                } label: {
-                    ZStack {
-                        if store.purchasingID != nil {
-                            ProgressView().tint(.white)
-                        } else {
-                            Text("Unlock Everything Forever").font(.headline)
-                        }
+            // One button in both states rather than a button swapped for a label. An owner who
+            // opens this screen should see the thing they would have tapped, greyed out and inert -
+            // that reads as "already yours". Replacing it with a differently shaped badge left
+            // people looking for the button, and the gradient CTA sitting next to a purple
+            // "unlocked" notice looked like it was still selling something.
+            Button {
+                guard !store.isPro, let p = lifetimeProduct else { return }
+                Task { await store.purchase(p) }
+            } label: {
+                ZStack {
+                    if store.purchasingID != nil {
+                        ProgressView().tint(.white)
+                    } else if store.isPro {
+                        Label("Pro Version Unlocked", systemImage: "checkmark.seal.fill")
+                            .font(.headline)
+                    } else {
+                        Text("Unlock Everything Forever").font(.headline)
                     }
-                    .foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 60)
-                    .background(LinearGradient(colors: [Color(rgb: 0x6366F1), Color(rgb: 0xA855F7)], startPoint: .leading, endPoint: .trailing))
-                    .clipShape(Capsule())
-                    .shadow(color: Color(rgb: 0x6366F1).opacity(0.4), radius: 15, y: 8)
                 }
-                .disabled(lifetimeProduct == nil || store.purchasingID != nil)
+                .foregroundStyle(store.isPro ? Color.secondary : Color.white)
+                .frame(maxWidth: .infinity).frame(height: 60)
+                .background(store.isPro
+                            ? AnyShapeStyle(Color(.tertiarySystemFill))
+                            : AnyShapeStyle(LinearGradient(colors: [Color(rgb: 0x6366F1), Color(rgb: 0xA855F7)],
+                                                           startPoint: .leading, endPoint: .trailing)))
+                .clipShape(Capsule())
+                // No glow on the grey state: a shadow is what makes a control look pressable.
+                .shadow(color: store.isPro ? .clear : Color(rgb: 0x6366F1).opacity(0.4), radius: 15, y: 8)
+            }
+            .disabled(store.isPro || lifetimeProduct == nil || store.purchasingID != nil)
 
-                HStack(spacing: 20) {
+            // Terms and Privacy stay reachable in both states - App Store review expects them on
+            // the purchase screen whether or not this particular user has bought yet. Restore is
+            // the only part that goes: there is nothing left to restore.
+            HStack(spacing: 20) {
+                if !store.isPro {
                     Button("Restore") { Task { await store.restore() } }.disabled(store.isRestoring)
                     Text("•")
-                    Link("Terms", destination: URL(string: "https://sites.google.com/view/livo3dtermsofservice")!)
-                    Text("•")
-                    Link("Privacy", destination: URL(string: "https://sites.google.com/view/livo3dprivacypolicy")!)
                 }
-                .font(.caption).foregroundStyle(.tertiary)
+                Link("Terms", destination: URL(string: "https://sites.google.com/view/livo3dtermsofservice")!)
+                Text("•")
+                Link("Privacy", destination: URL(string: "https://sites.google.com/view/livo3dprivacypolicy")!)
             }
+            .font(.caption).foregroundStyle(.tertiary)
         }
     }
 

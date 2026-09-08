@@ -117,6 +117,9 @@ final class ProfileViewController: UIViewController {
             if case let .header(n, b, _) = item { cell.configure(name: n, bio: b) }
         }
         let proReg = UICollectionView.CellRegistration<ModernProCell, Item> { cell, _, _ in
+            // reload() runs from viewWillAppear, so buying inside the paywall and coming back
+            // re-evaluates this and the row stops advertising an upgrade the user already has.
+            cell.apply(isPro: ProStore.shared.isPro)
             cell.onTap = { [weak self] in self?.openPaywall() }
         }
         let workReg = UICollectionView.CellRegistration<GalleryWorkCell, URL> { cell, _, url in
@@ -143,7 +146,10 @@ final class ProfileViewController: UIViewController {
 
         let titleReg = UICollectionView.SupplementaryRegistration<TitleHeader>(elementKind: UICollectionView.elementKindSectionHeader) { h, _, ip in
             let sec = Section(rawValue: ip.section)
-            h.label.text = (sec == .works) ? "My Creations" : ((sec == .more) ? "Settings" : "")
+            // L(), not the bare literals: the section titles passed to createHeader above are
+            // localized, but this is the value that actually reaches the label, so the headers
+            // rendered in English in all seven languages.
+            h.label.text = (sec == .works) ? L("My Creations") : ((sec == .more) ? L("Settings") : "")
         }
         dataSource.supplementaryViewProvider = { cv, kind, ip in
             cv.dequeueConfiguredReusableSupplementary(using: titleReg, for: ip)
@@ -343,6 +349,15 @@ private final class CleanHeaderCell: UICollectionViewCell {
 
 private final class ModernProCell: UICollectionViewCell {
     var onTap: (() -> Void)?
+    private let title = UILabel()
+    private let sub = UILabel()
+
+    /// Copy depends on whether the user already owns Pro. It stays tappable either way: the paywall
+    /// is also where an owner finds Terms and Privacy.
+    func apply(isPro: Bool) {
+        title.text = isPro ? "Livo 3D Pro" : L("Upgrade Livo 3D Pro")
+        sub.text = isPro ? L("Lifetime Access") : L("Unlock 4K exports and all characters")
+    }
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.backgroundColor = UIColor(rgb: 0x1C1C1E)
@@ -351,8 +366,8 @@ private final class ModernProCell: UICollectionViewCell {
         let crown = UIImageView(image: UIImage(systemName: "crown.fill"))
         crown.tintColor = UIColor(rgb: 0xFFD60A); crown.contentMode = .scaleAspectFit
 
-        let title = UILabel(); title.text = L("Upgrade Livo 3D Pro"); title.textColor = .white; title.font = .systemFont(ofSize: 17, weight: .bold)
-        let sub = UILabel(); sub.text = L("Unlock 4K exports and all characters"); sub.textColor = .systemGray; sub.font = .systemFont(ofSize: 13)
+        title.textColor = .white; title.font = .systemFont(ofSize: 17, weight: .bold)
+        sub.textColor = .systemGray; sub.font = .systemFont(ofSize: 13)
 
         let vStack = UIStackView(arrangedSubviews: [title, sub]); vStack.axis = .vertical; vStack.spacing = 2
         let hStack = UIStackView(arrangedSubviews: [crown, vStack]); hStack.axis = .horizontal; hStack.spacing = 16; hStack.alignment = .center

@@ -66,7 +66,7 @@ struct WorkDetailView: View {
             if showSavedBanner {
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark.circle.fill")
-                    Text("Saved to My Works")
+                    Text("Saved to My Creations")
                 }
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white)
