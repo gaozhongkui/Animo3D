@@ -12,6 +12,13 @@ import Combine
 
 final class CharacterSceneController: ObservableObject, BoneRig {
 
+    /// Which scene the performance happens in.
+    ///
+    /// Only `.sky` is reachable: the club-stage set was taken out of the product. Everything that
+    /// builds it - the LED wall, the truss and its beams, the crowd, the follow spot, the floor
+    /// pool, the confetti - is still in this file but now dormant behind `backgroundType`, because
+    /// the visual direction moved more than once and a procedural set is expensive to rebuild from
+    /// scratch. It should be deleted as its own change once the direction has settled.
     enum BackgroundType: String, CaseIterable {
         case studio, sky
     }
@@ -27,7 +34,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     var contactShadowOnly = false   // Detail page: Only add contact shadow under feet (to give grounding sense), no dark floor
     private var lightsAdded = false
 
-    @Published var backgroundType: BackgroundType = .studio {
+    @Published var backgroundType: BackgroundType = .sky {
         didSet { updateBackgroundAndGround() }
     }
 

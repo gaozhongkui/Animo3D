@@ -448,10 +448,8 @@ struct DanceStudioView: View {
                 Spacer()
 
                 VStack(spacing: 14) {
-                    if !arMode {
-                        sceneSelectionBar
-                            .opacity(recorder.isRecording ? 0 : 1)
-                    }
+                    // No scene picker: the club stage was removed from the product, so there is one
+                    // scene and nothing to choose between.
                     if DeviceTier.allowsStageVFX {
                         vfxBar
                             .opacity(recorder.isRecording ? 0 : 1) // hidden while recording
@@ -471,41 +469,6 @@ struct DanceStudioView: View {
         }
     }
 
-    // Scene selection bar: Studio vs Sky
-    private var sceneSelectionBar: some View {
-        HStack(spacing: 12) {
-            sceneChip(type: .studio, title: "Studio", icon: "house.fill")
-            sceneChip(type: .sky, title: "Sky", icon: "cloud.sun.fill")
-        }
-        .padding(.bottom, 10)
-    }
-
-    private func sceneChip(type: CharacterSceneController.BackgroundType, title: LocalizedStringKey, icon: String) -> some View {
-        let on = stage.controller.backgroundType == type
-        return Button {
-            stage.controller.backgroundType = type
-            stage.objectWillChange.send() // Force UI refresh to update button state
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: icon).font(.caption2)
-                Text(title).font(.footnote.weight(.medium))
-            }
-            .foregroundStyle(on ? Color.black : Color.white)
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .background {
-                if on {
-                    Color.white
-                } else {
-                    Color.clear.background(.ultraThinMaterial)
-                }
-            }
-            .clipShape(Capsule())
-            .overlay(Capsule().stroke(.white.opacity(on ? 0 : 0.25), lineWidth: 0.5))
-        }
-        .buttonStyle(.plain)
-    }
-
-    // Bottom VFX selection bar (referencing camera products: horizontal chips + large record button in the middle)
     private var vfxBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
