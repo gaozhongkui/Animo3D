@@ -5,25 +5,78 @@ App 运行时加载的一切都来自一个地方:**Supabase 桶里的 `index.js
 然后重新生成那份 index。
 
 ```
-源模型 (.vrm/.glb)        glb_to_fbx.py ──▶ 裸网格 FBX ──▶ [ mixamo.com ] ──▶ 绑定后 FBX
-                                                                                  │
-                                                          fbx_to_character.py ────┤
-                                                                                  ▼
-源舞蹈 (Mixamo .fbx)      ── (见「新增舞蹈」) ──▶ mocap JSON     assets_src/characters/*.scn
-                                                      │                           │
-                                                      │              compress_textures.swift
-                                                      │              render_thumbs.swift
-                                                      ▼                           ▼
-                                                make_catalog.py ──▶ dist/index.json
-                                                                    dist/upload/
+VRM/VRoid 模型 (.vrm/.glb) ──── auto_rig.py ─────────────▶ 绑定后 FBX
+                                                                 │
+无骨架模型 (Tripo3D/扫描件)  glb_to_fbx.py ─▶ 裸网格 FBX          │
+                                                │                │
+                                        [ mixamo.com ] ──────────┤
+                                                                 │
+                                             fbx_to_character.py ┤
+                                                                 ▼
+源舞蹈 (Mixamo .fbx)      fbx_to_mocap.py ─▶ mocap JSON   assets_src/characters/*.scn
+                                                 │               │
+                                                 │    compress_textures.swift
+                                                 │    render_thumbs.swift
+                                                 ▼               ▼
+                                          make_catalog.py ──▶ dist/index.json
+                                                              dist/upload/
 ```
+
+**两条角色路线,按源模型有没有骨架分。** VRM/VRoid 自带完整人形骨架和作者画好的蒙皮,
+`auto_rig.py` 只需要把骨骼改名就能直接用,一条命令、几秒钟,mixamo.com 完全不用碰。
+没有骨架的模型(Tripo3D 生成、三维扫描)仍然只能走 Mixamo 的自动绑定 —— 那是这套管线里
+**唯一**剩下的手工环节。
 
 所有信息都从磁盘上真实存在的文件推导。没有白名单,也没有显示名对照表 —— **文件名就是名字**,
 `The_Boss.scn` 在 App 里显示为 "The Boss"。想改显示名就改文件名。
 
 ---
 
-## 新增角色
+## 新增角色 · VRM/VRoid(自动,推荐)
+
+### 第 1 步 · 源模型 → 绑定后 FBX(一条命令)
+
+```bash
+python3 tools/auto_rig.py path/to/model.vrm -o rigged/Girl_D.fbx --albedo-gain 0.6
+python3 tools/auto_rig.py tools/glb/*.glb -o rigged/ --albedo-gain 0.6      # 批量
+```
+
+七个 VRoid 实测:总共 6.5 秒,`all 19 required present`。
+
+**为什么改个名字就够了。** VRM 的人形骨架是固定标准,`BoneScheme.mixamo` 要的 19 根和它严格一对一
+(`J_Bip_C_Hips` → `mixamorig_Hips`、`J_Bip_L_UpperArm` → `mixamorig_LeftArm` …)。而 `PoseRetargeter`
+是从「骨→子骨」的世界方向取静止朝向、再套 `delta * restWorldOrient`,骨骼 roll、骨长、A-pose 还是
+T-pose 都不进结果 —— **只有名字要对上**。顺带保住了作者手绘的蒙皮权重,Mixamo 是重新解算的,
+这就是它有时会把裙子跟着大腿拖走的原因。
+
+四个不显眼但会静默出错的地方,脚本都处理了:
+
+- **贴图必须先落到唯一路径再导出。** glTF 导入的图 `filepath` 是空的,而 FBX 导出器按 filepath 的
+  basename 命名内嵌贴图 —— 空名全撞成一个文件。实测:31 张图全部解析到 `_10`(2048 的身体图),
+  脸和头发在用身体的 UV 采样,而且**渲染出来"看着还行"**,不逐个材质比对根本发现不了。
+- **`add_leaf_bones=True`**,和 `glb_to_fbx.py` 相反。VRM 的骨架末端就是 ToeBase 和每根指尖,而
+  `fbx_to_character.py` 用 `ignore_leaf_bones=True` 导入,不给它们写出 `_end` 子骨就会被当叶子丢掉,
+  `BoneScheme` 的 leftToe/rightToe 一没,踩地判定就废了。Mixamo 自己的骨架有 `Toe_End`,同一个道理。
+- **`--albedo-gain`(线性光下乘系数)。** MToon 是 unlit 着色器,明暗**画在贴图里**,数值落在 PBR
+  期待放反射率的位置上,而且上面没有余量了 —— 实测脸部皮肤 albedo 均值 0.913、99.8% 的像素 ≥0.85
+  (现实里最白的石膏才 0.9),八个 Mixamo 角色是 0.22~0.49、0~10%。**灯还没开它就在裁剪点上**,
+  调曝光救不回来,缺的是资产的余量。0.6 把七个模型全带回 0.35~0.50 / ≤5.5%,正好落在 Mixamo 那批
+  区间内。注意这是**烘进贴图、不可逆**的。
+- **朝向、落地、材质重建**全部复用 `glb_to_fbx.py` 的同一份函数(直接 import),所以两条路产出的
+  角色站位和朝向一致,不会漂。
+
+拿不准就先看输出行:身高 1.2~2.2、feet at 0、`all 19 required present`、贴图数非零。
+
+### 第 2 步 · 绑定后的 FBX → App 角色
+
+跳到下面的[「绑定后的 FBX → App 角色」](#绑定后的-fbx--app-角色),之后的步骤两条路完全一样。
+
+---
+
+## 新增角色 · 没有骨架的模型(仍需 Mixamo)
+
+Tripo3D 生成的、三维扫描的、任何不带骨架的网格走这条。`auto_rig.py` 会直接报错拒绝这类文件,
+它不猜骨架位置。
 
 ### 第 1 步 · 源模型 → 裸网格 FBX
 
@@ -77,6 +130,7 @@ python3 tools/glb_to_fbx.py tools/glb/*.glb -o out/       # 批量
 **下载后先改成你想要的名字再进下一步** —— 文件名会同时成为角色的显示名和资源 key。
 
 ### 第 3 步 · 绑定后的 FBX → App 角色
+<a id="绑定后的-fbx--app-角色"></a>
 
 ```bash
 python3 tools/fbx_to_character.py rigged/Girl_D.fbx --key Girl_D
@@ -154,22 +208,70 @@ swiftc -O tools/render_thumbs.swift Animo3D/PoseRetargeter.swift Animo3D/MixamoB
 
 ## 新增舞蹈
 
-**部分环节没有脚本 —— 排期前请先看这段。**
-
 一支舞就是一个文件:`assets_src/dances/<Name>.json`,里面是源舞者 33 个关节世界坐标的逐帧采样,
 由 `PoseRetargeter` 映射到当前表演的角色身上。**一支舞通用于所有角色**,
 `make_catalog.py` 直接从里面读出时长。
 
-缺口在于:**把 Mixamo FBX 采样成这份 JSON 的 Blender 脚本已经不存在了。** 它当时放在临时目录里,
-后来丢了。仓库里那 44 支是用它产出的,但目前没有办法加第 45 支。重写它要做的是:逐帧读取
-Mixamo 骨架上对应 BlazePose 那些关节的世界坐标,写成 `{fps, frames: [[[x,y,z], ...33]]}`。
+### 第 1 步 · 从 Mixamo 下载
 
-重写时有两件事必须带上:
+下载弹窗:
 
-- 不同 Mixamo FBX 的骨骼名**数字前缀不一样**(`mixamorig9Hips` vs `mixamorigHips`),
-  匹配前必须去掉 `^mixamorig\d*`。
-- 纯动画 FBX(下载时选 "Without Skin")**没有 bind pose**,骨骼加载后是单位矩阵。
-  静止姿势必须从一个带蒙皮的文件里取 —— 所有 Mixamo 骨架的静止姿势是同一个。
+| 项 | 选什么 |
+|---|---|
+| Format | **FBX Binary(.fbx)** |
+| Skin | **Without Skin** |
+| Frames per Second | **30** |
+| Keyframe Reduction | **none** |
+
+角色页上的 **In Place 不要勾**。
+
+依据是量现存语料得出的:44 支 fps 全是 30;水平位移中位数 0.52m、最大 2.28m,所以当初就不是
+In Place,而 retargeter 是拿本支舞自己的首帧当位移基准的。Keyframe Reduction 必须关 —— 这是
+**逐帧采样**的格式,丢掉的帧没有地方插值补回来。
+
+### 第 2 步 · FBX → mocap JSON
+
+```bash
+python3 tools/fbx_to_mocap.py "Salsa Dancing.fbx"          # -> assets_src/dances/Salsa_Dancing.json
+python3 tools/fbx_to_mocap.py downloads/*.fbx              # 批量
+python3 tools/fbx_to_mocap.py --check assets_src/dances/*.json   # 只校验
+```
+
+**文件名就是舞蹈显示名。** 浏览器的重名后缀会转成语料自己的写法:`Hip Hop Dancing (7).fbx` →
+`Hip_Hop_Dancing_7`(仓库里本来就有 `Dancing_1`、`Swing_Dancing_4` 这种)。丢掉那个数字的话,
+一个下载目录里的每一支 `Hip Hop Dancing (n)` 都会覆盖前一支。
+
+转完会自动拿产物对着现存语料做一致性校验,不过关会指出具体哪一项。
+
+格式的每一条都是量出来的,不是猜的:
+
+- **33 个槽位里只有 12 个有值** —— 11~16(肩肘腕)、23~28(胯膝踝),另外 21 个是零占位,
+  编号来自 BlazePose(摄像头那条路会填满 33 个)。翻遍 8 支的每一帧,没有第 13 个索引非零过。
+- **Z 轴向上**:踝 0.15、胯 0.84、肩 1.45,x/y 跨在零两侧。那就是 Blender 自己的世界坐标,
+  FBX 导入器直接给的,不用转轴。
+- **米制**。Mixamo 写的是厘米,Blender 导入器按 0.01 缩放。
+- **位移保留**,理由见上。
+
+两个坑,脚本都处理了:
+
+- Mixamo 的骨骼名不总是一样:`mixamorig:Hips`、`mixamorigHips`、`mixamorig9Hips` 都出现过,
+  匹配前用 `^mixamorig[:_]?\d*` 剥掉前缀。
+- "Without Skin" 的 FBX 没有 bind pose。这个脚本用不到 —— 它读的是**每帧姿态骨架的世界坐标**;
+  真碰到 rest 塌掉的文件,改下 "With Skin" 就绕开了。
+
+### 第 3 步 · 源骨架比例的影响(知道就行,不用处理)
+
+Mixamo 下载动画时用的是**当前选中角色的骨架**,换个角色比例就变。实测:仓库那 44 支躯干长度
+0.54~0.64,另一批下载是 0.29~0.33 —— 短一半。`PoseRetargeter` 的髋部位移是按躯干长度归一化的,
+所以短躯干那批的髋部起伏会被放大约 1.9 倍。上机看不出问题(反而更贴地),肢体姿态因为只用方向
+所以完全一致 —— 但如果哪天发现某批舞"晃得比别的厉害",这里是原因。
+
+### 第 4 步 · 内置那支要跟着换
+
+`Animo3D/Res/builtin/mocap_<Id>.json` 是打进 App 包里的离线兜底,`make_catalog.py` 从这个目录
+读出 `builtin` 写进 index。**App 取资源是包内优先**,所以换掉 `assets_src/dances/` 里的同名文件
+而不换包内那份,结果是「卡片按 index 写 6 秒、实际放包内那支 18.6 秒」。换完必须重新出包,
+只传桶不生效。
 
 ---
 
@@ -245,7 +347,8 @@ Girl_D.scn
 ```
 
 - **`skinned: 0` 是致命的** —— 骨骼会动,身体不跟着动。
-- **`rig: vrm`** 意味着骨骼名是 `J_Bip_*`,App 里已经没有任何代码读它了,必须过 Mixamo。
+- **`rig: vrm`** 意味着骨骼名还是 `J_Bip_*` —— App 里已经没有任何代码读它了。
+  这说明 `auto_rig.py` 那一步被跳过了(或者拿 `glb_to_fbx.py --keep-rig` 直接转的),重跑 `auto_rig.py`。
 
 改动管线时的回归验证手法:**把仓库里已有的角色重新转一遍再对比。**
 `X Bot` 走完第 1~3 步能精确复现出货的 `X_Bot.scn` —— 同样的 rig、2 网格 2 蒙皮、1.51m、4.0MB,
@@ -258,8 +361,9 @@ Girl_D.scn
 - **`make_catalog.py` 只扫 `.scn`。** `fbx_to_character.py` 默认输出 `.scn`,走正常流程没问题;
   但用 `--format usdz` 产出的角色生成器看不到 —— 尽管 App 本身能正常加载 usdz。
 - **Supabase 免费版单文件 50MB。** 记得跑纹理压缩。
-- **App 已收敛到 Mixamo 单一路径。** VRM 的运行时部分(`VRoidClipPlayer`、`BoneScheme.vrm`、
-  四元数 clip)全部移除。Mixamo 仍然是**动作素材的来源**,但只作为离线来源,不再是运行时格式。
+- **App 运行时只认 Mixamo 骨骼名这一种。** VRM 的运行时部分(`VRoidClipPlayer`、`BoneScheme.vrm`、
+  四元数 clip)全部移除。VRM 模型仍然能用,但改名发生在**离线**的 `auto_rig.py` 里,进 App 的
+  永远是 `mixamorig_*`。Mixamo 也仍然是动作素材的来源,同样只在离线这一侧。
 - **Debug 和 Release 配了两个不同的 `DEVELOPMENT_TEAM`**,而 bundle id 相同。
   同一台设备上装了一个再装另一个会在签名主体上冲突。
 - **代码里一律不出现中文** —— 注释、UI 文案、多语言都不要(多语言支持 en/de/es/fr/ja/ko/pt,
@@ -271,8 +375,10 @@ Girl_D.scn
 
 | 脚本 | 作用 |
 |---|---|
-| `glb_to_fbx.py` | `.vrm`/`.glb`/`.gltf` → 供 Mixamo 自动绑定的裸网格 FBX |
-| `fbx_to_character.py` | Mixamo 绑定后的 FBX → `assets_src/characters/` 下的 `.scn`/`.usdz` |
+| `auto_rig.py` | VRM/VRoid → Mixamo 命名的绑定后 FBX(**替代 glb_to_fbx + mixamo.com 两步**);`--albedo-gain` 压 MToon 过亮的贴图 |
+| `glb_to_fbx.py` | `.vrm`/`.glb`/`.gltf` → 供 Mixamo 自动绑定的裸网格 FBX(只有**没骨架**的模型才需要) |
+| `fbx_to_character.py` | 绑定后的 FBX → `assets_src/characters/` 下的 `.scn`/`.usdz` |
+| `fbx_to_mocap.py` | Mixamo 动画 FBX → `assets_src/dances/` 下的 mocap JSON;`--check` 校验现有文件 |
 | `compress_textures.swift` | 压缩 `.scn` 内嵌贴图;幂等;附带 roughness 抬底 |
 | `render_thumbs.swift` | 离线卡图(`characters` 模式进管线;`dances` 模式只是预览辅助) |
 | `inspect_model.swift` | 用 App 的方式加载模型并报告是否可用 |
