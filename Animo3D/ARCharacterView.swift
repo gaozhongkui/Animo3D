@@ -194,6 +194,7 @@ struct ARCharacterView: UIViewRepresentable {
                 c.isHidden = false
                 placed = true
                 arView.scene.rootNode.addChildNode(c)
+                publishGround(c)
                 notifyPlaced(c)
             }
             print("[AR] model ready height=\(h) scale=\(s) groundOffset=\(minY) detectGround=\(detectGround)")
@@ -201,6 +202,18 @@ struct ARCharacterView: UIViewRepresentable {
 
 
 
+
+        /// Tell the retargeter which plane to plant the feet on.
+        ///
+        /// The container's origin *is* the ground here: `root.simdPosition.y -= minY` at mount puts
+        /// the rest-pose soles exactly on it. Without this the retargeter keeps planting against
+        /// `CharacterSceneController.feetY`, which was measured off the bounding box in the screen
+        /// scene - a different world origin, and a different scale, since AR normalises the
+        /// character to 1.3m. That mismatch is a fixed vertical offset for the whole performance,
+        /// which is the character hanging in the air above the plane it was placed on.
+        private func publishGround(_ container: SCNNode) {
+            controller.arGroundY = container.simdWorldPosition.y
+        }
 
         /// ARSCNViewDelegate callbacks arrive on SceneKit's renderer thread, so the placement result
         /// has to be handed back on the main thread. Calling straight through left SwiftUI state set
@@ -344,6 +357,7 @@ struct ARCharacterView: UIViewRepresentable {
                 let keptScale = container.simdScale
                 container.simdWorldTransform = transform
                 container.simdScale = keptScale
+                publishGround(container)
                 HapticManager.light()
             } else {
                 let anchor = ARAnchor(name: "placement", transform: transform)
@@ -395,6 +409,7 @@ struct ARCharacterView: UIViewRepresentable {
                 reticle?.isHidden = true
                 // Hide plane grids after placement to avoid obstruction
                 planeNodes.values.forEach { $0.isHidden = true }
+                publishGround(container)
                 notifyPlaced(container)
             }
         }

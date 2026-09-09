@@ -271,7 +271,12 @@ final class PoseRetargeter {
     /// None of the current library jumps, and a character floating at knee height for 20 seconds is
     /// a far worse artefact than a lost hop.
     private func plantFeet() {
-        guard let hips = hipsNode, let ground = plantGroundY, !soleOffsets.isEmpty else { return }
+        // Read live rather than using the value captured with the rest pose: in AR the ground moves
+        // whenever the user taps to place the character somewhere else, and no rest re-capture is
+        // triggered for that. `soleOffsets` stay valid across the move - they are ankle-to-sole
+        // distances, not absolute heights - so a fresh plane is all this needs.
+        guard let hips = hipsNode, let ground = controller.groundY ?? plantGroundY,
+              !soleOffsets.isEmpty else { return }
 
         // Height of the lowest sole above the floor. Negative means it is through the floor.
         let lowestSole = soleOffsets.map { $0.node.simdWorldPosition.y - $0.offset }.min() ?? ground

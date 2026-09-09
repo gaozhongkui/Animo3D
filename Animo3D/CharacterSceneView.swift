@@ -57,6 +57,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
 
     /// Attach the character root node back to this controller's screen scene (used when switching back from AR).
     func reattachToScreenScene() {
+        arGroundY = nil
         guard let root = characterRoot else { return }
         if root.parent !== scene.rootNode {
             root.removeFromParentNode()
@@ -306,6 +307,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
 
     private var floorNode: SCNNode?
     private var contactShadow: SCNNode?
+    private var footShadows: [SCNNode] = []
     private var stageRig: SCNNode?              // Spotlight beams + floor light pool (studio stage only)
     private var skylineNode: SCNNode?           // Distant buildings and trees (sky background only)
     private var inlayNode: SCNNode?             // Stone medallion under the performer (sky only)
@@ -344,11 +346,24 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     private weak var fillLight: SCNLight?
     private weak var rimLight: SCNLight?
     private weak var sunLight: SCNLight?
+    private weak var sunNode: SCNNode?
     private(set) var feetY: Float = 0   // World Y of feet (for VFX ground positioning)
 
     /// BoneRig: the plane the retargeter plants the feet against. Only meaningful once a ground
     /// has been built, which is also the only time planting matters.
-    var groundY: Float? { (groundEnabled || contactShadowOnly) && isLoaded ? feetY : nil }
+    var groundY: Float? {
+        guard isLoaded else { return nil }
+        // AR wins when it is set: `feetY` is measured off the bounding box in *this* controller's
+        // screen scene, and in AR the character is re-parented under a plane anchor at an entirely
+        // different world height and scaled to 1.3m. Planting against the screen scene's floor from
+        // over there is what leaves the character hanging above the detected plane.
+        if let ar = arGroundY { return ar }
+        return (groundEnabled || contactShadowOnly) ? feetY : nil
+    }
+
+    /// The world Y of the plane the character was placed on in AR, or nil on the screen stage.
+    /// Set by `ARCharacterView` at placement and on every tap-to-move, cleared on the way back.
+    var arGroundY: Float?
     /// Where the character actually stands. The camera move orbits this, not the world origin -
     /// `normalizeOrientation` squares the model up but does not centre it, so orbiting (0,·,0) put
     /// the camera on a circle around a point the performer was not standing on.
@@ -474,6 +489,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         guard groundEnabled || contactShadowOnly else {
             floorNode?.removeFromParentNode(); floorNode = nil
             contactShadow?.removeFromParentNode(); contactShadow = nil
+            footShadows.forEach { $0.removeFromParentNode() }; footShadows = []
             stageRig?.removeFromParentNode(); stageRig = nil
             skylineNode?.removeFromParentNode(); skylineNode = nil
             inlayNode?.removeFromParentNode(); inlayNode = nil
@@ -506,7 +522,15 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             sun.orthographicScale = CGFloat(h * 1.6)
             sun.zNear = 0.05
             sun.zFar = CGFloat(h * 12)
-            sun.shadowRadius = 5
+            // Tighter than it was. A directional shadow map this small over a box this size has
+            // plenty of texels for a body; blurring it by 5 threw away the one edge that reads as
+            // contact - where the shadow meets the sole.
+            sun.shadowRadius = 2.5
+            // And the box has to travel. It is centred on the light's node, which sat at the world
+            // origin, while the performer walks over a metre away on some takes - far enough to
+            // leave the box, at which point the cast shadow simply stops existing and the floor
+            // goes clean under a dancing character.
+            if let node = sunNode { followPerformer(node, height: h) }
         }
 
         floorNode?.removeFromParentNode()
@@ -579,6 +603,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
 
         // Soft contact shadow under feet (always visible, provides "grounding" cues even if directional light shadows aren't rendered)
         contactShadow?.removeFromParentNode()
+        footShadows.forEach { $0.removeFromParentNode() }; footShadows = []
         // Sized from the character's height, not from the bounding box: with the arms out, the box
         // is wider than the character is tall and the "contact" shadow covered the whole foreground.
         let shadowScale: Float = backgroundType == .sky ? 1.15 : 1.0
@@ -586,7 +611,10 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         let blob = SCNPlane(width: CGFloat(blobW), height: CGFloat(blobW * 0.62))
         let bm = blob.firstMaterial!
         bm.diffuse.contents = backgroundType == .sky ? Self.contactShadowTextureStrong : Self.contactShadowTexture
-        bm.transparency = backgroundType == .sky ? 1.0 : 0.85
+        // Softer than it used to be: this is now the ambient pool the body sits in, not the thing
+        // that has to say "the feet are touching". That job moved to the per-foot blobs below, and
+        // leaving this one at full strength just doubled up into a single dark smear.
+        bm.transparency = backgroundType == .sky ? 0.8 : 0.65
         bm.lightingModel = .constant
         bm.isDoubleSided = true
         bm.writesToDepthBuffer = false
@@ -596,6 +624,8 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         bnode.renderingOrder = 2                                     // Above the floor and the inlay
         scene.rootNode.addChildNode(bnode)
         contactShadow = bnode
+        followFeet(bnode, groundY: minY + 0.003)
+        addFootContact(groundY: minY + 0.0045, span: footSpan)
 
         stageCenter = simd_float3(cx, 0, cz)
         // After stageCenter: the ring is centred on where the performer stands, not on the origin,
@@ -1283,6 +1313,118 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         return any ? (hi.y - lo.y) : 0
     }
 
+    /// Park the shadow-casting light above the performer, wherever they have danced to.
+    ///
+    /// A directional light's orthographic shadow box is centred on its node, and this one sat at
+    /// the world origin. `orthographicScale` is sized to the character, so a take that travels -
+    /// measured, over a metre on Belly Dance - walks the performer out of their own shadow box and
+    /// the cast shadow disappears. Position only, through `positionConstraint`: the euler angles
+    /// are the light's direction and must survive untouched.
+    private func followPerformer(_ node: SCNNode, height: Float) {
+        let hips = boneNodes[BoneScheme.mixamo.hips]
+        node.constraints = [SCNTransformConstraint.positionConstraint(inWorldSpace: true) { [weak hips] _, pos in
+            guard let hips else { return pos }
+            let p = hips.simdWorldPosition
+            return SCNVector3(p.x, p.y + height * 2, p.z)
+        }]
+    }
+
+    /// One small dark pool under each foot, following it and fading as it leaves the ground.
+    ///
+    /// This is the part that makes the contact read as real. A single body-sized ellipse cannot:
+    /// it says "something is above this patch of floor", never "this foot is on it". When one foot
+    /// lifts and the other stays planted, only a per-foot pool shows the difference - the planted
+    /// one stays dark and tight, the lifted one lightens and spreads, which is what an occlusion
+    /// shadow actually does as the surfaces separate.
+    ///
+    /// Kept cheap on purpose: two unlit alpha planes, no depth writes, no extra shadow pass. The
+    /// directional light's own shadow is still doing the long cast; these only fill the millimetres
+    /// underneath the sole, which is exactly where a shadow map at this range has no resolution.
+    private func addFootContact(groundY: Float, span: Float) {
+        let scheme = BoneScheme.mixamo
+        let feet = [scheme.leftFoot, scheme.rightFoot].compactMap { boneNodes[$0] }
+        guard feet.count == 2 else { return }
+
+        // A foot, not a body: sized off the stance width rather than the arms-out bounding box.
+        let w = max(0.10, min(span * 0.55, max(modelHeight, 0.1) * 0.17))
+        for foot in feet {
+            let plane = SCNPlane(width: CGFloat(w), height: CGFloat(w * 0.78))
+            let m = plane.firstMaterial!
+            m.diffuse.contents = Self.contactShadowTextureStrong
+            m.lightingModel = .constant
+            m.isDoubleSided = true
+            m.writesToDepthBuffer = false
+            let node = SCNNode(geometry: plane)
+            node.renderingOrder = 3                  // above the body pool, still under everything else
+            node.castsShadow = false
+            node.simdPosition = simd_float3(foot.simdWorldPosition.x, groundY, foot.simdWorldPosition.z)
+            scene.rootNode.addChildNode(node)
+
+            // The ankle's world height while the sole is on the floor. The foot's height above the
+            // ground is then simply how far the ankle has risen from here - measure it against the
+            // ankle's *own* standing height instead and the number is a ratio of about 0.1m, which
+            // saturates on the first bent knee: instrumented, that version read lift 0.9 to 3.4 on
+            // a planted foot and held both pools at opacity 0 for the whole dance.
+            let restAnkleY = foot.simdWorldPosition.y
+            // Fade over a tenth of the character: below that the foot is rolling, not leaving.
+            let fade = max(0.05, modelHeight * 0.10)
+            node.constraints = [SCNTransformConstraint(inWorldSpace: true) { [weak foot, weak node] _, mtx in
+                guard let foot, let node else { return mtx }
+                let p = foot.simdWorldPosition
+                let t = min(1, max(0, p.y - restAnkleY) / fade)
+                // Opacity is set here rather than through some per-frame tick of its own: it is not
+                // part of the transform, so writing it inside the constraint cannot feed back into
+                // the evaluation, and there is no other hook that runs in lockstep with the pose.
+                // It never reaches zero - a foot at knee height still occludes a little sky.
+                node.opacity = CGFloat(0.95 - 0.78 * t)
+                let k = 1 + t * 0.55                 // spreads as it separates, like the real thing
+                var m = SCNMatrix4MakeScale(k, k, k)
+                m = SCNMatrix4Mult(m, SCNMatrix4MakeRotation(-Float.pi / 2, 1, 0, 0))
+                return SCNMatrix4Mult(m, SCNMatrix4MakeTranslation(p.x, groundY, p.z))
+            }]
+            footShadows.append(node)
+        }
+    }
+
+    /// Keep the contact shadow under the performer, and let it react to the feet leaving the floor.
+    ///
+    /// This node used to be positioned once, at load, from the model's bounding box - and then the
+    /// dance moved and it did not. Measured on Belly Dance: the hips travel from z -0.44 to -1.47
+    /// while the blob stayed at (0.00, 0.03), so the single cue that says "standing on this floor"
+    /// ended up a metre and a half behind the feet. The feet themselves were fine the whole time -
+    /// instrumented, the lowest sole held within 0.04m of the ground plane - which is why nothing
+    /// looked wrong in the numbers and everything looked wrong on screen.
+    ///
+    /// A constraint rather than a per-frame callback: SceneKit evaluates it inside the render loop,
+    /// so the shadow can never be a frame behind the feet it belongs to, and nothing else has to
+    /// grow a "tick the shadow" responsibility.
+    ///
+    /// The size reacts too. A contact shadow that stays the same while the foot lifts is the other
+    /// half of the floating look - real contact shadows shrink and soften as the surfaces separate.
+    private func followFeet(_ node: SCNNode, groundY: Float) {
+        let scheme = BoneScheme.mixamo
+        guard let lf = boneNodes[scheme.leftFoot], let rf = boneNodes[scheme.rightFoot] else { return }
+        // How high the ankles sit above the floor when standing, so "lift" measures the foot
+        // leaving the ground rather than the ankle's own thickness.
+        let restAnkleY = min(lf.simdWorldPosition.y, rf.simdWorldPosition.y)
+        let fade = max(0.05, modelHeight * 0.10)
+
+        node.constraints = [SCNTransformConstraint(inWorldSpace: true) { [weak lf, weak rf] _, m in
+            guard let lf, let rf else { return m }
+            let l = lf.simdWorldPosition, r = rf.simdWorldPosition
+            // Under whichever foot is lower, biased toward the midpoint: a blob that snaps between
+            // the two feet on every step is more distracting than one that trails the weight.
+            let lower = l.y <= r.y ? l : r
+            let cx = (lower.x * 2 + l.x + r.x) / 4
+            let cz = (lower.z * 2 + l.z + r.z) / 4
+            let t = min(1, max(0, min(l.y, r.y) - restAnkleY) / fade)
+            let k = 1 + t * 0.3
+            var m = SCNMatrix4MakeScale(k, k, k)
+            m = SCNMatrix4Mult(m, SCNMatrix4MakeRotation(-Float.pi / 2, 1, 0, 0))
+            return SCNMatrix4Mult(m, SCNMatrix4MakeTranslation(cx, groundY, cz))
+        }]
+    }
+
     /// Build the four-light rig. Intensities are deliberately not set here - applyLightLevels()
     /// owns them, because they depend on the model type and on which stage is up.
     private func addLights() {
@@ -1330,6 +1472,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         sunLight = l
         sun.eulerAngles = SCNVector3(-Float.pi / 3, Float.pi / 10, 0)
         scene.rootNode.addChildNode(sun)
+        sunNode = sun
 
         applyLightLevels()
     }
