@@ -9,6 +9,20 @@ import SafariServices
 import UIKit
 import SwiftUI
 
+/// The status-bar height the profile header has to leave clear.
+///
+/// The header deliberately bleeds its gradient to the very top of the screen - `ProfileNav` is
+/// wrapped in `.ignoresSafeArea()` - which also means the collection view has no safe-area inset to
+/// adjust to, so nothing pushes the content down on its own. The old layout's 80pt top padding hid
+/// that by being larger than any status bar; a compact header has to ask for the number.
+///
+/// Read once from the window: it does not change for the life of the app.
+nonisolated let profileSafeAreaTop: CGFloat = {
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    let inset = scenes.flatMap { $0.windows }.first { $0.isKeyWindow }?.safeAreaInsets.top
+    return inset ?? scenes.first?.windows.first?.safeAreaInsets.top ?? 44
+}()
+
 nonisolated enum ProfileSection: Int, CaseIterable { case header, pro, works, more }
 nonisolated enum ProfileItem: Hashable, Sendable {
     case header(name: String, bio: String, avatar: String)
@@ -56,7 +70,12 @@ final class ProfileViewController: UIViewController {
 
             switch section {
             case .header:
-                let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(360))
+                // 176, down from 360. The old header was a centred column - 80pt of padding, then
+                // a 100pt avatar, then name, bio and stats stacked under it - which took 41% of an
+                // iPhone screen to say a name and three numbers, and pushed My Creations below the
+                // fold on every launch. Same content, laid out across instead of down.
+                let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1),
+                                                  heightDimension: .absolute(176 + profileSafeAreaTop))
                 return NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
 
             case .pro:
@@ -289,10 +308,11 @@ private final class CleanHeaderCell: UICollectionViewCell {
 
         let grad = CAGradientLayer()
         grad.colors = [UIColor(rgb: 0x6366F1).withAlphaComponent(0.12).cgColor, UIColor.white.cgColor]
-        grad.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 360)
+        grad.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width,
+                            height: 176 + profileSafeAreaTop)
         meshBg.layer.addSublayer(grad)
 
-        neonRing.layer.cornerRadius = 56
+        neonRing.layer.cornerRadius = 39
         neonRing.layer.borderWidth = 1.5
         neonRing.layer.borderColor = UIColor(rgb: 0x6366F1).withAlphaComponent(0.3).cgColor
         neonRing.layer.shadowColor = UIColor(rgb: 0x6366F1).cgColor
@@ -302,34 +322,38 @@ private final class CleanHeaderCell: UICollectionViewCell {
         neonRing.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(neonRing)
 
-        avatarContainer.layer.cornerRadius = 50; avatarContainer.clipsToBounds = true
+        avatarContainer.layer.cornerRadius = 33; avatarContainer.clipsToBounds = true
         avatarContainer.backgroundColor = .white; avatarContainer.layer.borderWidth = 2; avatarContainer.layer.borderColor = UIColor.white.cgColor
         avatarContainer.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(avatarContainer)
 
         avatarGradient.colors = [UIColor(rgb: 0x4F46E5).cgColor, UIColor(rgb: 0xA855F7).cgColor]
         avatarGradient.startPoint = .zero; avatarGradient.endPoint = CGPoint(x: 1, y: 1)
-        avatarGradient.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+        avatarGradient.frame = CGRect(x: 0, y: 0, width: 66, height: 66)
         avatarContainer.layer.addSublayer(avatarGradient)
 
         avatarSymbol.tintColor = .white; avatarSymbol.contentMode = .scaleAspectFit
-        avatarSymbol.preferredSymbolConfiguration = .init(pointSize: 42, weight: .bold)
+        avatarSymbol.preferredSymbolConfiguration = .init(pointSize: 28, weight: .bold)
         avatarSymbol.translatesAutoresizingMaskIntoConstraints = false
         avatarContainer.addSubview(avatarSymbol)
 
         glassOverlay.backgroundColor = .clear
         let glassGrad = CAGradientLayer()
         glassGrad.colors = [UIColor.white.withAlphaComponent(0.4).cgColor, UIColor.clear.cgColor]
-        glassGrad.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+        glassGrad.frame = CGRect(x: 0, y: 0, width: 66, height: 66)
         glassGrad.startPoint = .zero; glassGrad.endPoint = CGPoint(x: 0.5, y: 0.5)
         glassOverlay.layer.addSublayer(glassGrad)
         glassOverlay.translatesAutoresizingMaskIntoConstraints = false
         avatarContainer.addSubview(glassOverlay)
 
-        nameLabel.font = .roundedFont(ofSize: 28, weight: .black); nameLabel.textAlignment = .center
+        nameLabel.font = .roundedFont(ofSize: 22, weight: .black); nameLabel.textAlignment = .natural
         nameLabel.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview(nameLabel)
 
-        bioLabel.font = .systemFont(ofSize: 14); bioLabel.textColor = .secondaryLabel; bioLabel.textAlignment = .center
+        bioLabel.font = .systemFont(ofSize: 13); bioLabel.textColor = .secondaryLabel
+        bioLabel.textAlignment = .natural
+        bioLabel.numberOfLines = 2
+        bioLabel.adjustsFontSizeToFitWidth = true
+        bioLabel.minimumScaleFactor = 0.85
         bioLabel.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview(bioLabel)
 
         setupStats()
@@ -340,15 +364,19 @@ private final class CleanHeaderCell: UICollectionViewCell {
             meshBg.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             meshBg.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            neonRing.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            neonRing.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
             neonRing.centerYAnchor.constraint(equalTo: avatarContainer.centerYAnchor),
-            neonRing.widthAnchor.constraint(equalToConstant: 112),
-            neonRing.heightAnchor.constraint(equalToConstant: 112),
+            neonRing.widthAnchor.constraint(equalToConstant: 78),
+            neonRing.heightAnchor.constraint(equalToConstant: 78),
 
-            avatarContainer.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            avatarContainer.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 80),
-            avatarContainer.widthAnchor.constraint(equalToConstant: 100),
-            avatarContainer.heightAnchor.constraint(equalToConstant: 100),
+            // Avatar on the left rather than centred, and 20pt from the top rather than 80 - the
+            // collection view already insets for the safe area, so that 80 was on top of the
+            // status bar inset and put the avatar a third of the way down the screen.
+            avatarContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
+            avatarContainer.topAnchor.constraint(equalTo: contentView.topAnchor,
+                                                constant: 20 + profileSafeAreaTop),
+            avatarContainer.widthAnchor.constraint(equalToConstant: 66),
+            avatarContainer.heightAnchor.constraint(equalToConstant: 66),
 
             avatarSymbol.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
             avatarSymbol.centerYAnchor.constraint(equalTo: avatarContainer.centerYAnchor),
@@ -358,15 +386,20 @@ private final class CleanHeaderCell: UICollectionViewCell {
             glassOverlay.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
             glassOverlay.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
 
-            nameLabel.topAnchor.constraint(equalTo: avatarContainer.bottomAnchor, constant: 24),
-            nameLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            // Name and bio beside the avatar, not under it. Vertically centred on the avatar so
+            // one line or two both sit right.
+            nameLabel.leadingAnchor.constraint(equalTo: avatarContainer.trailingAnchor, constant: 16),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -24),
+            nameLabel.bottomAnchor.constraint(equalTo: avatarContainer.centerYAnchor, constant: -2),
 
-            bioLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6),
-            bioLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            bioLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
+            bioLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -24),
+            bioLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
 
-            statsStack.topAnchor.constraint(equalTo: bioLabel.bottomAnchor, constant: 32),
-            statsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 40),
-            statsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -40)
+            // Stats across the full width under both, which is where the reclaimed height went.
+            statsStack.topAnchor.constraint(equalTo: avatarContainer.bottomAnchor, constant: 22),
+            statsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 32),
+            statsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -32)
         ])
     }
 
