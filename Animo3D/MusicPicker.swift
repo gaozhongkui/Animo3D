@@ -16,9 +16,12 @@ struct MusicTrack: Identifiable, Hashable {
     let name: String
     let url: URL
 
-    /// The bundled tracks. Music is not in the index and never downloads: four fixed files, 14MB,
-    /// and the bundled copy won the catalog lookup anyway - listing them remotely only added upload
-    /// nobody would ever pull.
+    /// The bundled tracks. Music is not in the index and never downloads: four fixed files, and the
+    /// bundled copy won the catalog lookup anyway - listing them remotely only added upload nobody
+    /// would ever pull.
+    ///
+    /// All four are short AAC loops (`numberOfLoops = -1`). Two of them used to be full 3m40s
+    /// 256kbps MP3s - 14MB of the app for backing tracks under dances that run 5 to 22 seconds.
     static var presets: [MusicTrack] {
         var out: [MusicTrack] = []
         for ext in ["m4a", "mp3"] {
@@ -31,8 +34,12 @@ struct MusicTrack: Identifiable, Hashable {
     }
 
     private static func friendly(_ key: String) -> String {
-        // Exact key match first, so these keep their intended titles.
-        switch key.lowercased() {
+        // The `music_` prefix has to come off first. Every bundled file is named `music_<key>`,
+        // so the switch below never matched and all four presets fell through to the title-cased
+        // fallback - the intended names were in the code but never on screen.
+        var lookup = key.lowercased()
+        if lookup.hasPrefix("music_") { lookup.removeFirst("music_".count) }
+        switch lookup {
         case "sample_beat", "samplebeat":    return "Midnight Pulse"
         case "sample_chill", "samplechill":  return "Azure Horizon"
         case "anime_dance", "animedance":    return "Neon Sakura"
