@@ -33,6 +33,14 @@ struct StaticARScreen: View {
     /// the overlay is full-screen, and two sets of instructions at once is worse than either.
     @State private var coaching = true
     @State private var loadFailed = false
+    @State private var diagnostics: String?
+    /// Set once the model has had every chance to appear. The diagnostics panel is shown only from
+    /// that point, so a working session never sees it and a broken one explains itself.
+    @State private var overdue = false
+    /// Set when the model turns out to have more bones than SceneKit will skin on this device, so
+    /// AR cannot draw it. The screen moves itself to 3D and says so, rather than leaving the user
+    /// in front of an empty room wondering which of the two modes is broken.
+    @State private var tooManyBones = false
     @State private var trackingHint: String?
     /// Which way the model is being shown. AR by default; the turntable is one tap away, and works
     /// on devices and in situations where AR does not.
@@ -53,6 +61,16 @@ struct StaticARScreen: View {
                              onCoaching: { coaching = $0 },
                              onTrackingHint: { trackingHint = $0 },
                              onLoadFailed: { loadFailed = true },
+                             onDiagnostics: { diagnostics = $0 },
+                             onBoneCount: { bones in
+                                 // `bones` is the count *after* pruning, so this is a model that
+                                 // genuinely needs more bones in one mesh than SceneKit will skin.
+                                 // The turntable is no help - it is the same renderer - so hand
+                                 // off to AR Quick Look, which is RealityKit and draws it.
+                                 guard bones > ARPlacement.skinningBoneBudget else { return }
+                                 tooManyBones = true
+                                 ARQuickLookPresenter.shared.present(url: url, title: title)
+                             },
                              holder: holder)
                     .ignoresSafeArea()
             } else {
@@ -85,6 +103,22 @@ struct StaticARScreen: View {
                 }
                 .transition(.opacity)
                 .allowsHitTesting(false)
+            }
+
+            // Only when something has gone wrong: five seconds in with nothing on the floor.
+            if overdue, !placed, let diagnostics {
+                VStack {
+                    Spacer()
+                    Text(diagnostics)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.leading)
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(.black.opacity(0.6)))
+                        .padding(.bottom, 120)
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
             }
 
             if loadFailed {
@@ -151,6 +185,10 @@ struct StaticARScreen: View {
         }
         .fullScreenCover(item: $finished) { work in
             WorkDetailView(url: work.url, justSaved: true) { finished = nil }
+        }
+        .task {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            overdue = true
         }
         .onDisappear {
             missTask?.cancel()

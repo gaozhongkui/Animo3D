@@ -16,6 +16,26 @@ import ARKit
 import SceneKit
 
 enum ARPlacement {
+    /// What the last `loadCommunityModel` did, for the on-screen diagnostics.
+    private(set) static var lastLoadSummary = "-"
+    /// The highest bone count of any single mesh in the last model loaded.
+    private(set) static var lastLoadMaxBones = 0
+
+    /// Above this many bones in one mesh, the model is not offered in AR by default.
+    ///
+    /// SceneKit skins on the GPU with a per-mesh bone budget set by the shader's uniform storage,
+    /// and a mesh over that budget is silently not drawn. The budget depends on the GPU, which is
+    /// why "Black Dragon with Idle Animation" - 232 bones in each of its three meshes - renders
+    /// correctly on a Mac and in the Simulator and does not appear at all on an A11 device, while
+    /// unskinned models are unaffected everywhere.
+    ///
+    /// **128 is a deliberate guess, not a measured constant.** Apple documents no number. It is set
+    /// where it is because the app's own Mixamo characters carry about 65 bones and must stay on
+    /// the AR path, while the dragon at 232 must not. If a device turns out to manage more, raise
+    /// it; the only cost of it being too low is that a model opens in 3D when AR would have worked,
+    /// which is a far better failure than a model that cannot be seen at all.
+    static let skinningBoneBudget = 128
+
     /// How far a hit on a surface ARKit has actually measured may be. A real detected plane 10 m
     /// away is just a large room, so this is generous.
     static let measuredRange: ClosedRange<Float> = 0.3...12.0
@@ -58,6 +78,135 @@ enum ARPlacement {
         return nil
     }
 
+    /// Rebuilds each skinner with only the bones its own geometry actually references.
+    ///
+    /// **This is why animated community models did not appear.** Sketchfab's USDZ converter gives
+    /// every mesh the whole skeleton, whether or not the mesh is influenced by it. In "Black Dragon
+    /// with Idle Animation" all three meshes carry 232 bones, while the highest index any of them
+    /// actually references is:
+    ///
+    ///     Dragon_EYES_0            232 bones declared, uses 4
+    ///     Dragon_Game_dragon_0     232 bones declared, uses 24
+    ///     Dragon_Game_dragon_001_0 232 bones declared, uses 114
+    ///
+    /// SceneKit skins on the GPU with a per-mesh bone budget, and it counts the bones *in the
+    /// skinner*, not the ones referenced. So every mesh was over budget and SceneKit drew none of
+    /// them - silently, with no error, which is why this looked like "AR is broken" rather than
+    /// "this model is too heavy". It is also why it rendered correctly on a Mac and in the
+    /// Simulator, whose limits are higher, and only failed on the device.
+    ///
+    /// After pruning, the same model is 4 / 24 / 114 bones and draws normally. Nothing about the
+    /// geometry, the weights or the animation changes - the same bones move the same vertices, they
+    /// are just addressed by a shorter list. Bone indices are rewritten as `UInt8` at the same time,
+    /// which is the narrowest format the skinning shader can be asked for.
+    @discardableResult
+    static func pruneSkinners(in root: SCNNode) -> Int {
+        var worst = 0
+        root.enumerateHierarchy { node, _ in
+            guard let old = node.skinner, let geometry = node.geometry else { return }
+            let indices = old.boneIndices, weights = old.boneWeights
+            let comps = indices.componentsPerVector
+            let count = indices.vectorCount
+            guard comps > 0, count > 0, weights.vectorCount == count,
+                  weights.bytesPerComponent == 4 else {
+                worst = max(worst, old.bones.count)
+                return
+            }
+
+            func boneIndex(_ v: Int, _ c: Int) -> Int {
+                indices.data.withUnsafeBytes { raw -> Int in
+                    let p = raw.baseAddress!.advanced(by: indices.dataOffset
+                                                      + v * indices.dataStride
+                                                      + c * indices.bytesPerComponent)
+                    switch indices.bytesPerComponent {
+                    case 1:  return Int(p.assumingMemoryBound(to: UInt8.self).pointee)
+                    case 2:  return Int(p.assumingMemoryBound(to: UInt16.self).pointee)
+                    case 4:  return Int(p.assumingMemoryBound(to: UInt32.self).pointee)
+                    default: return 0
+                    }
+                }
+            }
+            func boneWeight(_ v: Int, _ c: Int) -> Float {
+                weights.data.withUnsafeBytes { raw -> Float in
+                    raw.baseAddress!.advanced(by: weights.dataOffset
+                                              + v * weights.dataStride
+                                              + c * weights.bytesPerComponent)
+                        .assumingMemoryBound(to: Float.self).pointee
+                }
+            }
+
+            // Only bones carrying weight count. A zero-weight slot still holds an index, and
+            // keeping a bone alive for it would defeat the whole exercise.
+            var used = Set<Int>()
+            for v in 0..<count {
+                for c in 0..<comps where boneWeight(v, c) > 0 {
+                    let i = boneIndex(v, c)
+                    if i < old.bones.count { used.insert(i) }
+                }
+            }
+            guard !used.isEmpty else { worst = max(worst, old.bones.count); return }
+            guard used.count < old.bones.count, used.count <= 256 else {
+                worst = max(worst, old.bones.count)
+                return
+            }
+
+            let ordered = used.sorted()
+            var remap = [Int: Int]()
+            for (new, oldIndex) in ordered.enumerated() { remap[oldIndex] = new }
+
+            let bones = ordered.map { old.bones[$0] }
+            let identity = NSValue(scnMatrix4: SCNMatrix4Identity)
+            let inverseBind = ordered.map { old.boneInverseBindTransforms?[$0] ?? identity }
+
+            var indexBytes = Data(count: count * comps)
+            indexBytes.withUnsafeMutableBytes { raw in
+                let p = raw.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                for v in 0..<count {
+                    for c in 0..<comps {
+                        let hasWeight = boneWeight(v, c) > 0
+                        p[v * comps + c] = UInt8(hasWeight ? (remap[boneIndex(v, c)] ?? 0) : 0)
+                    }
+                }
+            }
+            var weightBytes = Data(count: count * comps * 4)
+            weightBytes.withUnsafeMutableBytes { raw in
+                let p = raw.baseAddress!.assumingMemoryBound(to: Float.self)
+                for v in 0..<count {
+                    for c in 0..<comps { p[v * comps + c] = boneWeight(v, c) }
+                }
+            }
+
+            let newIndices = SCNGeometrySource(data: indexBytes, semantic: .boneIndices,
+                                               vectorCount: count, usesFloatComponents: false,
+                                               componentsPerVector: comps, bytesPerComponent: 1,
+                                               dataOffset: 0, dataStride: comps)
+            let newWeights = SCNGeometrySource(data: weightBytes, semantic: .boneWeights,
+                                               vectorCount: count, usesFloatComponents: true,
+                                               componentsPerVector: comps, bytesPerComponent: 4,
+                                               dataOffset: 0, dataStride: comps * 4)
+            let skinner = SCNSkinner(baseGeometry: geometry, bones: bones,
+                                     boneInverseBindTransforms: inverseBind,
+                                     boneWeights: newWeights, boneIndices: newIndices)
+            skinner.skeleton = old.skeleton
+            node.skinner = skinner
+            worst = max(worst, bones.count)
+        }
+        return worst
+    }
+
+    /// The bone count of the heaviest single mesh in a model file.
+    ///
+    /// Cheap enough to run before deciding how to show a model: opening a USDZ builds the node
+    /// graph but leaves textures as file references, so nothing large is decoded.
+    static func maxBonesPerMesh(in url: URL) -> Int {
+        guard let scene = try? SCNScene(url: url, options: [.convertToYUp: true]) else { return 0 }
+        var maxBones = 0
+        scene.rootNode.enumerateHierarchy { node, _ in
+            if let skinner = node.skinner { maxBones = max(maxBones, skinner.bones.count) }
+        }
+        return maxBones
+    }
+
     /// Loads a community model and gets it ready to show, wherever it is going to be shown.
     ///
     /// Both the AR screen and the turntable need exactly this sequence, and it is a sequence where
@@ -89,6 +238,10 @@ enum ARPlacement {
             }
         }
 
+        // Before anything else looks at this model: an over-budget skinner means the mesh is
+        // never drawn at all, which no amount of correct scaling or lighting can recover from.
+        let bonesAfterPruning = pruneSkinners(in: model)
+
         let cap = DeviceTier.isLowEnd ? 512 : 1024
         let shrunk = shrinkTextures(in: model, maxPixel: cap)
         let dropped = stripBackdrops(from: model)
@@ -109,9 +262,19 @@ enum ARPlacement {
             model.simdPosition.z -= (lo.z + hi.z) / 2 * scale
         }
 
+        // Bone count per mesh, because it is the one property of a community model that can stop
+        // it drawing on some GPUs and not others. SceneKit skins on the GPU with a per-mesh bone
+        // budget that is far smaller than what a game-ready creature ships with - this dragon has
+        // 232 bones in each of its three meshes - and when a mesh exceeds it the mesh is simply not
+        // drawn. That renders as "animated models do not show up", on the device only, while
+        // unskinned models are unaffected.
+        let maxBones = bonesAfterPruning
+        lastLoadSummary = "\(clips) clip(s), \(shrunk) tex@\(cap), \(dropped) backdrop, "
+                        + "\(maxBones) bones"
+        lastLoadMaxBones = maxBones
         print("[CommunityModel] \(url.lastPathComponent): \(clips) clip(s), "
               + "\(shrunk) texture(s) capped at \(cap)px, \(dropped) backdrop(s) dropped, "
-              + "fitted to \(targetSize)m")
+              + "max \(maxBones) bones/mesh, fitted to \(targetSize)m")
         return container
     }
 
@@ -247,6 +410,29 @@ enum ARPlacement {
         }
         for node in doomed { node.removeFromParentNode() }
         return doomed.count
+    }
+
+    /// A spot straight ahead of the camera, dropped toward the floor - the placement to use when
+    /// ARKit has not found a plane.
+    ///
+    /// Not a guess at where the floor is so much as an admission that we do not know: it sits
+    /// `drop` below eye level at `distance` ahead, squared up to the viewer. It may hover or clip a
+    /// little. That is a far better failure than the alternative, which was showing nothing at all.
+    static func inFrontOfCamera(_ camera: simd_float4x4,
+                                distance: Float, drop: Float) -> simd_float4x4 {
+        let eye = simd_float3(camera.columns.3.x, camera.columns.3.y, camera.columns.3.z)
+        // Forward, flattened: the model should end up beside the viewer on the floor plane, not
+        // above or below them because the phone happened to be tilted.
+        var forward = -simd_float3(camera.columns.2.x, camera.columns.2.y, camera.columns.2.z)
+        forward.y = 0
+        if simd_length(forward) < 1e-4 { forward = simd_float3(0, 0, -1) }
+        forward = simd_normalize(forward)
+
+        let target = eye + forward * distance - simd_float3(0, drop, 0)
+        var t = matrix_identity_float4x4
+        t.columns.3 = simd_float4(target.x, target.y, target.z, 1)
+        let yaw = atan2(-forward.x, -forward.z)
+        return t * simd_float4x4(simd_quatf(angle: yaw, axis: simd_float3(0, 1, 0)))
     }
 
     /// The session configuration both AR screens run.

@@ -29,23 +29,32 @@ struct TurntableView: UIViewRepresentable {
         let view = SCNView(frame: .zero)
         let scene = SCNScene()
         view.scene = scene
-        view.backgroundColor = .black
         view.allowsCameraControl = true          // drag to orbit, pinch to zoom
         view.autoenablesDefaultLighting = false
         view.antialiasingMode = DeviceTier.antialiasing
         view.rendersContinuously = true          // the clip has to keep advancing
         view.isPlaying = true
 
+        // The dance stage's daylight set, not a black void. A community model on black reads as an
+        // asset inspector; on the plaza under the sky it reads as the same product the rest of the
+        // app is. It is the stage's own dome, paving and horizon colour rather than a lookalike, so
+        // the two cannot drift apart.
+        scene.background.contents = UIImage(named: "sky_dome") ?? CharacterSceneView.skyBackdrop()
+        let hz = CharacterSceneView.skyHorizon
+        let horizon = UIColor(red: CGFloat(hz.0), green: CGFloat(hz.1), blue: CGFloat(hz.2), alpha: 1)
+        view.backgroundColor = horizon
+
         let ambient = SCNNode()
         ambient.light = SCNLight()
         ambient.light?.type = .ambient
-        ambient.light?.intensity = 620
+        ambient.light?.intensity = 480
         scene.rootNode.addChildNode(ambient)
 
         let key = SCNNode()
         key.light = SCNLight()
         key.light?.type = .directional
-        key.light?.intensity = 950
+        key.light?.intensity = 900
+        key.light?.castsShadow = false      // nothing to receive it
         key.eulerAngles = SCNVector3(-Float.pi / 3, 0.5, 0)
         scene.rootNode.addChildNode(key)
 
@@ -54,6 +63,12 @@ struct TurntableView: UIViewRepresentable {
             return view
         }
         scene.rootNode.addChildNode(container)
+
+        // No ground here, on purpose. The stage has one because a dancer stands on it; the
+        // community feed is heads, busts, weapons and creatures, and a floor under a bust looks
+        // like a mistake. A rotating model against the sky is the right frame for "look at this
+        // object" - and with no ground there is nothing for a shadow to fall on, so the shadow
+        // pass comes off too.
 
         // Framed from the model's real bounds, not from `targetSize`. The two are not the same
         // thing: `targetSize` caps the *longest* axis, so a wide creature is only a fraction of it
@@ -66,7 +81,11 @@ struct TurntableView: UIViewRepresentable {
         camera.camera = SCNCamera()
         camera.camera?.zNear = 0.01
         camera.camera?.zFar = 100
-        camera.simdPosition = simd_float3(0, mid.y + reach * 0.25, reach * 1.5)
+        // 2.4x, not the ~1.5x geometry would suggest. `visibleBounds` measures the skeleton, and a
+        // mesh reaches well past its bones - a phoenix's tail feathers or a dragon's wing membrane
+        // are metres of geometry hanging off the last joint - so a distance derived from bone
+        // extents frames the skeleton and crops the model. The user can pinch in from here.
+        camera.simdPosition = simd_float3(0, mid.y + reach * 0.3, reach * 2.4)
         camera.look(at: SCNVector3(0, mid.y, 0))
         scene.rootNode.addChildNode(camera)
         view.pointOfView = camera

@@ -405,9 +405,10 @@ struct ModelDetailView: View {
                 }
                 await MainActor.run {
                     arLoading = false
-                    // The app's own AR screen rather than AR Quick Look: Quick Look places a model
-                    // well but is closed, so nothing there could be recorded - and a clip is the
-                    // point of finding a model in the first place.
+                    // Always the app's own AR screen: it is the only one that can be recorded, and
+                    // a clip is the point of finding a model in the first place. Models SceneKit
+                    // genuinely cannot draw hand themselves off to AR Quick Look from there, once
+                    // the loader has reported what the model costs after pruning.
                     arReady = ARModel(url: local)
                 }
             } catch {

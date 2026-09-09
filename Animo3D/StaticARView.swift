@@ -56,13 +56,22 @@ struct StaticARView: UIViewRepresentable {
     /// stayed empty with a reticle and no explanation, which is indistinguishable from "AR is
     /// broken" to the person holding the phone.
     var onLoadFailed: (() -> Void)? = nil
+    /// A one-line description of what the AR session is actually doing, refreshed about once a
+    /// second. Surfaced on screen when the model has not appeared, because "AR does not work" is
+    /// not something that can be debugged and "model loaded, 0 planes, tracking limited:
+    /// insufficient features, not placed" is.
+    var onDiagnostics: ((String) -> Void)? = nil
+    /// The heaviest mesh's bone count, reported as soon as the model is open, so the screen can
+    /// decide whether AR is a mode this model can actually be seen in.
+    var onBoneCount: ((Int) -> Void)? = nil
     var holder: SceneHolder? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(url: url, targetHeight: targetHeight, onPlaced: onPlaced,
                     onPlacementMissed: onPlacementMissed, onTapped: onTapped,
                     onCoaching: onCoaching, onTrackingHint: onTrackingHint,
-                    onLoadFailed: onLoadFailed)
+                    onLoadFailed: onLoadFailed, onDiagnostics: onDiagnostics,
+                    onBoneCount: onBoneCount)
     }
 
     func makeUIView(context: Context) -> ARSCNView {
@@ -108,6 +117,8 @@ struct StaticARView: UIViewRepresentable {
         private let onCoaching: ((Bool) -> Void)?
         private let onTrackingHint: ((String?) -> Void)?
         private let onLoadFailed: (() -> Void)?
+        private let onDiagnostics: ((String) -> Void)?
+        private let onBoneCount: ((Int) -> Void)?
 
         private weak var arView: ARSCNView?
         private var container: SCNNode?
@@ -117,11 +128,20 @@ struct StaticARView: UIViewRepresentable {
         private var coachingTimer: Timer?
         private(set) var placed = false
         private var placedScale: Float = 1
+        /// When the first frame arrived, and whether the automatic placement has been asked for.
+        private var firstFrame: TimeInterval?
+        private var autoPlaceRequested = false
+        /// Diagnostics state: enough to say which step did not happen.
+        private var modelLoaded = false
+        private var fittedNote = "-"
+        private var placeRoute = "-"
+        private var lastDiagnostics: TimeInterval = 0
 
         init(url: URL, targetHeight: Float, onPlaced: (() -> Void)?,
              onPlacementMissed: (() -> Void)?, onTapped: (() -> Void)?,
              onCoaching: ((Bool) -> Void)?, onTrackingHint: ((String?) -> Void)?,
-             onLoadFailed: (() -> Void)?) {
+             onLoadFailed: (() -> Void)?, onDiagnostics: ((String) -> Void)?,
+             onBoneCount: ((Int) -> Void)?) {
             self.url = url
             self.targetHeight = targetHeight
             self.onPlaced = onPlaced
@@ -130,6 +150,8 @@ struct StaticARView: UIViewRepresentable {
             self.onCoaching = onCoaching
             self.onTrackingHint = onTrackingHint
             self.onLoadFailed = onLoadFailed
+            self.onDiagnostics = onDiagnostics
+            self.onBoneCount = onBoneCount
         }
 
         func setup(_ arView: ARSCNView) {
@@ -137,9 +159,16 @@ struct StaticARView: UIViewRepresentable {
             ARPlacement.addLights(to: arView)
 
             guard let c = ARPlacement.loadCommunityModel(url: url, fitting: targetHeight) else {
+                modelLoaded = false
                 onLoadFailed?()
                 return
             }
+            modelLoaded = true
+            let bones = ARPlacement.lastLoadMaxBones
+            DispatchQueue.main.async { self.onBoneCount?(bones) }
+            let (blo, bhi) = ARPlacement.visibleBounds(of: c, in: c)
+            let e = bhi - blo
+            fittedNote = String(format: "%.2f x %.2f x %.2f m", e.x, e.y, e.z)
             container = c
             ARPlacement.addShadowCatcher(to: c, size: targetHeight)
 
@@ -182,7 +211,30 @@ struct StaticARView: UIViewRepresentable {
         // MARK: Reticle
 
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
-            guard !placed, let arView, let reticle else { return }
+            guard !placed, let arView else { return }
+
+            // Show the model without waiting to be asked, and without waiting for a plane.
+            //
+            // The model used to start hidden and be revealed only by a tap that found a floor. In a
+            // room ARKit cannot read - dark, plain carpet, a phone held still - that tap never
+            // succeeds, so the model was never revealed and the screen stayed empty. Every other
+            // fix in this file was invisible behind that one condition.
+            //
+            // A couple of seconds is enough for ARKit to offer a plane if it is going to. After
+            // that, put the model in front of the camera regardless. A tap still re-places it, and
+            // once a real floor turns up the tap snaps to it.
+            if firstFrame == nil { firstFrame = time }
+            if let start = firstFrame, time - start > 2.0, !autoPlaceRequested, container != nil {
+                autoPlaceRequested = true
+                DispatchQueue.main.async { [weak self] in self?.placeAutomatically(in: arView) }
+            }
+
+            if time - lastDiagnostics > 1.0 {
+                lastDiagnostics = time
+                emitDiagnostics(arView)
+            }
+
+            guard let reticle else { return }
             let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
             guard let hit = ARPlacement.floorHit(at: center, in: arView) else {
                 reticle.isHidden = true
@@ -190,6 +242,63 @@ struct StaticARView: UIViewRepresentable {
             }
             reticle.simdWorldTransform = hit.worldTransform
             reticle.isHidden = false
+        }
+
+        /// Everything needed to tell which step failed, in one line.
+        private func emitDiagnostics(_ arView: ARSCNView) {
+            guard let onDiagnostics else { return }
+            let frame = arView.session.currentFrame
+            let planes = frame?.anchors.compactMap { $0 as? ARPlaneAnchor }.count ?? 0
+            let tracking: String
+            switch frame?.camera.trackingState {
+            case .normal: tracking = "normal"
+            case .notAvailable: tracking = "unavailable"
+            case .limited(let r):
+                switch r {
+                case .initializing: tracking = "limited/initializing"
+                case .excessiveMotion: tracking = "limited/motion"
+                case .insufficientFeatures: tracking = "limited/features"
+                case .relocalizing: tracking = "limited/relocalizing"
+                @unknown default: tracking = "limited/?"
+                }
+            case nil: tracking = "no frame"
+            @unknown default: tracking = "?"
+            }
+            var lines = ["model: \(modelLoaded ? "loaded \(fittedNote)" : "FAILED TO LOAD")",
+                         ARPlacement.lastLoadSummary,
+                         "tracking: \(tracking)   planes: \(planes)",
+                         "placed: \(placed ? "yes via \(placeRoute)" : "no")"]
+            if placed, let container, let cam = frame?.camera {
+                let p = container.simdWorldPosition
+                let eye = simd_float3(cam.transform.columns.3.x, cam.transform.columns.3.y,
+                                      cam.transform.columns.3.z)
+                lines.append(String(format: "hidden: %@   %.2f m away",
+                                    container.isHidden ? "YES" : "no", simd_distance(p, eye)))
+            }
+            let text = lines.joined(separator: "\n")
+            DispatchQueue.main.async { onDiagnostics(text) }
+        }
+
+        /// Place the model on a floor if there is one, and straight ahead if there is not.
+        private func placeAutomatically(in arView: ARSCNView) {
+            guard !placed, container != nil,
+                  let camera = arView.session.currentFrame?.camera else { return }
+            let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
+            let transform: simd_float4x4
+            if let hit = ARPlacement.floorHit(at: center, in: arView) {
+                transform = ARPlacement.facingCamera(hit.worldTransform, from: camera.transform)
+                placeRoute = "plane"
+            } else {
+                placeRoute = "ahead-of-camera"
+                // Far enough out that a 1.6 m model is not inside the near plane, and a little
+                // below eye level so it reads as standing rather than floating at face height.
+                transform = ARPlacement.inFrontOfCamera(camera.transform,
+                                                        distance: max(1.6, targetHeight * 1.15),
+                                                        drop: 0.55)
+                print("[StaticAR] no plane yet - placed ahead of the camera")
+            }
+            endCoaching()
+            arView.session.add(anchor: ARAnchor(name: "placement", transform: transform))
         }
 
         // MARK: Anchors

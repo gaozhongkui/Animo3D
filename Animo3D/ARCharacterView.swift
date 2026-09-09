@@ -112,6 +112,9 @@ struct ARCharacterView: UIViewRepresentable {
         private let onTrackingHint: ((String?) -> Void)?
         private weak var coaching: ARCoachingOverlayView?
         private var coachingTimer: Timer?
+        /// When the first frame arrived, and whether automatic placement has been asked for.
+        private var firstFrame: TimeInterval?
+        private var autoPlaceRequested = false
 
         init(controller: CharacterSceneController, onAttach: (() -> Void)?,
              onPlaced: ((SCNNode) -> Void)?, onPlacementMissed: (() -> Void)?, detectGround: Bool,
@@ -244,7 +247,19 @@ struct ARCharacterView: UIViewRepresentable {
         /// The reticle being visible is the contract: it means a tap will land, and its absence
         /// means a tap will not. `handleTap` checks the same thing rather than guessing.
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
-            guard detectGround, !placed, let arView, let reticle else { return }
+            guard detectGround, !placed, let arView else { return }
+
+            // Same reasoning as StaticARView: the character starts hidden and was only revealed by
+            // a tap that found a floor, so in a room ARKit cannot read it was never revealed at
+            // all. Two seconds is long enough for a plane to turn up if one is going to; after
+            // that the character goes in front of the camera and a tap still re-places it.
+            if firstFrame == nil { firstFrame = time }
+            if let start = firstFrame, time - start > 2.0, !autoPlaceRequested, container != nil {
+                autoPlaceRequested = true
+                DispatchQueue.main.async { [weak self] in self?.placeAutomatically(in: arView) }
+            }
+
+            guard let reticle else { return }
             let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
             guard let hit = ARPlacement.floorHit(at: center, in: arView) else {
                 reticle.isHidden = true
@@ -334,6 +349,25 @@ struct ARCharacterView: UIViewRepresentable {
                 let anchor = ARAnchor(name: "placement", transform: transform)
                 arView.session.add(anchor: anchor)
             }
+        }
+
+        /// Place the character on a floor if there is one, and straight ahead if there is not.
+        private func placeAutomatically(in arView: ARSCNView) {
+            guard !placed, container != nil,
+                  let camera = arView.session.currentFrame?.camera else { return }
+            let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
+            let h = max(controller.modelHeight, 0.1)
+            let transform: simd_float4x4
+            if let hit = ARPlacement.floorHit(at: center, in: arView) {
+                transform = ARPlacement.facingCamera(hit.worldTransform, from: camera.transform)
+            } else {
+                transform = ARPlacement.inFrontOfCamera(camera.transform,
+                                                        distance: max(1.8, h * 1.5),
+                                                        drop: 0.6)
+                print("[AR] no plane yet - placed ahead of the camera")
+            }
+            endCoaching()
+            arView.session.add(anchor: ARAnchor(name: "placement", transform: transform))
         }
 
         // MARK: Plane visualization + Anchor placement
