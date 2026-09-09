@@ -37,10 +37,6 @@ struct StaticARScreen: View {
     /// Set once the model has had every chance to appear. The diagnostics panel is shown only from
     /// that point, so a working session never sees it and a broken one explains itself.
     @State private var overdue = false
-    /// Set when the model turns out to have more bones than SceneKit will skin on this device, so
-    /// AR cannot draw it. The screen moves itself to 3D and says so, rather than leaving the user
-    /// in front of an empty room wondering which of the two modes is broken.
-    @State private var tooManyBones = false
     @State private var trackingHint: String?
     /// Which way the model is being shown. AR by default; the turntable is one tap away, and works
     /// on devices and in situations where AR does not.
@@ -68,7 +64,6 @@ struct StaticARScreen: View {
                                  // The turntable is no help - it is the same renderer - so hand
                                  // off to AR Quick Look, which is RealityKit and draws it.
                                  guard bones > ARPlacement.skinningBoneBudget else { return }
-                                 tooManyBones = true
                                  ARQuickLookPresenter.shared.present(url: url, title: title)
                              },
                              holder: holder)
@@ -105,7 +100,27 @@ struct StaticARScreen: View {
                 .allowsHitTesting(false)
             }
 
-            // Only when something has gone wrong: five seconds in with nothing on the floor.
+            // Five seconds in with nothing placed. Two different audiences, so two different
+            // messages: the user gets a sentence they can act on, and a debug build gets the
+            // session state that made this diagnosable in the first place - bone counts, tracking
+            // reason, plane count. That panel is developer text and has no business shipping.
+            if overdue, !placed {
+                VStack {
+                    Spacer()
+                    Text("Still looking for a surface - try moving the phone slowly across the floor")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(Capsule().fill(.black.opacity(0.55)))
+                        .padding(.horizontal, 28)
+                        .padding(.bottom, 120)
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+
+            #if DEBUG
             if overdue, !placed, let diagnostics {
                 VStack {
                     Spacer()
@@ -115,11 +130,11 @@ struct StaticARScreen: View {
                         .multilineTextAlignment(.leading)
                         .padding(10)
                         .background(RoundedRectangle(cornerRadius: 10).fill(.black.opacity(0.6)))
-                        .padding(.bottom, 120)
+                        .padding(.bottom, 190)
                 }
                 .allowsHitTesting(false)
-                .transition(.opacity)
             }
+            #endif
 
             if loadFailed {
                 VStack(spacing: 10) {
