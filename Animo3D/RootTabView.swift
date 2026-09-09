@@ -152,7 +152,6 @@ struct ModelCard: View {
 struct ModelDetailView: View {
     let model: SketchfabModel
     @Environment(\.dismiss) private var dismiss
-    @State private var showShare = false
     @State private var show3DPreview = false
     /// The same embed, filling the screen. A separate presentation rather than an in-place resize:
     /// the preview lives inside the scroll view, and growing it there would push the page around and
@@ -208,6 +207,16 @@ struct ModelDetailView: View {
         }
     }
 
+    /// How tall the model preview is.
+    ///
+    /// Proportional rather than the old fixed 400pt, because the two buttons that used to sit under
+    /// the AR button are gone and the space they held should go to the thing people came to look
+    /// at. Floored so a small phone does not end up with a letterbox, capped so a large one does
+    /// not push the AR button off the bottom - the page has to keep fitting without scrolling.
+    private var previewHeight: CGFloat {
+        min(max(UIScreen.main.bounds.height * 0.62, 400), 580)
+    }
+
     private var arFraction: Double? {
         guard let total = arTotal, total > 0 else { return nil }
         return min(1, max(0, Double(arReceived) / Double(total)))
@@ -230,7 +239,7 @@ struct ModelDetailView: View {
                                 WebView(url: url)
                             }
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 400)
+                                .frame(height: previewHeight)
                                 .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
                                 .overlay(alignment: .topTrailing) {
                                     // Expand first, then back-to-image: the order matches how often
@@ -250,7 +259,7 @@ struct ModelDetailView: View {
                             // fixed-size container, it can no longer influence layout.
                             Color(.secondarySystemBackground)
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 400)
+                                .frame(height: previewHeight)
                                 .overlay {
                                     AsyncImage(url: URL(string: model.bestThumbnail ?? "")) { image in
                                         image.resizable().scaledToFill()
@@ -338,15 +347,6 @@ struct ModelDetailView: View {
                                 .shadow(color: Color.accentColor.opacity(0.3), radius: 12, y: 6)
                             }
                             .disabled(arLoading)
-
-                            HStack(spacing: 12) {
-                                ActionRowSmall(icon: "paperplane.fill", title: "Share Model", color: .blue) {
-                                    showShare = true
-                                }
-                                ActionRowSmall(icon: "safari.fill", title: "Source Page", color: .indigo) {
-                                    if let url = URL(string: model.viewerUrl) { UIApplication.shared.open(url) }
-                                }
-                            }
                         }
                     }
                     .padding(.horizontal, 24)
@@ -371,9 +371,6 @@ struct ModelDetailView: View {
             if let url = embedURL {
                 FullscreenPreviewScreen(url: url, title: model.name)
             }
-        }
-        .sheet(isPresented: $showShare) {
-            ShareSheet(items: ["Check out this 3D model: \(model.name)", URL(string: model.viewerUrl)!])
         }
         .alert("Load Failed", isPresented: .constant(arError != nil)) {
             Button("Dismiss") { arError = nil }
@@ -421,33 +418,6 @@ struct ModelDetailView: View {
     }
 }
 
-struct ActionRowSmall: View {
-    let icon: String
-    let title: LocalizedStringKey
-    let color: Color
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 32, height: 32)
-                    .background(color, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                Text(title)
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.primary)
-
-                Spacer()
-            }
-            .padding(8)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-}
 
 /// The download mask over the model's hero image.
 ///
