@@ -1,7 +1,7 @@
 {
  "schema": 2,
- "revision": 3,
- "generated": "2026-09-07",
+ "revision": 4,
+ "generated": "2026-09-09",
  "minAppVersion": null,
  "baseUrl": "https://dekbcnbakegjgbjxflxe.supabase.co/storage/v1/object/public/models/",
  "notice": null,
@@ -41,6 +41,48 @@
    "thumb": "thumbs/thumb_The_Boss.png"
   },
   {
+   "id": "VRM_1",
+   "name": "VRM 1",
+   "model": "characters/char_VRM_1.scn",
+   "thumb": "thumbs/thumb_VRM_1.png"
+  },
+  {
+   "id": "VRM_2",
+   "name": "VRM 2",
+   "model": "characters/char_VRM_2.scn",
+   "thumb": "thumbs/thumb_VRM_2.png"
+  },
+  {
+   "id": "VRM_3",
+   "name": "VRM 3",
+   "model": "characters/char_VRM_3.scn",
+   "thumb": "thumbs/thumb_VRM_3.png"
+  },
+  {
+   "id": "VRM_4",
+   "name": "VRM 4",
+   "model": "characters/char_VRM_4.scn",
+   "thumb": "thumbs/thumb_VRM_4.png"
+  },
+  {
+   "id": "VRM_5",
+   "name": "VRM 5",
+   "model": "characters/char_VRM_5.scn",
+   "thumb": "thumbs/thumb_VRM_5.png"
+  },
+  {
+   "id": "VRM_6",
+   "name": "VRM 6",
+   "model": "characters/char_VRM_6.scn",
+   "thumb": "thumbs/thumb_VRM_6.png"
+  },
+  {
+   "id": "VRM_7",
+   "name": "VRM 7",
+   "model": "characters/char_VRM_7.scn",
+   "thumb": "thumbs/thumb_VRM_7.png"
+  },
+  {
    "id": "Vanguard_By_T._Choonyung",
    "name": "Vanguard By T. Choonyung",
    "model": "characters/char_Vanguard_By_T._Choonyung.scn",
@@ -61,22 +103,16 @@
  ],
  "dances": [
   {
-   "id": "Arms_Hip_Hop_Dance",
-   "name": "Arms Hip Hop Dance",
-   "clip": "dances/mocap_Arms_Hip_Hop_Dance.json",
-   "duration": 22.0
-  },
-  {
    "id": "Belly_Dance",
    "name": "Belly Dance",
    "clip": "dances/mocap_Belly_Dance.json",
    "duration": 19.67
   },
   {
-   "id": "Booty_Hip_Hop_Dance",
-   "name": "Booty Hip Hop Dance",
-   "clip": "dances/mocap_Booty_Hip_Hop_Dance.json",
-   "duration": 4.93
+   "id": "Breakdance_Swipes",
+   "name": "Breakdance Swipes",
+   "clip": "dances/mocap_Breakdance_Swipes.json",
+   "duration": 3.03
   },
   {
    "id": "Chicken_Dance",
@@ -88,19 +124,13 @@
    "id": "Dancing",
    "name": "Dancing",
    "clip": "dances/mocap_Dancing.json",
-   "duration": 21.43
+   "duration": 12.4
   },
   {
    "id": "Dancing_1",
    "name": "Dancing 1",
    "clip": "dances/mocap_Dancing_1.json",
-   "duration": 2.67
-  },
-  {
-   "id": "Dancing_2",
-   "name": "Dancing 2",
-   "clip": "dances/mocap_Dancing_2.json",
-   "duration": 8.13
+   "duration": 21.43
   },
   {
    "id": "Dancing_Maraschino_Step",
@@ -109,40 +139,88 @@
    "duration": 3.27
   },
   {
+   "id": "Dancing_Running_Man",
+   "name": "Dancing Running Man",
+   "clip": "dances/mocap_Dancing_Running_Man.json",
+   "duration": 10.87
+  },
+  {
+   "id": "Dancing_Twerk",
+   "name": "Dancing Twerk",
+   "clip": "dances/mocap_Dancing_Twerk.json",
+   "duration": 15.23
+  },
+  {
+   "id": "Dancing_Twerk_1",
+   "name": "Dancing Twerk 1",
+   "clip": "dances/mocap_Dancing_Twerk_1.json",
+   "duration": 15.23
+  },
+  {
+   "id": "Flair",
+   "name": "Flair",
+   "clip": "dances/mocap_Flair.json",
+   "duration": 1.7
+  },
+  {
+   "id": "Gangnam_Style",
+   "name": "Gangnam Style",
+   "clip": "dances/mocap_Gangnam_Style.json",
+   "duration": 12.4
+  },
+  {
    "id": "Hip_Hop_Dancing",
    "name": "Hip Hop Dancing",
    "clip": "dances/mocap_Hip_Hop_Dancing.json",
-   "duration": 18.6
+   "duration": 6.37
   },
   {
    "id": "Hip_Hop_Dancing_1",
    "name": "Hip Hop Dancing 1",
    "clip": "dances/mocap_Hip_Hop_Dancing_1.json",
-   "duration": 4.77
+   "duration": 18.6
   },
   {
    "id": "Hip_Hop_Dancing_2",
    "name": "Hip Hop Dancing 2",
    "clip": "dances/mocap_Hip_Hop_Dancing_2.json",
-   "duration": 17.27
+   "duration": 4.77
   },
   {
-   "id": "House_Dancing",
-   "name": "House Dancing",
-   "clip": "dances/mocap_House_Dancing.json",
-   "duration": 26.2
+   "id": "Hip_Hop_Dancing_3",
+   "name": "Hip Hop Dancing 3",
+   "clip": "dances/mocap_Hip_Hop_Dancing_3.json",
+   "duration": 12.0
   },
   {
-   "id": "House_Dancing_1",
-   "name": "House Dancing 1",
-   "clip": "dances/mocap_House_Dancing_1.json",
-   "duration": 19.83
+   "id": "Hip_Hop_Dancing_4",
+   "name": "Hip Hop Dancing 4",
+   "clip": "dances/mocap_Hip_Hop_Dancing_4.json",
+   "duration": 12.0
   },
   {
-   "id": "House_Dancing_2",
-   "name": "House Dancing 2",
-   "clip": "dances/mocap_House_Dancing_2.json",
-   "duration": 21.4
+   "id": "Hip_Hop_Dancing_5",
+   "name": "Hip Hop Dancing 5",
+   "clip": "dances/mocap_Hip_Hop_Dancing_5.json",
+   "duration": 3.4
+  },
+  {
+   "id": "Hip_Hop_Dancing_6",
+   "name": "Hip Hop Dancing 6",
+   "clip": "dances/mocap_Hip_Hop_Dancing_6.json",
+   "duration": 4.5
+  },
+  {
+   "id": "Hip_Hop_Dancing_7",
+   "name": "Hip Hop Dancing 7",
+   "clip": "dances/mocap_Hip_Hop_Dancing_7.json",
+   "duration": 4.5
+  },
+  {
+   "id": "Hip_Hop_Dancing_8",
+   "name": "Hip Hop Dancing 8",
+   "clip": "dances/mocap_Hip_Hop_Dancing_8.json",
+   "duration": 13.67
   },
   {
    "id": "Jazz_Dancing",
@@ -154,31 +232,31 @@
    "id": "Jazz_Dancing_1",
    "name": "Jazz Dancing 1",
    "clip": "dances/mocap_Jazz_Dancing_1.json",
-   "duration": 2.3
+   "duration": 5.47
   },
   {
    "id": "Jazz_Dancing_2",
    "name": "Jazz Dancing 2",
    "clip": "dances/mocap_Jazz_Dancing_2.json",
-   "duration": 2.07
+   "duration": 2.37
   },
   {
-   "id": "Locking_Hip_Hop_Dance",
-   "name": "Locking Hip Hop Dance",
-   "clip": "dances/mocap_Locking_Hip_Hop_Dance.json",
-   "duration": 17.03
+   "id": "Jazz_Dancing_3",
+   "name": "Jazz Dancing 3",
+   "clip": "dances/mocap_Jazz_Dancing_3.json",
+   "duration": 2.37
   },
   {
-   "id": "Macarena_Dance",
-   "name": "Macarena Dance",
-   "clip": "dances/mocap_Macarena_Dance.json",
+   "id": "Jazz_Dancing_4",
+   "name": "Jazz Dancing 4",
+   "clip": "dances/mocap_Jazz_Dancing_4.json",
+   "duration": 2.77
+  },
+  {
+   "id": "Macarena_Dance_2",
+   "name": "Macarena Dance 2",
+   "clip": "dances/mocap_Macarena_Dance_2.json",
    "duration": 8.27
-  },
-  {
-   "id": "Northern_Soul_Dance",
-   "name": "Northern Soul Dance",
-   "clip": "dances/mocap_Northern_Soul_Dance.json",
-   "duration": 16.1
   },
   {
    "id": "Northern_Soul_Floor_Combo",
@@ -187,58 +265,70 @@
    "duration": 10.63
   },
   {
-   "id": "Northern_Soul_Spin_Combo",
-   "name": "Northern Soul Spin Combo",
-   "clip": "dances/mocap_Northern_Soul_Spin_Combo.json",
-   "duration": 8.87
-  },
-  {
    "id": "Robot_Hip_Hop_Dance",
    "name": "Robot Hip Hop Dance",
    "clip": "dances/mocap_Robot_Hip_Hop_Dance.json",
    "duration": 15.47
   },
   {
+   "id": "Robot_Hip_Hop_Dance_1",
+   "name": "Robot Hip Hop Dance 1",
+   "clip": "dances/mocap_Robot_Hip_Hop_Dance_1.json",
+   "duration": 15.47
+  },
+  {
+   "id": "Salsa_Dancing",
+   "name": "Salsa Dancing",
+   "clip": "dances/mocap_Salsa_Dancing.json",
+   "duration": 2.3
+  },
+  {
+   "id": "Salsa_Dancing_1",
+   "name": "Salsa Dancing 1",
+   "clip": "dances/mocap_Salsa_Dancing_1.json",
+   "duration": 2.3
+  },
+  {
    "id": "Samba_Dancing",
    "name": "Samba Dancing",
    "clip": "dances/mocap_Samba_Dancing.json",
-   "duration": 18.23
+   "duration": 27.9
   },
   {
-   "id": "Shopping_Cart_Dance",
-   "name": "Shopping Cart Dance",
-   "clip": "dances/mocap_Shopping_Cart_Dance.json",
-   "duration": 15.97
+   "id": "Samba_Dancing_1",
+   "name": "Samba Dancing 1",
+   "clip": "dances/mocap_Samba_Dancing_1.json",
+   "duration": 27.9
   },
   {
-   "id": "Shuffling",
-   "name": "Shuffling",
-   "clip": "dances/mocap_Shuffling.json",
-   "duration": 7.53
+   "id": "Samba_Dancing_2",
+   "name": "Samba Dancing 2",
+   "clip": "dances/mocap_Samba_Dancing_2.json",
+   "duration": 21.83
   },
   {
-   "id": "Slide_Hip_Hop_Dance",
-   "name": "Slide Hip Hop Dance",
-   "clip": "dances/mocap_Slide_Hip_Hop_Dance.json",
-   "duration": 17.33
+   "id": "Samba_Dancing_3",
+   "name": "Samba Dancing 3",
+   "clip": "dances/mocap_Samba_Dancing_3.json",
+   "duration": 18.67
   },
   {
-   "id": "Snake_Hip_Hop_Dance",
-   "name": "Snake Hip Hop Dance",
-   "clip": "dances/mocap_Snake_Hip_Hop_Dance.json",
-   "duration": 15.3
+   "id": "Samba_Dancing_4",
+   "name": "Samba Dancing 4",
+   "clip": "dances/mocap_Samba_Dancing_4.json",
+   "duration": 18.67
   },
   {
-   "id": "Snake_Hip_Hop_Dance_1",
-   "name": "Snake Hip Hop Dance 1",
-   "clip": "dances/mocap_Snake_Hip_Hop_Dance_1.json",
-   "duration": 15.3
+   "id": "Silly_Dancing",
+   "name": "Silly Dancing",
+   "clip": "dances/mocap_Silly_Dancing.json",
+   "duration": 5.47
   },
   {
-   "id": "Step_Hip_Hop_Dance",
-   "name": "Step Hip Hop Dance",
-   "clip": "dances/mocap_Step_Hip_Hop_Dance.json",
-   "duration": 7.83
+   "id": "Silly_Dancing_1",
+   "name": "Silly Dancing 1",
+   "clip": "dances/mocap_Silly_Dancing_1.json",
+   "duration": 3.87
   },
   {
    "id": "Swing_Dancing",
@@ -247,82 +337,10 @@
    "duration": 20.93
   },
   {
-   "id": "Swing_Dancing_1",
-   "name": "Swing Dancing 1",
-   "clip": "dances/mocap_Swing_Dancing_1.json",
-   "duration": 2.5
-  },
-  {
-   "id": "Swing_Dancing_2",
-   "name": "Swing Dancing 2",
-   "clip": "dances/mocap_Swing_Dancing_2.json",
-   "duration": 23.33
-  },
-  {
-   "id": "Swing_Dancing_3",
-   "name": "Swing Dancing 3",
-   "clip": "dances/mocap_Swing_Dancing_3.json",
-   "duration": 24.73
-  },
-  {
-   "id": "Swing_Dancing_4",
-   "name": "Swing Dancing 4",
-   "clip": "dances/mocap_Swing_Dancing_4.json",
-   "duration": 5.23
-  },
-  {
-   "id": "Thriller_Part_2",
-   "name": "Thriller Part 2",
-   "clip": "dances/mocap_Thriller_Part_2.json",
-   "duration": 18.87
-  },
-  {
-   "id": "Thriller_Part_3",
-   "name": "Thriller Part 3",
-   "clip": "dances/mocap_Thriller_Part_3.json",
-   "duration": 25.6
-  },
-  {
-   "id": "Thriller_Part_4",
-   "name": "Thriller Part 4",
-   "clip": "dances/mocap_Thriller_Part_4.json",
-   "duration": 37.1
-  },
-  {
-   "id": "Tut_Hip_Hop_Dance",
-   "name": "Tut Hip Hop Dance",
-   "clip": "dances/mocap_Tut_Hip_Hop_Dance.json",
-   "duration": 16.97
-  },
-  {
-   "id": "Tut_Hip_Hop_Dance_1",
-   "name": "Tut Hip Hop Dance 1",
-   "clip": "dances/mocap_Tut_Hip_Hop_Dance_1.json",
-   "duration": 12.13
-  },
-  {
    "id": "Twist_Dance",
    "name": "Twist Dance",
    "clip": "dances/mocap_Twist_Dance.json",
    "duration": 9.47
-  },
-  {
-   "id": "Wave_Hip_Hop_Dance",
-   "name": "Wave Hip Hop Dance",
-   "clip": "dances/mocap_Wave_Hip_Hop_Dance.json",
-   "duration": 16.0
-  },
-  {
-   "id": "Wave_Hip_Hop_Dance_1",
-   "name": "Wave Hip Hop Dance 1",
-   "clip": "dances/mocap_Wave_Hip_Hop_Dance_1.json",
-   "duration": 16.0
-  },
-  {
-   "id": "Ymca_Dance",
-   "name": "Ymca Dance",
-   "clip": "dances/mocap_Ymca_Dance.json",
-   "duration": 4.53
   }
  ]
 }
