@@ -74,27 +74,35 @@ struct DiscoverView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(categories, id: \.self) { cat in
-                            // A Button, not `.onTapGesture`. A tap gesture inside a ScrollView does
-                            // not take part in the scroll view's gesture arbitration: it fires on
-                            // touch-up wherever the finger happens to land, so flicking the row
-                            // sideways kept changing the category out from under the swipe. A
-                            // Button is cancelled the moment the scroll takes over, which is the
-                            // whole difference between "I scrolled" and "I picked".
-                            Button {
-                                HapticManager.light()
-                                withAnimation(.spring(response: 0.3)) { selectedCategory = cat }
-                            } label: {
-                                Text(LocalizedStringKey(cat))
-                                    .font(.system(size: 13, weight: selectedCategory == cat ? .bold : .medium))
-                                    .padding(.horizontal, 16).padding(.vertical, 8)
-                                    .background(selectedCategory == cat ? Color.accentColor : Color(.secondarySystemBackground), in: Capsule())
-                                    .foregroundStyle(selectedCategory == cat ? .white : .primary.opacity(0.7))
-                                    // The capsule, and only the capsule. Without this the hit area
-                                    // is the label's full rectangle, so the gaps between two chips
-                                    // belong to whichever one is nearer.
-                                    .contentShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
+                            // Selection is gated on how far the finger travelled, not on where it
+                            // came up. `.onTapGesture` fires on touch-up wherever it lands, so a
+                            // sideways flick kept switching category mid-swipe; a plain Button was
+                            // better but still fired on quick flicks, because a scroll view only
+                            // claims the gesture once it decides the drag is a scroll. Measuring
+                            // the travel makes the rule explicit and leaves nothing to arbitrate:
+                            // under 8pt is a tap, anything more is a scroll and selects nothing.
+                            // `simultaneousGesture` so the row still scrolls normally underneath.
+                            Text(LocalizedStringKey(cat))
+                                .font(.system(size: 13, weight: selectedCategory == cat ? .bold : .medium))
+                                .padding(.horizontal, 16).padding(.vertical, 8)
+                                .background(selectedCategory == cat ? Color.accentColor : Color(.secondarySystemBackground), in: Capsule())
+                                .foregroundStyle(selectedCategory == cat ? .white : .primary.opacity(0.7))
+                                // 44pt of height to aim at, while the capsule keeps its own size:
+                                // the chip itself is about 29pt tall, under the minimum target, and
+                                // a row of undersized targets is the other half of the mis-taps.
+                                // Vertical only - growing them sideways would make neighbouring
+                                // chips overlap, which trades one mis-tap for another.
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                                .simultaneousGesture(
+                                    DragGesture(minimumDistance: 0)
+                                        .onEnded { v in
+                                            guard abs(v.translation.width) < 8,
+                                                  abs(v.translation.height) < 8 else { return }
+                                            HapticManager.light()
+                                            withAnimation(.spring(response: 0.3)) { selectedCategory = cat }
+                                        }
+                                )
                         }
                     }
                     .padding(.horizontal, 20)

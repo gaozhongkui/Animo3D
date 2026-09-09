@@ -601,31 +601,39 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         floorNode = node
         }
 
-        // Soft contact shadow under feet (always visible, provides "grounding" cues even if directional light shadows aren't rendered)
-        contactShadow?.removeFromParentNode()
+        // Soft contact shadow under feet.
+        //
+        // Only where there is no floor to cast onto - the detail pages, which is the case this was
+        // written for. On the stage it is off: a painted ellipse under a character standing on a
+        // lit, textured floor reads as a decal that follows them around, not as contact, and
+        // judged side by side the stage looked better with nothing there at all. The real
+        // grounding on the stage is the directional light's own shadow plus the feet actually
+        // being on the plane (instrumented: the lowest sole holds within 0.04m of it).
+        contactShadow?.removeFromParentNode(); contactShadow = nil
         footShadows.forEach { $0.removeFromParentNode() }; footShadows = []
-        // Sized from the character's height, not from the bounding box: with the arms out, the box
-        // is wider than the character is tall and the "contact" shadow covered the whole foreground.
-        let shadowScale: Float = backgroundType == .sky ? 1.15 : 1.0
-        let blobW = min(footSpan * 2.4, max(modelHeight, 0.1) * 0.75) * shadowScale
-        let blob = SCNPlane(width: CGFloat(blobW), height: CGFloat(blobW * 0.62))
-        let bm = blob.firstMaterial!
-        bm.diffuse.contents = backgroundType == .sky ? Self.contactShadowTextureStrong : Self.contactShadowTexture
-        // Softer than it used to be: this is now the ambient pool the body sits in, not the thing
-        // that has to say "the feet are touching". That job moved to the per-foot blobs below, and
-        // leaving this one at full strength just doubled up into a single dark smear.
-        bm.transparency = backgroundType == .sky ? 0.8 : 0.65
-        bm.lightingModel = .constant
-        bm.isDoubleSided = true
-        bm.writesToDepthBuffer = false
-        let bnode = SCNNode(geometry: blob)
-        bnode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)          // Tiled on the ground
-        bnode.simdPosition = simd_float3(cx, minY + 0.003, cz)
-        bnode.renderingOrder = 2                                     // Above the floor and the inlay
-        scene.rootNode.addChildNode(bnode)
-        contactShadow = bnode
-        followFeet(bnode, groundY: minY + 0.003)
-        addFootContact(groundY: minY + 0.0045, span: footSpan)
+        if !groundEnabled {
+            // Sized from the character's height, not from the bounding box: with the arms out, the box
+            // is wider than the character is tall and the "contact" shadow covered the whole foreground.
+            let shadowScale: Float = backgroundType == .sky ? 1.15 : 1.0
+            let blobW = min(footSpan * 2.4, max(modelHeight, 0.1) * 0.75) * shadowScale
+            let blob = SCNPlane(width: CGFloat(blobW), height: CGFloat(blobW * 0.62))
+            let bm = blob.firstMaterial!
+            bm.diffuse.contents = backgroundType == .sky ? Self.contactShadowTextureStrong : Self.contactShadowTexture
+            // The body pool the per-foot ones sit inside; at full strength the two doubled up
+            // into a single dark smear.
+            bm.transparency = backgroundType == .sky ? 0.8 : 0.65
+            bm.lightingModel = .constant
+            bm.isDoubleSided = true
+            bm.writesToDepthBuffer = false
+            let bnode = SCNNode(geometry: blob)
+            bnode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)          // Tiled on the ground
+            bnode.simdPosition = simd_float3(cx, minY + 0.003, cz)
+            bnode.renderingOrder = 2                                     // Above the floor and the inlay
+            scene.rootNode.addChildNode(bnode)
+            contactShadow = bnode
+            followFeet(bnode, groundY: minY + 0.003)
+            addFootContact(groundY: minY + 0.0045, span: footSpan)
+        }
 
         stageCenter = simd_float3(cx, 0, cz)
         // After stageCenter: the ring is centred on where the performer stands, not on the origin,
