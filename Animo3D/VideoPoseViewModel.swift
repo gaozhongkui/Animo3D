@@ -18,7 +18,10 @@ final class VideoPoseViewModel: ObservableObject {
     /// Normalized landmarks of the latest frame (first person).
     @Published var landmarks: [NormalizedLandmarkLite] = []
     /// Status message.
-    @Published var status: String = L("Select a video")
+    /// Starts on the model-loading message rather than "Select a video": the model now loads in the
+    /// background, and a user who picks a clip in that first second would otherwise watch a
+    /// motionless character with nothing on screen explaining why.
+    @Published var status: String = L("Preparing motion analysis...")
     /// Whether processing is in progress.
     @Published var isRunning = false
 
@@ -36,11 +39,34 @@ final class VideoPoseViewModel: ObservableObject {
     // Instead a separate monotonic counter is used, incremented by 33ms (~30fps) per processed frame, so it always increases.
     private var monotonicMs: Int = 0
 
+    /// True once the pose model is loaded and frames can actually be analysed.
+    @Published private(set) var isModelReady = false
+
+    /// The model loads off the main thread, deliberately.
+    ///
+    /// This used to be `service = try PoseLandmarkerService()` in `init`, and `init` runs on the
+    /// main thread when SwiftUI builds the `@StateObject` - so opening this screen blocked the UI
+    /// while MediaPipe read `pose_landmarker_heavy.task`, all 29MB of it, and built its inference
+    /// graph. That is the freeze on tapping the video feature: not the video, not the player, the
+    /// model load happening where nothing else can run.
+    ///
+    /// Nothing needs it until a frame is processed, and `processFrame` already guards on `service`
+    /// being non-nil, so the screen can appear immediately and finish loading behind itself.
     init() {
-        do {
-            service = try PoseLandmarkerService()
-        } catch {
-            status = String(format: L("Failed to load model: %@"), error.localizedDescription)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            do {
+                let service = try PoseLandmarkerService()
+                await MainActor.run {
+                    self?.service = service
+                    self?.isModelReady = true
+                    if self?.isRunning == false { self?.status = L("Select a video") }
+                }
+            } catch {
+                let message = error.localizedDescription
+                await MainActor.run {
+                    self?.status = String(format: L("Failed to load model: %@"), message)
+                }
+            }
         }
     }
 
