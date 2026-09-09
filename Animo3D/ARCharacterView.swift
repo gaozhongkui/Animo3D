@@ -22,6 +22,10 @@ struct ARCharacterView: UIViewRepresentable {
     /// Called when a tap found no floor, so the caller can say so instead of leaving the user
     /// tapping a screen that never answers.
     var onPlacementMissed: (() -> Void)? = nil
+    /// Called every time the character lands on an anchor - the first placement and every
+    /// tap-to-move after it. The retargeter's reference pose is tied to an absolute world position,
+    /// so it has to be re-established here or the body stays where it was first captured.
+    var onRelocated: (() -> Void)? = nil
     /// True while Apple's scanning overlay holds the screen.
     var onCoaching: ((Bool) -> Void)? = nil
     /// A short reason tracking is unhealthy, or nil when it is fine.
@@ -33,7 +37,8 @@ struct ARCharacterView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(controller: controller, onAttach: onAttach, onPlaced: onPlaced,
                     onPlacementMissed: onPlacementMissed, detectGround: detectGround,
-                    onCoaching: onCoaching, onTrackingHint: onTrackingHint)
+                    onCoaching: onCoaching, onTrackingHint: onTrackingHint,
+                    onRelocated: onRelocated)
     }
 
     func makeUIView(context: Context) -> ARSCNView {
@@ -93,6 +98,7 @@ struct ARCharacterView: UIViewRepresentable {
         private let onAttach: (() -> Void)?
         private let onPlaced: ((SCNNode) -> Void)?
         private let onPlacementMissed: (() -> Void)?
+        private let onRelocated: (() -> Void)?
         private let detectGround: Bool
         private weak var arView: ARSCNView?
         private var container: SCNNode?      // Carries the character: scaling + sole alignment
@@ -108,6 +114,7 @@ struct ARCharacterView: UIViewRepresentable {
         /// How far the character was pushed down so its feet sit on the container origin. Kept so
         /// leaving AR can put it back - the screen stage shares the same node.
         private var groundOffset: Float = 0
+        private var horizontalOffset = simd_float3(0, 0, 0)
         private let onCoaching: ((Bool) -> Void)?
         private let onTrackingHint: ((String?) -> Void)?
         private weak var coaching: ARCoachingOverlayView?
@@ -118,7 +125,8 @@ struct ARCharacterView: UIViewRepresentable {
 
         init(controller: CharacterSceneController, onAttach: (() -> Void)?,
              onPlaced: ((SCNNode) -> Void)?, onPlacementMissed: (() -> Void)?, detectGround: Bool,
-             onCoaching: ((Bool) -> Void)?, onTrackingHint: ((String?) -> Void)?) {
+             onCoaching: ((Bool) -> Void)?, onTrackingHint: ((String?) -> Void)?,
+             onRelocated: (() -> Void)?) {
             self.controller = controller
             self.onAttach = onAttach
             self.onPlaced = onPlaced
@@ -126,6 +134,7 @@ struct ARCharacterView: UIViewRepresentable {
             self.detectGround = detectGround
             self.onCoaching = onCoaching
             self.onTrackingHint = onTrackingHint
+            self.onRelocated = onRelocated
         }
 
         // MARK: Session health
@@ -174,11 +183,24 @@ struct ARCharacterView: UIViewRepresentable {
             let s: Float = (h > 0.01) ? (1.3 / h) : 1.0   // The character is about 1.3m
             c.scale = SCNVector3(s, s, s)
             c.addChildNode(root)
-            // The feet land at the container origin (so the feet are on the ground when placed, not buried in the floor)
-            let minY = ARPlacement.lowestY(of: root, in: c)
-            if minY.isFinite {
-                root.simdPosition.y -= minY
-                groundOffset = minY
+            // The feet land at the container origin, and the body stands over it.
+            //
+            // Vertical alone was not enough: the root arrives carrying whatever transform it had in
+            // the screen scene, where it is positioned to suit that scene's framing rather than
+            // sitting on the origin. Left as-is, the anchor lands exactly where the user tapped and
+            // the character stands a stride to one side of it - which reads as the placement having
+            // missed. Only the horizontal centre is moved; the vertical is the sole-on-the-floor
+            // offset, and the two must not be conflated.
+            let bounds = ARPlacement.visibleBounds(of: root, in: c)
+            if bounds.lo.y.isFinite {
+                root.simdPosition.y -= bounds.lo.y
+                groundOffset = bounds.lo.y
+            }
+            if bounds.lo.x.isFinite && bounds.hi.x.isFinite {
+                root.simdPosition.x -= (bounds.lo.x + bounds.hi.x) / 2
+                root.simdPosition.z -= (bounds.lo.z + bounds.hi.z) / 2
+                horizontalOffset = simd_float3((bounds.lo.x + bounds.hi.x) / 2, 0,
+                                               (bounds.lo.z + bounds.hi.z) / 2)
             }
             container = c
             ARPlacement.addShadowCatcher(to: c, size: h)
@@ -197,7 +219,10 @@ struct ARCharacterView: UIViewRepresentable {
                 publishGround(c)
                 notifyPlaced(c)
             }
-            print("[AR] model ready height=\(h) scale=\(s) groundOffset=\(minY) detectGround=\(detectGround)")
+            print(String(format: "[AR] model ready height=%.2f scale=%.3f groundOffset=%.3f "
+                         + "centred by (%.3f, %.3f) detectGround=%@",
+                         h, s, groundOffset, horizontalOffset.x, horizontalOffset.z,
+                         detectGround ? "yes" : "no"))
         }
 
 
@@ -212,7 +237,9 @@ struct ARCharacterView: UIViewRepresentable {
         /// character to 1.3m. That mismatch is a fixed vertical offset for the whole performance,
         /// which is the character hanging in the air above the plane it was placed on.
         private func publishGround(_ container: SCNNode) {
-            controller.arGroundY = container.simdWorldPosition.y
+            let p = container.simdWorldPosition
+            controller.arGroundY = p.y
+            print(String(format: "[AR] placed at (%.3f, %.3f, %.3f), ground y = %.3f", p.x, p.y, p.z, p.y))
         }
 
         /// ARSCNViewDelegate callbacks arrive on SceneKit's renderer thread, so the placement result
@@ -248,6 +275,11 @@ struct ARCharacterView: UIViewRepresentable {
             if groundOffset != 0 {
                 root.simdPosition.y += groundOffset
                 groundOffset = 0
+            }
+            if horizontalOffset != .zero {
+                root.simdPosition.x += horizontalOffset.x
+                root.simdPosition.z += horizontalOffset.z
+                horizontalOffset = .zero
             }
             root.removeFromParentNode()
             controller.reattachToScreenScene()
@@ -429,6 +461,12 @@ struct ARCharacterView: UIViewRepresentable {
                 // Hide plane grids after placement to avoid obstruction
                 planeNodes.values.forEach { $0.isHidden = true }
                 publishGround(container)
+                // Re-base the retargeter here, not on attach. Its reference pose carries an
+                // absolute world hip position, so a capture taken before the character was anchored
+                // pins the body to wherever it was hidden - in front of the camera - however far
+                // away the anchor is. Runs on every placement, because tap-to-move has exactly the
+                // same problem as the first placement.
+                DispatchQueue.main.async { [weak self] in self?.onRelocated?() }
                 if !wasPlaced { notifyPlaced(container) }
             }
         }

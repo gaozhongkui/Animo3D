@@ -63,7 +63,9 @@ private struct PreviewShell: View {
 
             Group {
                 if arMode {
-                    ARCharacterView(controller: stage.controller, onAttach: { stage.resetRetarget() })
+                    ARCharacterView(controller: stage.controller,
+                                    onAttach: { stage.rebaseRetarget() },
+                                    onRelocated: { stage.rebaseRetarget() })
                 } else {
                     SceneOrbitView(controller: stage.controller, animated: stage.isAnimating)
                 }

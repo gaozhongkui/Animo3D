@@ -387,7 +387,7 @@ struct DanceStudioView: View {
             Group {
                 if arMode {
                     ARCharacterView(controller: stage.controller,
-                                    onAttach: { stage.resetRetarget(); stageDidRender() },
+                                    onAttach: { stage.rebaseRetarget(); stageDidRender() },
                                     onPlaced: { node in
                                         arContainer = node
                                         arPlaced = true
@@ -395,12 +395,13 @@ struct DanceStudioView: View {
                                         installVFX()      // effects only exist once there is somewhere to put them
                                     },
                                     onPlacementMissed: { retireCoach(); flashPlacementMiss() },
+                                    onRelocated: { stage.rebaseRetarget() },
                                     onCoaching: { arCoaching = $0 },
                                     onTrackingHint: { arTrackingHint = $0 },
                                     holder: holder)
                 } else {
                     CharacterSceneView(controller: stage.controller,
-                                       onAttach: { stage.resetRetarget() },
+                                       onAttach: { stage.rebaseRetarget() },
                                        onFirstFrame: { stageDidRender() },
                                        holder: holder)
                 }

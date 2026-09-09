@@ -223,10 +223,11 @@ struct VideoDriveView: View {
             Group {
                 if arMode {
                     ARCharacterView(controller: stage.controller,
-                                    onAttach: { stage.resetRetarget() }, holder: holder)
+                                    onAttach: { stage.rebaseRetarget() },
+                                    onRelocated: { stage.rebaseRetarget() }, holder: holder)
                 } else {
                     CharacterSceneView(controller: stage.controller,
-                                       onAttach: { stage.resetRetarget() }, holder: holder)
+                                       onAttach: { stage.rebaseRetarget() }, holder: holder)
                 }
             }
             .id(arMode)   // Rebuilt only when switching between screen and AR

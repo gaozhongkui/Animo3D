@@ -153,7 +153,25 @@ final class DancePerformer: ObservableObject {
     // MARK: - Control
 
     /// Re-sample the static pose after the character is re-mounted (screen <-> AR).
-    func resetRetarget() { retargeter?.resetCapture() }
+    /// Re-establish the retargeter's reference pose at the character's *current* place in the world.
+    ///
+    /// Two things have to happen together, and neither works alone:
+    ///
+    /// - **The skeleton goes back to its bind pose first.** `resetCapture()` re-samples the rest
+    ///   reference on the next frame from whatever the bones happen to look like then - and
+    ///   mid-dance that is a dancing pose, not a rest pose. Every subsequent frame is then measured
+    ///   against a crouch or a lunge, and the character drifts further from the take each time it
+    ///   is re-based. `resetToRestPose()` has carried that warning in its doc comment since it was
+    ///   written; it had simply never been called.
+    /// - **It has to run after the character is placed, not before.** The retargeter pins the hips
+    ///   to `charHipsRestWorld + delta`, an absolute world position captured with the rest pose. In
+    ///   AR that capture used to happen on attach, while the character was still hidden in front of
+    ///   the camera - so once it was anchored to a floor, every frame dragged the skeleton back to
+    ///   the pre-placement spot. The container sat on the anchor; the body did not.
+    func rebaseRetarget() {
+        controller.resetToRestPose()
+        retargeter?.resetCapture()
+    }
 
     /// Drive the skeleton from live pose landmarks (camera or video source).
     func drive(_ world: [simd_float3]) { retargeter?.apply(world: world) }
