@@ -267,7 +267,19 @@ struct ARCharacterView: UIViewRepresentable {
             // all. Two seconds is long enough for a plane to turn up if one is going to; after
             // that the character goes in front of the camera and a tap still re-places it.
             if firstFrame == nil { firstFrame = time }
-            if let start = firstFrame, time - start > 2.0, !autoPlaceRequested, container != nil {
+            // Only ever auto-place onto a floor that actually exists. The old rule was "after two
+            // seconds, place it somewhere" - and two seconds is nowhere near long enough for ARKit
+            // to find a plane, so in practice it always took the `inFrontOfCamera` branch and hung
+            // the character in mid-air a metre and a half ahead of the phone, at waist height. That
+            // is the "it shows up in front of me instead of where I tapped" report: by the time the
+            // green reticle appeared the character was already placed, and `placed` is what stops
+            // the reticle updating and what makes `didAdd` ignore the anchor a tap creates.
+            //
+            // So: wait for a floor, however long that takes. The coaching overlay is on screen the
+            // whole time telling the user to move the phone, and a tap places it the moment the
+            // reticle shows. `hasFloor` is set below from the same raycast a tap would use.
+            if let start = firstFrame, time - start > 2.0, hasFloor, !autoPlaceRequested,
+               container != nil {
                 autoPlaceRequested = true
                 DispatchQueue.main.async { [weak self] in self?.placeAutomatically(in: arView) }
             }
@@ -349,20 +361,12 @@ struct ARCharacterView: UIViewRepresentable {
             let camera = arView.session.currentFrame?.camera.transform ?? matrix_identity_float4x4
             let transform = ARPlacement.facingCamera(hit.worldTransform, from: camera)
 
-            if placed, let container {
-                // Position and yaw only. Assigning `simdWorldTransform` also wrote the matrix's
-                // scale, and `facingCamera` returns a unit-scale matrix - so every tap-to-move
-                // silently threw away the `1.3 / modelHeight` normalisation and the character
-                // jumped in size, which reads as it lurching towards the camera.
-                let keptScale = container.simdScale
-                container.simdWorldTransform = transform
-                container.simdScale = keptScale
-                publishGround(container)
-                HapticManager.light()
-            } else {
-                let anchor = ARAnchor(name: "placement", transform: transform)
-                arView.session.add(anchor: anchor)
-            }
+            // One path for both cases: add an anchor and let `didAdd` re-parent onto it. Moving the
+            // container by hand kept it attached to the *previous* anchor, so ARKit went on
+            // correcting that anchor's pose underneath it and the character drifted off the spot it
+            // had just been put on.
+            arView.session.add(anchor: ARAnchor(name: "placement", transform: transform))
+            HapticManager.light()
         }
 
         /// Place the character on a floor if there is one, and straight ahead if there is not.
@@ -374,11 +378,18 @@ struct ARCharacterView: UIViewRepresentable {
             let transform: simd_float4x4
             if let hit = ARPlacement.floorHit(at: center, in: arView) {
                 transform = ARPlacement.facingCamera(hit.worldTransform, from: camera.transform)
+            } else if detectGround {
+                // Nothing to stand on yet. Standing in the air is worse than not being there, and
+                // it also locks out the tap that would have got this right - so give the frame
+                // callback its trigger back and let it ask again.
+                autoPlaceRequested = false
+                print("[AR] auto-place skipped: no floor under the reticle yet")
+                return
             } else {
                 transform = ARPlacement.inFrontOfCamera(camera.transform,
                                                         distance: max(1.8, h * 1.5),
                                                         drop: 0.6)
-                print("[AR] no plane yet - placed ahead of the camera")
+                print("[AR] ground detection off - placed ahead of the camera")
             }
             endCoaching()
             arView.session.add(anchor: ARAnchor(name: "placement", transform: transform))
@@ -400,17 +411,25 @@ struct ARCharacterView: UIViewRepresentable {
                 return
             }
             // Our placement anchor: Attach the character to the anchor node (follow the anchor = stay fixed on the ground)
-            if anchor.name == "placement", let container, !placed {
+            //
+            // `!placed` used to gate this, which silently threw away every anchor after the first.
+            // A tap that raced the automatic placement therefore did nothing at all - the anchor
+            // was created, ARKit delivered it here, and the branch declined it because the
+            // character was already standing somewhere else. Re-parenting to the newer anchor is
+            // the whole point of the tap; the scale is the container's own and survives.
+            if anchor.name == "placement", let container {
+                let wasPlaced = placed
                 container.removeFromParentNode()
                 node.addChildNode(container)
                 container.simdPosition = .zero
+                container.simdOrientation = simd_quatf(angle: 0, axis: simd_float3(0, 1, 0))
                 container.isHidden = false
                 placed = true
                 reticle?.isHidden = true
                 // Hide plane grids after placement to avoid obstruction
                 planeNodes.values.forEach { $0.isHidden = true }
                 publishGround(container)
-                notifyPlaced(container)
+                if !wasPlaced { notifyPlaced(container) }
             }
         }
 
