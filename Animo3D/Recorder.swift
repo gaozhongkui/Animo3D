@@ -2,49 +2,21 @@
 //  Recorder.swift
 //  Animo3D
 //
-//  Screen recording (ReplayKit) + creation storage + sharing.
-//  Note: ReplayKit cannot run in the Simulator, so recording has to be verified on a physical device.
+//  Where finished recordings live, and how they leave the app.
+//
+//  The file is named after a `Recorder` class that used to be here and is gone: it wrapped
+//  ReplayKit, which records the whole screen including the app's own controls, and could not hand
+//  back frames to watermark. `SceneViewRecorder` replaced it - per-frame `snapshot()` of the scene
+//  view, watermark burned in - and nothing referenced the ReplayKit path any more.
 //
 
 import SwiftUI
-import ReplayKit
 import AVFoundation
 import LinkPresentation
 import UIKit
 import Combine
 
 /// Screen recording. It captures the current screen (the dancing character).
-final class Recorder: ObservableObject {
-    @Published var isRecording = false
-    @Published var lastError: String?
-    private let rec = RPScreenRecorder.shared()
-
-    func start() {
-        guard rec.isAvailable else { lastError = L("Screen recording isn't supported here (not available in the Simulator)"); return }
-        rec.isMicrophoneEnabled = false
-        rec.startRecording { [weak self] err in
-            DispatchQueue.main.async {
-                if let err { self?.lastError = err.localizedDescription }
-                self?.isRecording = (err == nil)
-            }
-        }
-    }
-
-    /// Stops and hands the video to completion (a temporary file URL).
-    func stop(completion: @escaping (URL?) -> Void) {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("rec_\(UUID().uuidString).mp4")
-        rec.stopRecording(withOutput: tmp) { [weak self] err in
-            DispatchQueue.main.async {
-                self?.isRecording = false
-                if let err { self?.lastError = err.localizedDescription; completion(nil) }
-                else { completion(tmp) }
-            }
-        }
-    }
-}
-
-/// Creation library: mp4 files stored under Documents/works.
 final class WorksStore: ObservableObject {
     static let shared = WorksStore()
     @Published var works: [URL] = []

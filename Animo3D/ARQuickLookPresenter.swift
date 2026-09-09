@@ -8,38 +8,11 @@
 //
 
 import UIKit
-import SwiftUI
 import QuickLook
 
 final class ARQuickLookPresenter: NSObject, QLPreviewControllerDataSource {
     static let shared = ARQuickLookPresenter()
     private var item: PreviewItem?   // Needs a strong reference: QLPreviewController's dataSource is weak
-
-    /// A downloaded local USDZ -> lightweight in-app 3D preview, with an "AR" button that hands off
-    /// to the system Quick Look for real-world placement.
-    ///
-    /// The AR button used to be hidden entirely below 4GB of RAM, which meant every 3GB device -
-    /// an iPhone X, XR or 8, i.e. exactly the iOS 16 phones this build still supports - had no way
-    /// to reach AR from the community feed at all. "AR does not show up" was that gate, not a
-    /// failure.
-    ///
-    /// The gate was protecting against a real crash, but it was aimed at the wrong thing: what
-    /// blows past the memory limit and reboots the phone is `USDZOpacityFixer`'s **re-export**,
-    /// which loads the whole textured model and re-encodes it. That function already refuses to run
-    /// below 4GB or above 20MB on its own - its comment even says slight translucency beats
-    /// rebooting the phone - so the safe split is to always offer AR and let the fixer decide for
-    /// itself whether to touch the file.
-    func presentPreview(url: URL, title: String) {
-        let onAR: (() -> Void)? = { [weak self] in
-            // No-op on low-memory devices and large files; see USDZOpacityFixer.
-            let display = USDZOpacityFixer.makeOpaqueIfNeeded(url)
-            self?.present(url: display, title: title)
-        }
-        let host = UIHostingController(rootView:
-            ModelPreviewView(url: url, title: title, onOpenAR: onAR))
-        host.modalPresentationStyle = .fullScreen
-        topViewController()?.present(host, animated: true)
-    }
 
     /// A downloaded local USDZ -> full-screen native AR Quick Look.
     func present(url: URL, title: String?) {

@@ -98,57 +98,6 @@ struct DiscoverView: View {
     }
 }
 
-struct ModelCard: View {
-    let model: SketchfabModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ZStack(alignment: .bottomTrailing) {
-                Color(.secondarySystemBackground)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 150)
-                    .overlay {
-                        AsyncImage(url: URL(string: model.bestThumbnail ?? "")) { image in
-                            image.resizable().scaledToFill()
-                        } placeholder: {
-                            Image(systemName: "cube.transparent")
-                                .font(.system(size: 30))
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-
-                // Elegant badge
-                HStack(spacing: 4) {
-                    Image(systemName: "heart.fill").font(.system(size: 8))
-                    Text(model.likeCount.formattedAbbreviated)
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                }
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(.ultraThinMaterial, in: Capsule())
-                .foregroundStyle(.white)
-                .padding(10)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.name)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                Text("Featured")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 4)
-        }
-        .padding(6)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .shadow(color: .black.opacity(0.06), radius: 12, x: 0, y: 6)
-    }
-}
-
 struct ModelDetailView: View {
     let model: SketchfabModel
     @Environment(\.dismiss) private var dismiss
