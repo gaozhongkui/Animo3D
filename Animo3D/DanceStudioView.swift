@@ -49,8 +49,6 @@ struct DanceStudioView: View {
     @State private var processing = false   // Mixing music
     @State private var loading = false      // Loading character/dance (model + animation parsing in background)
     @State private var stageWatchdog: Task<Void, Never>?
-    @State private var zoomChar: CharacterItem?   // Character zoom preview
-    @State private var zoomDance: DanceItem?  // Dance zoom preview
     @State private var vfx = DanceVFX()         // Stage VFX
     /// Effects default on where they are available at all - on low-end the row is hidden and
     /// installVFX() refuses, so this staying true there would be a selection nothing can act on.
@@ -126,14 +124,6 @@ struct DanceStudioView: View {
             stage.prewarm(dance: d)
         }
         .onDisappear { music.stop(); vfx.remove(); stage.stop() }
-        .fullScreenCover(item: $zoomChar) { c in
-            let idx = remoteAssets.characters.firstIndex { $0.id == c.id } ?? 0
-            CharacterPreviewPage(key: c.id, name: c.name, style: idx)
-        }
-        .fullScreenCover(item: $zoomDance) { d in
-            let idx = remoteAssets.dances.firstIndex { $0.id == d.id } ?? 0
-            DancePreviewPage(dance: d.id, name: d.name, style: idx)
-        }
     }
 
     // MARK: Step header (progress)
@@ -223,11 +213,6 @@ struct DanceStudioView: View {
                         HapticManager.light()
                         character = c.id
                     }
-                    .overlay(alignment: .topTrailing) {
-                        ZoomButton { zoomChar = c }
-                            .padding(12)
-                            .opacity(isSelected ? 1 : 0.6)
-                    }
                 }
             }
             // Top padding is not decoration: a card's selection stroke, its shadow and (on the
@@ -311,11 +296,6 @@ struct DanceStudioView: View {
                     .onTapGesture {
                         HapticManager.light()
                         dance = d.id
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        ZoomButton { zoomDance = d }
-                            .padding(12)
-                            .opacity(isSelected ? 1 : 0.6)
                     }
                 }
             }

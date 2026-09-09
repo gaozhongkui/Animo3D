@@ -48,7 +48,13 @@ struct DiscoverView: View {
                 // A button, not a field. Tapping it opens DiscoverSearchView, which owns the
                 // query - so this grid always shows the category it says it is showing, and the
                 // keyboard never covers results that a chip is still claiming to filter.
-                Button { showSearch = true } label: {
+                // Same reasoning as the chips, plus one of its own: this opens a full-screen
+                // cover, so a stray activation is the most disruptive thing on the page. The hit
+                // area is pinned to the rounded rect below rather than the row it sits in.
+                Button {
+                    HapticManager.light()
+                    showSearch = true
+                } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                             .font(.system(size: 14, weight: .bold))
@@ -59,6 +65,7 @@ struct DiscoverView: View {
                     }
                     .padding(.horizontal, 12).padding(.vertical, 10)
                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 20)
@@ -67,14 +74,27 @@ struct DiscoverView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(categories, id: \.self) { cat in
-                            Text(LocalizedStringKey(cat))
-                                .font(.system(size: 13, weight: selectedCategory == cat ? .bold : .medium))
-                                .padding(.horizontal, 16).padding(.vertical, 8)
-                                .background(selectedCategory == cat ? Color.accentColor : Color(.secondarySystemBackground), in: Capsule())
-                                .foregroundStyle(selectedCategory == cat ? .white : .primary.opacity(0.7))
-                                .onTapGesture {
-                                    withAnimation(.spring(response: 0.3)) { selectedCategory = cat }
-                                }
+                            // A Button, not `.onTapGesture`. A tap gesture inside a ScrollView does
+                            // not take part in the scroll view's gesture arbitration: it fires on
+                            // touch-up wherever the finger happens to land, so flicking the row
+                            // sideways kept changing the category out from under the swipe. A
+                            // Button is cancelled the moment the scroll takes over, which is the
+                            // whole difference between "I scrolled" and "I picked".
+                            Button {
+                                HapticManager.light()
+                                withAnimation(.spring(response: 0.3)) { selectedCategory = cat }
+                            } label: {
+                                Text(LocalizedStringKey(cat))
+                                    .font(.system(size: 13, weight: selectedCategory == cat ? .bold : .medium))
+                                    .padding(.horizontal, 16).padding(.vertical, 8)
+                                    .background(selectedCategory == cat ? Color.accentColor : Color(.secondarySystemBackground), in: Capsule())
+                                    .foregroundStyle(selectedCategory == cat ? .white : .primary.opacity(0.7))
+                                    // The capsule, and only the capsule. Without this the hit area
+                                    // is the label's full rectangle, so the gaps between two chips
+                                    // belong to whichever one is nearer.
+                                    .contentShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 20)
