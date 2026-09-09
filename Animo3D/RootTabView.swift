@@ -35,6 +35,7 @@ struct RootTabView: View {
 
 struct DiscoverView: View {
     @State private var searchText = ""
+    @State private var showSearch = false
     @State private var selectedModel: SketchfabModel?
     @State private var selectedCategory = "Trending"
 
@@ -44,23 +45,22 @@ struct DiscoverView: View {
         VStack(spacing: 0) {
             // Elegant search box
             VStack(spacing: 16) {
-                HStack(spacing: 12) {
+                // A button, not a field. Tapping it opens DiscoverSearchView, which owns the
+                // query - so this grid always shows the category it says it is showing, and the
+                // keyboard never covers results that a chip is still claiming to filter.
+                Button { showSearch = true } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                             .font(.system(size: 14, weight: .bold))
-                        TextField("Search 3D Inspiration", text: $searchText)
+                        Text("Search 3D Inspiration")
                             .font(.system(size: 15))
-                            .textInputAutocapitalization(.never)
-                            .submitLabel(.search)
-                        if !searchText.isEmpty {
-                            Button { searchText = "" } label: {
-                                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                            }
-                        }
+                            .foregroundStyle(.secondary)
+                        Spacer()
                     }
                     .padding(.horizontal, 12).padding(.vertical, 10)
                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
+                .buttonStyle(.plain)
                 .padding(.horizontal, 20)
 
                 // Category tags
@@ -83,10 +83,12 @@ struct DiscoverView: View {
             .padding(.top, 12)
             .padding(.bottom, 16)
 
+            // searchText stays empty here for good: browsing is by category only now.
             DiscoverViewControllerRepresentable(searchText: $searchText, selectedCategory: $selectedCategory) { model in
                 self.selectedModel = model
             }
         }
+        .fullScreenCover(isPresented: $showSearch) { DiscoverSearchView() }
         .fullScreenCover(item: $selectedModel) { model in
             ModelDetailView(model: model)
                 .overlay(alignment: .topLeading) {

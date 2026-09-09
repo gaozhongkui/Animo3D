@@ -21,6 +21,10 @@ final class DiscoverViewController: UIViewController {
     private var fetchTask: Task<Void, Never>?
 
     var onModelSelected: ((SketchfabModel) -> Void)?
+    /// How many results are on screen, and whether a load is still in flight. The search screen
+    /// needs both to tell "nothing matched" apart from "still looking", which from the outside are
+    /// the same empty grid.
+    var onResults: ((Int, Bool) -> Void)?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -65,6 +69,20 @@ final class DiscoverViewController: UIViewController {
         collectionView.contentInsetAdjustmentBehavior = .always
         collectionView.register(ModelCell.self, forCellWithReuseIdentifier: "ModelCell")
 
+        // Dismissing the keyboard is this view's job, not the search field's: the field is SwiftUI,
+        // the results are UIKit, and a tap or a scroll over the results never reached SwiftUI at
+        // all - so the keyboard stayed up over half the results with no way to put it away short of
+        // opening a model.
+        //
+        // `.onDrag` covers scrolling. The tap recogniser covers a plain tap on the grid or on the
+        // space around it, and `cancelsTouchesInView = false` is what keeps it from eating the tap
+        // that opens a model - both happen, which is what a user expects from tapping a card while
+        // the keyboard is up.
+        collectionView.keyboardDismissMode = .onDrag
+        let dismissTap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+        dismissTap.cancelsTouchesInView = false
+        collectionView.addGestureRecognizer(dismissTap)
+
         refreshControl.addTarget(self, action: #selector(refreshData), for: .valueChanged)
         collectionView.refreshControl = refreshControl
 
@@ -101,12 +119,18 @@ final class DiscoverViewController: UIViewController {
         guard let page = DiscoverFeedCache.shared.page(for: key) else {
             models = []
             collectionView.reloadData()
+            onResults?(0, true)
             return false
         }
         models = page.models
         nextUrl = page.nextUrl
         collectionView.reloadData()
+        onResults?(models.count, false)
         return true
+    }
+
+    @objc private func dismissKeyboard() {
+        view.window?.endEditing(true)
     }
 
     @objc private func refreshData() {
@@ -178,6 +202,7 @@ final class DiscoverViewController: UIViewController {
                     self.refreshControl.endRefreshing()
                     self.isFetching = false
                     self.fetchTask = nil
+                    self.onResults?(self.models.count, false)
                 }
             } catch {
                 if !Task.isCancelled {
@@ -188,6 +213,7 @@ final class DiscoverViewController: UIViewController {
                         self.refreshControl.endRefreshing()
                         self.isFetching = false
                         self.fetchTask = nil
+                        self.onResults?(self.models.count, false)
                     }
                 }
             }
@@ -356,10 +382,12 @@ struct DiscoverViewControllerRepresentable: UIViewControllerRepresentable {
     @Binding var searchText: String
     @Binding var selectedCategory: String
     var onModelSelected: (SketchfabModel) -> Void
+    var onResults: ((Int, Bool) -> Void)? = nil
 
     func makeUIViewController(context: Context) -> DiscoverViewController {
         let vc = DiscoverViewController()
         vc.onModelSelected = onModelSelected
+        vc.onResults = onResults
         return vc
     }
 
