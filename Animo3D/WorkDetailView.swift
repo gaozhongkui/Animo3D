@@ -21,6 +21,10 @@ struct WorkDetailView: View {
 
     @State private var player = AVPlayer()
     @State private var showShare = false
+    /// The item to share, built off the main thread. Nil while it is being built, which is what the
+    /// spinner on the Share button is reporting.
+    @State private var shareItem: VideoShareItem?
+    @State private var preparingShare = false
     @State private var showDeleteConfirm = false
     @State private var showSavedBanner = false
 
@@ -80,13 +84,17 @@ struct WorkDetailView: View {
             VStack {
                 Spacer()
                 HStack(spacing: 40) {
-                    actionButton("square.and.arrow.up", "Share") { showShare = true }
+                    shareButton
                     actionButton("trash", "Delete", tint: .red) { showDeleteConfirm = true }
                 }
                 .padding(.bottom, 36)
             }
         }
-        .sheet(isPresented: $showShare) { ShareSheet(items: [url]) }
+        .sheet(isPresented: $showShare) {
+            // The prepared item when it is ready, the bare URL if the thumbnail could not be made -
+            // a missing preview is not a reason to refuse to share.
+            ShareSheet(items: [shareItem ?? url])
+        }
         .confirmationDialog("Delete this creation?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 player.pause()
@@ -95,6 +103,46 @@ struct WorkDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    /// Share, with the wait made visible and made shorter.
+    ///
+    /// Two separate delays were stacked here. The share sheet decodes a frame out of the movie to
+    /// build its header preview, and it does that on the main thread after the tap - so the button
+    /// sat there looking broken for a beat. `VideoShareItem` removes that by handing the sheet a
+    /// thumbnail; generating *that* thumbnail is itself an `AVAssetImageGenerator` decode, so it
+    /// happens off the main thread here, with the button showing a spinner while it runs.
+    private var shareButton: some View {
+        Button {
+            guard !preparingShare else { return }
+            HapticManager.light()
+            if shareItem != nil { showShare = true; return }   // already prepared
+            preparingShare = true
+            Task.detached(priority: .userInitiated) {
+                let thumb = WorksStore.shared.thumbnail(for: url)
+                let item = VideoShareItem(url: url, title: L("My Creation"), thumbnail: thumb)
+                await MainActor.run {
+                    shareItem = item
+                    preparingShare = false
+                    showShare = true
+                }
+            }
+        } label: {
+            VStack(spacing: 6) {
+                ZStack {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.title2)
+                        .opacity(preparingShare ? 0 : 1)
+                    if preparingShare { ProgressView().tint(.white) }
+                }
+                .frame(height: 26)
+                Text("Share").font(.caption)
+            }
+            .foregroundStyle(.white)
+            .frame(width: 64, height: 60)
+            .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
+        }
+        .disabled(preparingShare)
     }
 
     private func actionButton(_ icon: String, _ title: LocalizedStringKey, tint: Color = .white, action: @escaping () -> Void) -> some View {

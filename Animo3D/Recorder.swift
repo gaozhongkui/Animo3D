@@ -9,6 +9,7 @@
 import SwiftUI
 import ReplayKit
 import AVFoundation
+import LinkPresentation
 import UIKit
 import Combine
 
@@ -106,6 +107,40 @@ final class WorksStore: ObservableObject {
 struct FinishedWork: Identifiable {
     let url: URL
     var id: String { url.absoluteString }
+}
+
+/// A recording handed to the share sheet with its preview already made.
+///
+/// `UIActivityViewController(activityItems: [movieURL])` stalls for a beat before it appears, and
+/// the stall is the sheet building its own header preview: it decodes a frame out of the movie to
+/// show a thumbnail, on the main thread, while the user looks at an unresponsive button. The app
+/// already has a thumbnail for every recording, so the sheet is given one instead of made to
+/// produce a second.
+///
+/// The URL still goes through as the shared item, so Photos, Messages and AirDrop receive the real
+/// file exactly as before - only the preview is pre-supplied.
+final class VideoShareItem: NSObject, UIActivityItemSource {
+    private let url: URL
+    private let title: String
+    private let thumbnail: UIImage?
+
+    init(url: URL, title: String, thumbnail: UIImage?) {
+        self.url = url
+        self.title = title
+        self.thumbnail = thumbnail
+    }
+
+    func activityViewControllerPlaceholderItem(_ controller: UIActivityViewController) -> Any { url }
+
+    func activityViewController(_ controller: UIActivityViewController,
+                                itemForActivityType type: UIActivity.ActivityType?) -> Any? { url }
+
+    func activityViewControllerLinkMetadata(_ controller: UIActivityViewController) -> LPLinkMetadata? {
+        let metadata = LPLinkMetadata()
+        metadata.title = title
+        if let thumbnail { metadata.imageProvider = NSItemProvider(object: thumbnail) }
+        return metadata
+    }
 }
 
 struct ShareSheet: UIViewControllerRepresentable {
