@@ -15,6 +15,7 @@
 
 import SwiftUI
 import SceneKit
+import ARKit
 import AVFoundation
 import Combine
 import UIKit
@@ -40,6 +41,13 @@ final class SceneViewRecorder: ObservableObject {
     /// timestamped from the clock, not counted, so the two have to be remembered across ticks.
     private var startTimestamp: CFTimeInterval = 0
     private var lastPTS = CMTime.zero
+    /// Offscreen renderer used for the plain stage. Reused: building one per frame would cost more
+    /// than the render it does.
+    private var offscreen: SCNRenderer?
+    /// The watermark, rasterised once, plus where it goes. Laying out attributed text and blurring
+    /// its shadow is not something to do thirty times a second for a string that never changes.
+    private var watermarkImage: CGImage?
+    private var watermarkOrigin = CGPoint.zero
     private var outURL: URL?
     /// Text burned into every frame, or nil for Pro users.
     private var watermark: String?
@@ -101,6 +109,26 @@ final class SceneViewRecorder: ObservableObject {
         self.writer = writer; self.input = input; self.adaptor = adaptor
         startTimestamp = 0
         lastPTS = .zero
+        prepareWatermark()
+
+        // An offscreen renderer that draws straight at the capture size.
+        //
+        // `SCNView.snapshot()` re-renders the whole scene at the view's own native resolution, on
+        // the main thread, and hands back a UIImage that then has to be resampled down by
+        // CoreGraphics. So recording meant rendering every frame twice - the second time larger
+        // than the file needs - and then paying for a CPU resize on top. Rendering once, at exactly
+        // the size being encoded, with antialiasing off, removes both. It is the same
+        // `SCNRenderer` pattern the thumbnail renderer already uses.
+        //
+        // Not for AR: `ARSCNView` composites the camera feed itself, and a plain SCNRenderer over
+        // the same scene would give a character floating on nothing. That path keeps `snapshot()`.
+        if !(view is ARSCNView), let device = view.device {
+            let r = SCNRenderer(device: device, options: nil)
+            r.scene = view.scene
+            offscreen = r
+        } else {
+            offscreen = nil
+        }
 
         let l = CADisplayLink(target: self, selector: #selector(capture(_:)))
         l.preferredFramesPerSecond = 30
@@ -129,10 +157,46 @@ final class SceneViewRecorder: ObservableObject {
         // Presentation times have to strictly increase; two ticks inside one 1/600s would not.
         if pts <= lastPTS { pts = lastPTS + CMTime(value: 1, timescale: 600) }
 
-        let image = view.snapshot()
-        guard let pb = pixelBuffer(from: image, size: size) else { return }
+        let image: UIImage
+        if let r = offscreen {
+            r.pointOfView = view.pointOfView      // the stage camera moves during the performance
+            image = r.snapshot(atTime: link.timestamp, with: size, antialiasingMode: .none)
+        } else {
+            image = view.snapshot()
+        }
+        guard let pb = pixelBuffer(from: image, size: size, pool: adaptor.pixelBufferPool)
+        else { return }
         adaptor.append(pb, withPresentationTime: pts)
         lastPTS = pts
+    }
+
+    /// Rasterise the watermark once, at the size it will be drawn.
+    private func prepareWatermark() {
+        watermarkImage = nil
+        guard let text = watermark, size.width > 1 else { return }
+        let fontSize = max(18, size.height * 0.028)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .foregroundColor: UIColor.white.withAlphaComponent(0.85),
+            .shadow: {
+                let sh = NSShadow()
+                sh.shadowColor = UIColor.black.withAlphaComponent(0.5)
+                sh.shadowBlurRadius = 3
+                return sh
+            }()
+        ]
+        let textSize = (text as NSString).size(withAttributes: attrs)
+        // Room for the shadow, which draws outside the text's own box.
+        let pad: CGFloat = 8
+        let boxSize = CGSize(width: ceil(textSize.width) + pad * 2, height: ceil(textSize.height) + pad * 2)
+        let renderer = UIGraphicsImageRenderer(size: boxSize)
+        let img = renderer.image { _ in
+            (text as NSString).draw(at: CGPoint(x: pad, y: pad), withAttributes: attrs)
+        }
+        watermarkImage = img.cgImage
+        let margin = size.height * 0.02
+        watermarkOrigin = CGPoint(x: size.width - boxSize.width - margin + pad,
+                                  y: size.height - boxSize.height - margin + pad)
     }
 
     func stop(completion: @escaping (URL?) -> Void) {
@@ -147,12 +211,21 @@ final class SceneViewRecorder: ObservableObject {
         }
     }
 
-    private func pixelBuffer(from image: UIImage, size: CGSize) -> CVPixelBuffer? {
-        let attrs = [kCVPixelBufferCGImageCompatibilityKey: true,
-                     kCVPixelBufferCGBitmapContextCompatibilityKey: true] as CFDictionary
+    private func pixelBuffer(from image: UIImage, size: CGSize,
+                             pool: CVPixelBufferPool?) -> CVPixelBuffer? {
         var pb: CVPixelBuffer?
-        CVPixelBufferCreate(kCFAllocatorDefault, Int(size.width), Int(size.height),
-                            kCVPixelFormatType_32ARGB, attrs, &pb)
+        // The adaptor's own pool, when it has one. Allocating a fresh buffer per frame means the
+        // system zeroes several megabytes thirty times a second and then throws it away; the pool
+        // hands back the one the encoder has already finished with.
+        if let pool {
+            CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pb)
+        }
+        if pb == nil {
+            let attrs = [kCVPixelBufferCGImageCompatibilityKey: true,
+                         kCVPixelBufferCGBitmapContextCompatibilityKey: true] as CFDictionary
+            CVPixelBufferCreate(kCFAllocatorDefault, Int(size.width), Int(size.height),
+                                kCVPixelFormatType_32ARGB, attrs, &pb)
+        }
         guard let buffer = pb else { return nil }
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
@@ -165,7 +238,13 @@ final class SceneViewRecorder: ObservableObject {
         if let cg = image.cgImage {
             ctx.draw(cg, in: CGRect(origin: .zero, size: size))
         }
-        if let watermark { draw(watermark, in: ctx, size: size) }
+        if let mark = watermarkImage {
+            let w = CGFloat(mark.width), h = CGFloat(mark.height)
+            // The context is bottom-left origin, and `watermarkOrigin` was computed top-left.
+            ctx.draw(mark, in: CGRect(x: watermarkOrigin.x - 8,
+                                      y: size.height - watermarkOrigin.y - h + 8,
+                                      width: w, height: h))
+        }
         return buffer
     }
 
@@ -174,29 +253,4 @@ final class SceneViewRecorder: ObservableObject {
     /// A CGBitmapContext has its origin at the bottom left while UIKit text drawing assumes the
     /// opposite, so the context is flipped for the text alone - the frame itself is already drawn
     /// the right way up by the CGImage blit above.
-    private func draw(_ text: String, in ctx: CGContext, size: CGSize) {
-        let fontSize = max(18, size.height * 0.028)
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
-            .foregroundColor: UIColor.white.withAlphaComponent(0.85),
-            .shadow: {
-                let sh = NSShadow()
-                sh.shadowColor = UIColor.black.withAlphaComponent(0.5)
-                sh.shadowBlurRadius = 3
-                return sh
-            }()
-        ]
-        let bounds = (text as NSString).size(withAttributes: attrs)
-        let margin = size.height * 0.02
-
-        ctx.saveGState()
-        ctx.translateBy(x: 0, y: size.height)
-        ctx.scaleBy(x: 1, y: -1)
-        UIGraphicsPushContext(ctx)
-        (text as NSString).draw(at: CGPoint(x: size.width - bounds.width - margin,
-                                            y: size.height - bounds.height - margin),
-                                withAttributes: attrs)
-        UIGraphicsPopContext()
-        ctx.restoreGState()
-    }
 }
