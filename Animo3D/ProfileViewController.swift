@@ -23,13 +23,12 @@ nonisolated let profileSafeAreaTop: CGFloat = {
     return inset ?? scenes.first?.windows.first?.safeAreaInsets.top ?? 44
 }()
 
-nonisolated enum ProfileSection: Int, CaseIterable { case header, pro, works, more }
+nonisolated enum ProfileSection: Int, CaseIterable { case header, pro, works }
 nonisolated enum ProfileItem: Hashable, Sendable {
     case header(name: String, bio: String, avatar: String)
     case pro
     case empty
     case work(URL)
-    case setting(id: String, icon: String, color: UInt, title: String, subtitle: String)
 }
 
 final class ProfileViewController: UIViewController {
@@ -100,14 +99,6 @@ final class ProfileViewController: UIViewController {
                 s.contentInsets = .init(top: 4, leading: 12, bottom: 32, trailing: 12)
                 s.boundarySupplementaryItems = [Self.createHeader(L("My Creations"))]
                 return s
-
-            case .more:
-                let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(52))
-                let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
-                s.contentInsets = .init(top: 0, leading: 20, bottom: 120, trailing: 20)
-                s.interGroupSpacing = 0
-                s.boundarySupplementaryItems = [Self.createHeader(L("Settings"))]
-                return s
             }
         }
 
@@ -134,7 +125,10 @@ final class ProfileViewController: UIViewController {
 
     private func setupDataSource() {
         let headerReg = UICollectionView.CellRegistration<CleanHeaderCell, Item> { cell, _, item in
-            if case let .header(n, b, _) = item { cell.configure(name: n, bio: b) }
+            if case let .header(n, b, _) = item {
+                cell.configure(name: n, bio: b)
+                cell.onSettingsTap = { [weak self] in self?.openSettings() }
+            }
         }
         let proReg = UICollectionView.CellRegistration<ModernProCell, Item> { cell, _, _ in
             // reload() runs from viewWillAppear, so buying inside the paywall and coming back
@@ -148,11 +142,6 @@ final class ProfileViewController: UIViewController {
         let emptyReg = UICollectionView.CellRegistration<EmptyWorksCell, Item> { [weak self] cell, _, _ in
             cell.onTap = { self?.openStudio() }
         }
-        let settingReg = UICollectionView.CellRegistration<CleanSettingCell, Item> { cell, _, item in
-            if case let .setting(_, icon, color, title, subtitle) = item {
-                cell.configure(icon: icon, color: UIColor(rgb: color), title: title, sub: subtitle)
-            }
-        }
 
         dataSource = .init(collectionView: collectionView) { cv, indexPath, item in
             switch item {
@@ -160,56 +149,25 @@ final class ProfileViewController: UIViewController {
             case .pro:    return cv.dequeueConfiguredReusableCell(using: proReg, for: indexPath, item: item)
             case .empty:  return cv.dequeueConfiguredReusableCell(using: emptyReg, for: indexPath, item: item)
             case .work(let url): return cv.dequeueConfiguredReusableCell(using: workReg, for: indexPath, item: url)
-            case .setting: return cv.dequeueConfiguredReusableCell(using: settingReg, for: indexPath, item: item)
             }
         }
 
         let titleReg = UICollectionView.SupplementaryRegistration<TitleHeader>(elementKind: UICollectionView.elementKindSectionHeader) { h, _, ip in
             let sec = Section(rawValue: ip.section)
-            // L(), not the bare literals: the section titles passed to createHeader above are
-            // localized, but this is the value that actually reaches the label, so the headers
-            // rendered in English in all seven languages.
-            h.label.text = (sec == .works) ? L("My Creations") : ((sec == .more) ? L("Settings") : "")
+            h.label.text = (sec == .works) ? L("My Creations") : ""
         }
         dataSource.supplementaryViewProvider = { cv, kind, ip in
             cv.dequeueConfiguredReusableSupplementary(using: titleReg, for: ip)
         }
     }
 
-    static func roundedIcon(system: String, bg: UIColor) -> UIImage {
-        let size = CGSize(width: 32, height: 32)
-        return UIGraphicsImageRenderer(size: size).image { ctx in
-            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 9).addClip()
-            bg.setFill(); ctx.fill(CGRect(origin: .zero, size: size))
-            let cfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-            if let img = UIImage(systemName: system, withConfiguration: cfg)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
-                img.draw(in: CGRect(x: (size.width-16)/2, y: (size.height-16)/2, width: 16, height: 16))
-            }
-        }
-    }
-
     @objc private func reload() {
         var snap = NSDiffableDataSourceSnapshot<Section, Item>()
-        snap.appendSections([.header, .pro, .works, .more])
+        snap.appendSections([.header, .pro, .works])
         snap.appendItems([.header(name: L("Livo Creator"), bio: L("Exploring the infinity of 3D motion ✨"), avatar: "")], toSection: .header)
         snap.appendItems([.pro], toSection: .pro)
         let works = WorksStore.shared.works
         snap.appendItems(works.isEmpty ? [.empty] : works.map { .work($0) }, toSection: .works)
-        snap.appendItems([
-            .setting(id: "pro", icon: "crown.fill", color: 0xFF9500, title: L("Subscription"), subtitle: L("Manage Perks")),
-            .setting(id: "cache", icon: "trash.fill", color: 0xFF3B30, title: L("Clear Cache"), subtitle: StorageManager.getCacheSize()),
-            // Legal, reachable from the profile as well as from the paywall. App Review wants
-            // both documents findable from inside the app, and a user looking for them looks in
-            // settings, not on a purchase screen they may never open.
-            .setting(id: "terms", icon: "doc.text.fill", color: 0x5856D6,
-                     title: L("Terms of Service"), subtitle: ""),
-            .setting(id: "privacy", icon: "hand.raised.fill", color: 0x34C759,
-                     title: L("Privacy Policy"), subtitle: ""),
-            // Version read from the bundle. It was the literal "v1.0.0", which stops being true at
-            // the first release and is exactly the field a user quotes in a bug report.
-            .setting(id: "about", icon: "info.circle.fill", color: 0x007AFF,
-                     title: L("About Livo"), subtitle: Self.versionString),
-        ], toSection: .more)
         dataSource.apply(snap, animatingDifferences: false)
     }
 
@@ -229,24 +187,18 @@ final class ProfileViewController: UIViewController {
         present(host, animated: true)
     }
 
-    static let termsURL = URL(string: "https://sites.google.com/view/livo3dtermsofservice")!
-    static let privacyURL = URL(string: "https://sites.google.com/view/livo3dprivacypolicy")!
+    @objc private func openSettings() {
+        HapticManager.light()
+        let host = UIHostingController(rootView: SettingsView())
+        host.modalPresentationStyle = .fullScreen
+        present(host, animated: true)
+    }
 
     static var versionString: String {
         let info = Bundle.main.infoDictionary
         let short = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
         return "v\(short) (\(build))"
-    }
-
-    /// Legal pages open in a Safari sheet rather than being handed to the Safari app. Leaving the
-    /// app to read the terms and having to find your way back is a worse trip than a sheet you
-    /// dismiss, and `SFSafariViewController` gets the reader-mode, share and font controls for free.
-    private func openLegal(_ url: URL) {
-        HapticManager.light()
-        let vc = SFSafariViewController(url: url)
-        vc.preferredControlTintColor = .systemBlue
-        present(vc, animated: true)
     }
 }
 
@@ -257,26 +209,6 @@ extension ProfileViewController: UICollectionViewDelegate {
         switch item {
         case .pro: openPaywall()
         case .work(let url): openWork(url)
-        case .setting(let id, _, _, _, _):
-            // Every row now does something. "pro" and "about" were both dead taps: the switch only
-            // ever handled "cache", so two of the three rows looked interactive and were not.
-            switch id {
-            case "cache":
-                HapticManager.medium()
-                StorageManager.clearCache()
-                HapticManager.success()
-                reload()
-            case "pro":
-                openPaywall()
-            case "terms":
-                openLegal(Self.termsURL)
-            case "privacy":
-                openLegal(Self.privacyURL)
-            case "about":
-                HapticManager.light()
-            default:
-                break
-            }
         default: break
         }
     }
@@ -285,12 +217,15 @@ extension ProfileViewController: UICollectionViewDelegate {
 // MARK: - Cells
 
 private final class CleanHeaderCell: UICollectionViewCell {
+    var onSettingsTap: (() -> Void)?
+
     private let meshBg = UIView()
     private let neonRing = UIView()
     private let avatarContainer = UIView()
     private let avatarGradient = CAGradientLayer()
     private let avatarSymbol = UIImageView(image: UIImage(systemName: "figure.dance"))
     private let glassOverlay = UIView()
+    private let settingsBtn = UIButton(type: .system)
 
     private var worksValue: UILabel?
     private var viewsValue: UILabel?
@@ -347,6 +282,12 @@ private final class CleanHeaderCell: UICollectionViewCell {
         glassOverlay.translatesAutoresizingMaskIntoConstraints = false
         avatarContainer.addSubview(glassOverlay)
 
+        settingsBtn.setImage(UIImage(systemName: "gearshape.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .bold)), for: .normal)
+        settingsBtn.tintColor = .label.withAlphaComponent(0.6)
+        settingsBtn.translatesAutoresizingMaskIntoConstraints = false
+        settingsBtn.addTarget(self, action: #selector(settingsTap), for: .touchUpInside)
+        contentView.addSubview(settingsBtn)
+
         nameLabel.font = .roundedFont(ofSize: 22, weight: .black); nameLabel.textAlignment = .natural
         nameLabel.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview(nameLabel)
 
@@ -370,9 +311,6 @@ private final class CleanHeaderCell: UICollectionViewCell {
             neonRing.widthAnchor.constraint(equalToConstant: 78),
             neonRing.heightAnchor.constraint(equalToConstant: 78),
 
-            // Avatar on the left rather than centred, and 20pt from the top rather than 80 - the
-            // collection view already insets for the safe area, so that 80 was on top of the
-            // status bar inset and put the avatar a third of the way down the screen.
             avatarContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
             avatarContainer.topAnchor.constraint(equalTo: contentView.topAnchor,
                                                 constant: 20 + profileSafeAreaTop),
@@ -386,6 +324,11 @@ private final class CleanHeaderCell: UICollectionViewCell {
             glassOverlay.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
             glassOverlay.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
             glassOverlay.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
+
+            settingsBtn.topAnchor.constraint(equalTo: contentView.topAnchor, constant: profileSafeAreaTop + 12),
+            settingsBtn.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            settingsBtn.widthAnchor.constraint(equalToConstant: 44),
+            settingsBtn.heightAnchor.constraint(equalToConstant: 44),
 
             // Name and bio beside the avatar, not under it. Vertically centred on the avatar so
             // one line or two both sit right.
@@ -403,6 +346,8 @@ private final class CleanHeaderCell: UICollectionViewCell {
             statsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -32)
         ])
     }
+
+    @objc private func settingsTap() { onSettingsTap?() }
 
     private func setupStats() {
         statsStack.axis = .horizontal; statsStack.distribution = .fillEqually; statsStack.translatesAutoresizingMaskIntoConstraints = false
@@ -505,27 +450,6 @@ private final class GalleryWorkCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError() }
 }
 
-private final class CleanSettingCell: UICollectionViewCell {
-    private let iconV = UIImageView(); private let titleL = UILabel(); private let subL = UILabel()
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        iconV.translatesAutoresizingMaskIntoConstraints = false; titleL.translatesAutoresizingMaskIntoConstraints = false; subL.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(iconV); contentView.addSubview(titleL); contentView.addSubview(subL)
-        titleL.font = .systemFont(ofSize: 16, weight: .medium); subL.font = .systemFont(ofSize: 14); subL.textColor = .secondaryLabel
-        NSLayoutConstraint.activate([
-            iconV.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4), iconV.centerYAnchor.constraint(equalTo: contentView.centerYAnchor), iconV.widthAnchor.constraint(equalToConstant: 32), iconV.heightAnchor.constraint(equalToConstant: 32),
-            titleL.leadingAnchor.constraint(equalTo: iconV.trailingAnchor, constant: 14), titleL.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            subL.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4), subL.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
-        ])
-        let line = UIView(); line.backgroundColor = .systemGray6; line.translatesAutoresizingMaskIntoConstraints = false; contentView.addSubview(line)
-        NSLayoutConstraint.activate([line.leadingAnchor.constraint(equalTo: titleL.leadingAnchor), line.trailingAnchor.constraint(equalTo: contentView.trailingAnchor), line.bottomAnchor.constraint(equalTo: contentView.bottomAnchor), line.heightAnchor.constraint(equalToConstant: 0.5)])
-    }
-    func configure(icon: String, color: UIColor, title: String, sub: String) {
-        titleL.text = title; subL.text = sub; iconV.image = ProfileViewController.roundedIcon(system: icon, bg: color)
-    }
-    required init?(coder: NSCoder) { fatalError() }
-}
-
 private final class EmptyWorksCell: UICollectionViewCell {
     var onTap: (() -> Void)?
     override init(frame: CGRect) {
@@ -574,5 +498,94 @@ private struct StudioModal: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Settings
+
+struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var cacheSize = StorageManager.getCacheSize()
+
+    static let termsURL = URL(string: "https://sites.google.com/view/livo3dtermsofservice")!
+    static let privacyURL = URL(string: "https://sites.google.com/view/livo3dprivacypolicy")!
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color(.systemGroupedBackground).ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                HStack {
+                    Text(L("Settings"))
+                        .font(.system(size: 28, weight: .black, design: .rounded))
+                    Spacer()
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 70)
+                .padding(.bottom, 20)
+
+                List {
+                    Section {
+                        Button(action: clearCache) {
+                            HStack(spacing: 16) {
+                                settingIcon("trash.fill", color: 0xFF3B30)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(L("Clear Cache")).foregroundStyle(.primary).font(.headline)
+                                    Text(cacheSize).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+
+                    Section {
+                        Link(destination: Self.termsURL) {
+                            settingRow("doc.text.fill", color: 0x5856D6, title: L("Terms of Service"))
+                        }
+                        Link(destination: Self.privacyURL) {
+                            settingRow("hand.raised.fill", color: 0x34C759, title: L("Privacy Policy"))
+                        }
+                    }
+
+                    Section {
+                        HStack(spacing: 16) {
+                            settingIcon("info.circle.fill", color: 0x007AFF)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(L("About Livo")).foregroundStyle(.primary).font(.headline)
+                                Text(ProfileViewController.versionString).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .scrollContentBackground(.hidden)
+            }
+
+            CircleButton(system: "xmark") { dismiss() }
+                .padding(.leading, 20)
+                .padding(.top, 10)
+        }
+    }
+
+    private func settingIcon(_ system: String, color: UInt) -> some View {
+        Image(systemName: system)
+            .font(.system(size: 14, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 32, height: 32)
+            .background(Color(rgb: color), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func settingRow(_ system: String, color: UInt, title: String) -> some View {
+        HStack(spacing: 16) {
+            settingIcon(system, color: color)
+            Text(title).foregroundStyle(.primary).font(.headline)
+            Spacer()
+            Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold)).foregroundStyle(.tertiary)
+        }
+    }
+
+    private func clearCache() {
+        HapticManager.medium()
+        StorageManager.clearCache()
+        HapticManager.success()
+        cacheSize = StorageManager.getCacheSize()
     }
 }
