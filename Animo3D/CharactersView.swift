@@ -10,15 +10,19 @@
 import SwiftUI
 
 struct CharactersView: View {
-    @State private var seg = 0
+    // The segment lives in the router, not in local state, so Home can deep-link straight to
+    // Community - see AppRouter.
+    @ObservedObject private var router = AppRouter.shared
     @Namespace private var animation
+
+    private var seg: AppRouter.CharactersSegment { router.charactersSegment }
 
     var body: some View {
         VStack(spacing: 0) {
             // Custom refined segmented control
             HStack(spacing: 0) {
-                pickerItem(title: "My Characters", tag: 0)
-                pickerItem(title: "Community", tag: 1)
+                pickerItem(title: "My Characters", segment: .mine)
+                pickerItem(title: "Community", segment: .community)
             }
             .padding(4)
             .background(Color(.secondarySystemFill), in: Capsule())
@@ -27,7 +31,7 @@ struct CharactersView: View {
             .padding(.bottom, 16)
 
             ZStack {
-                if seg == 0 {
+                if seg == .mine {
                     MyCharactersView()
                         .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity),
                                               removal: .move(edge: .leading).combined(with: .opacity)))
@@ -43,16 +47,19 @@ struct CharactersView: View {
         .trackScreen("Characters")
     }
 
-    private func pickerItem(title: LocalizedStringKey, tag: Int) -> some View {
-        Text(title)
-            .font(.system(size: 14, weight: seg == tag ? .bold : .medium))
-            .foregroundStyle(seg == tag ? .primary : .secondary)
+    private func pickerItem(title: LocalizedStringKey, segment: AppRouter.CharactersSegment) -> some View {
+        let isOn = seg == segment
+        return Text(title)
+            .font(.system(size: 14, weight: isOn ? .bold : .medium))
+            .foregroundStyle(isOn ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .frame(maxWidth: .infinity)
             .frame(height: 36)
             .background {
-                if seg == tag {
+                if isOn {
+                    // The knob has to be the page background, not literal white: white behind
+                    // `.primary` text is white-on-white once the phone is in dark mode.
                     Capsule()
-                        .fill(.white)
+                        .fill(Color(.systemBackground))
                         .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
                         .matchedGeometryEffect(id: "picker", in: animation)
                 }
@@ -60,7 +67,9 @@ struct CharactersView: View {
             .contentShape(Capsule())
             .onTapGesture {
                 HapticManager.selection()
-                seg = tag
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    router.charactersSegment = segment
+                }
             }
     }
 }
@@ -88,7 +97,7 @@ struct MyCharactersView: View {
                             HapticManager.light()
                             picked = PickedCharacter(id: c.id, name: c.name)
                         } label: {
-                            characterCard(c.name, key: c.id, tint: tints[i % tints.count])
+                            CharacterCard(name: c.name, characterKey: c.id, tint: tints[i % tints.count])
                         }
                         .buttonStyle(CardButtonStyle())
                     }
@@ -110,39 +119,6 @@ struct MyCharactersView: View {
                         }
                     }
             }
-        }
-    }
-
-    private func characterCard(_ name: String, key: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ZStack(alignment: .bottomLeading) {
-                CharacterThumbView(characterKey: key, tint: tint)
-                    .aspectRatio(3.0/4.0, contentMode: .fill)
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-
-                LinearGradient(colors: [.clear, .black.opacity(0.4)],
-                               startPoint: .center, endPoint: .bottom)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-
-                HStack {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 10))
-                        .padding(6)
-                        .background(.white, in: Circle())
-                        .foregroundStyle(tint)
-
-                    Text("Dance")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-                .padding(10)
-            }
-            .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 4)
-
-            Text(name)
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .padding(.horizontal, 4)
         }
     }
 }

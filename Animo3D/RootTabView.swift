@@ -7,26 +7,49 @@
 
 import SwiftUI
 import Foundation
+import Combine
+
+/// Where the app is, as state the whole app can read and write.
+///
+/// Cross-tab jumps used to travel as `NSNotification`s, with the tab host relaying a second
+/// notification down to the Characters screen to pick a segment. That drops requests: `onReceive`
+/// only listens while its view is alive, and the relay fires in the same run loop turn as the tab
+/// switch - before a Characters tab that has never been opened exists to hear it. So the first
+/// "Community" tap of a session landed on My Characters. State has no such window.
+final class AppRouter: ObservableObject {
+    static let shared = AppRouter()
+
+    enum Tab: Int { case create = 0, characters = 1, me = 2 }
+    enum CharactersSegment: Int { case mine = 0, community = 1 }
+
+    @Published var tab: Tab = .create
+    @Published var charactersSegment: CharactersSegment = .mine
+
+    private init() {}
+
+    /// Jump to the Characters tab, landing on a chosen segment.
+    func openCharacters(_ segment: CharactersSegment) {
+        charactersSegment = segment
+        tab = .characters
+    }
+}
 
 struct RootTabView: View {
-    @State private var selection = 0
+    @ObservedObject private var router = AppRouter.shared
 
     var body: some View {
-        TabView(selection: $selection) {
+        TabView(selection: $router.tab) {
             HomeView()
                 .tabItem { Label("Create", systemImage: "sparkles") }
-                .tag(0)
+                .tag(AppRouter.Tab.create)
             CharactersView()
                 .tabItem { Label("Characters", systemImage: "person.2.fill") }
-                .tag(1)
+                .tag(AppRouter.Tab.characters)
             ProfileView()
                 .tabItem { Label("Me", systemImage: "person.fill") }
-                .tag(2)
+                .tag(AppRouter.Tab.me)
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SwitchToCharactersTab"))) { _ in
-            selection = 1
-        }
-        .onChange(of: selection) { _ in
+        .onChange(of: router.tab) { _ in
             HapticManager.selection()
         }
         .accentColor(.accentColor)
