@@ -1550,6 +1550,12 @@ struct CharacterSceneView: UIViewRepresentable {
         view.delegate = context.coordinator          // Feeds the music-driven stage rig each frame
         view.rendersContinuously = true      // Continuous rendering to avoid frozen frames after switching
         view.isPlaying = true
+        // The take is sampled at 30fps and `MocapPlayer` drives the skeleton at 30fps, so half of
+        // the frames a 60Hz view draws - and three quarters of a 120Hz one's - are the same pose
+        // rendered again. Nothing on screen moves between them, and during a recording that
+        // duplicated pass competes with the capture render for the same main thread. `playbackFPS`
+        // has said 30 since it was written; it had simply never been applied to a view.
+        view.preferredFramesPerSecond = DeviceTier.playbackFPS
         if let cam = controller.cameraNode { view.pointOfView = cam }
         holder?.scnView = view
         return view

@@ -26,8 +26,6 @@ final class SceneHolder: ObservableObject {
 }
 
 final class SceneViewRecorder: ObservableObject {
-    /// Longest edge of a recorded frame, in pixels.
-    static let maxLongSide: CGFloat = 1920
 
     @Published var isRecording = false
 
@@ -51,6 +49,17 @@ final class SceneViewRecorder: ObservableObject {
     private var outURL: URL?
     /// Text burned into every frame, or nil for Pro users.
     private var watermark: String?
+    /// Everything after the render happens here. Only the SceneKit render has to be on the main
+    /// thread (the scene graph is mutated there); the CoreGraphics draw into the pixel buffer and
+    /// the append do not, and on a slower device they are the difference between fitting in a tick
+    /// and not. Serial, so frames stay in order.
+    private let encodeQueue = DispatchQueue(label: "SceneViewRecorder.encode", qos: .userInitiated)
+    /// Frames handed to `encodeQueue` and not yet written. Bounded: if the encoder falls behind,
+    /// dropping the newest frame is correct now that presentation times come from the clock.
+    private var pending = 0
+    private let pendingLock = NSLock()
+    /// The view's own frame rate before recording lowered it, or nil if it was left alone.
+    private var previousViewFPS: Int?
 
     func start(view: SCNView, watermark: String? = nil) {
         guard !isRecording else { return }
@@ -64,10 +73,12 @@ final class SceneViewRecorder: ObservableObject {
         // play fast, back when frames were timestamped by index. Capping the long side at 1920
         // roughly halves the per-frame work, keeps the aspect exactly, and is a more ordinary size
         // to hand to a share sheet than a 2622-pixel-tall file.
+        // The cap is per tier: an A11 with 3GB cannot render this scene twice a frame at 1920 and
+        // still keep the stage moving, which is what "recording is a bit laggy" on iOS 16.7 is.
+        let maxLongSide = DeviceTier.captureLongSide
         let screenScale = view.window?.screen.scale ?? UIScreen.main.scale
         let longSide = max(view.bounds.width, view.bounds.height) * screenScale
-        let scale = longSide > Self.maxLongSide
-            ? screenScale * (Self.maxLongSide / longSide) : screenScale
+        let scale = longSide > maxLongSide ? screenScale * (maxLongSide / longSide) : screenScale
         func even(_ v: CGFloat) -> Int { let n = Int(v * scale); return n - (n % 2) }
         let w = max(2, even(view.bounds.width)), h = max(2, even(view.bounds.height))
         size = CGSize(width: w, height: h)
@@ -81,14 +92,16 @@ final class SceneViewRecorder: ObservableObject {
         // as mush on the character's face and banding across the stage floor - the "quality is bad"
         // half of the report. 0.15 bits per pixel per frame is the usual rule of thumb for h264;
         // the clamp keeps a small frame from being starved and a huge one from being absurd.
-        let bitrate = min(24_000_000, max(6_000_000, Int(Double(w * h * 30) * 0.15)))
+        let fps = DeviceTier.captureFPS
+        let bitrate = min(24_000_000,
+                          max(4_000_000, Int(Double(w * h * fps) * DeviceTier.captureBitsPerPixel)))
         let settings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: w, AVVideoHeightKey: h,
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: bitrate,
                 // One keyframe a second: enough for scrubbing without spending the budget on them.
-                AVVideoMaxKeyFrameIntervalKey: 30,
+                AVVideoMaxKeyFrameIntervalKey: fps,
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
                 AVVideoAllowFrameReorderingKey: true,
             ] as [String: Any]
@@ -130,8 +143,20 @@ final class SceneViewRecorder: ObservableObject {
             offscreen = nil
         }
 
+        // On a struggling device, make the two render passes share a tick.
+        //
+        // The view draws on its own display link and this one draws the capture; at 30 and 24 they
+        // beat against each other, so some ticks carry both renders and some carry one, which is
+        // felt as uneven motion rather than as a uniformly lower frame rate. Matching them while
+        // recording costs the live preview a few frames a second and gives the file - the thing
+        // that is kept - an even cadence. Restored in stop().
+        if DeviceTier.isLowEnd {
+            previousViewFPS = view.preferredFramesPerSecond
+            view.preferredFramesPerSecond = fps
+        }
+
         let l = CADisplayLink(target: self, selector: #selector(capture(_:)))
-        l.preferredFramesPerSecond = 30
+        l.preferredFramesPerSecond = fps
         l.add(to: .main, forMode: .common)
         link = l
         isRecording = true
@@ -157,6 +182,13 @@ final class SceneViewRecorder: ObservableObject {
         // Presentation times have to strictly increase; two ticks inside one 1/600s would not.
         if pts <= lastPTS { pts = lastPTS + CMTime(value: 1, timescale: 600) }
 
+        // Two frames in flight is enough to keep the encoder busy without letting a backlog build.
+        pendingLock.lock()
+        let backlog = pending
+        if backlog < 2 { pending += 1 }
+        pendingLock.unlock()
+        guard backlog < 2 else { return }
+
         let image: UIImage
         if let r = offscreen {
             r.pointOfView = view.pointOfView      // the stage camera moves during the performance
@@ -164,10 +196,18 @@ final class SceneViewRecorder: ObservableObject {
         } else {
             image = view.snapshot()
         }
-        guard let pb = pixelBuffer(from: image, size: size, pool: adaptor.pixelBufferPool)
-        else { return }
-        adaptor.append(pb, withPresentationTime: pts)
         lastPTS = pts
+
+        let frameSize = size
+        encodeQueue.async { [weak self] in
+            guard let self else { return }
+            defer {
+                self.pendingLock.lock(); self.pending -= 1; self.pendingLock.unlock()
+            }
+            guard let pb = self.pixelBuffer(from: image, size: frameSize,
+                                            pool: adaptor.pixelBufferPool) else { return }
+            adaptor.append(pb, withPresentationTime: pts)
+        }
     }
 
     /// Rasterise the watermark once, at the size it will be drawn.
@@ -203,11 +243,19 @@ final class SceneViewRecorder: ObservableObject {
         guard isRecording else { completion(nil); return }
         isRecording = false
         link?.invalidate(); link = nil
-        input?.markAsFinished()
+        offscreen = nil
+        if let fps = previousViewFPS { view?.preferredFramesPerSecond = fps; previousViewFPS = nil }
         let url = outURL
-        writer?.finishWriting { [weak self] in
-            let ok = self?.writer?.status == .completed
-            DispatchQueue.main.async { completion(ok ? url : nil) }
+        // Through the same serial queue the appends go through, so every frame already handed over
+        // is written before the input is closed. Calling markAsFinished() straight from here would
+        // race the last frame or two and truncate the clip.
+        encodeQueue.async { [weak self] in
+            guard let self else { return }
+            self.input?.markAsFinished()
+            self.writer?.finishWriting {
+                let ok = self.writer?.status == .completed
+                DispatchQueue.main.async { completion(ok ? url : nil) }
+            }
         }
     }
 

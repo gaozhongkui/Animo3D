@@ -52,4 +52,22 @@ enum DeviceTier {
 
     /// Skeletal playback frame rate: the mocap source is 30fps anyway, so there is no need to re-skin at 60Hz.
     static var playbackFPS: Int { 30 }
+
+    /// Frames a second to record at. A recording costs a second render of the whole scene on top of
+    /// the one on screen, and on a 3GB device that second pass does not fit in a 30Hz tick.
+    ///
+    /// 20, not 24. `CADisplayLink.preferredFramesPerSecond` can only deliver a rate the display
+    /// divides evenly into, and every device still on iOS 16.7 has a 60Hz panel - 60/24 is 2.5, so
+    /// asking for 24 gets 30, measured. 20 is 60/3 and is actually honoured, and it is the largest
+    /// real reduction available below 30. The timestamps are wall-clock, so the video is the right
+    /// length either way.
+    static var captureFPS: Int { isLowEnd ? 20 : 30 }
+
+    /// Longest edge of a recorded frame. 1280 on low-end is a 720p-class file, which is what those
+    /// devices can render twice a frame without stuttering; 1920 elsewhere.
+    static var captureLongSide: CGFloat { isLowEnd ? 1280 : 1920 }
+
+    /// Bits per pixel per frame for the recording. Encoding is not free either, and at 1280 the
+    /// lower figure still leaves a clean picture - the pixels it is spread over are fewer.
+    static var captureBitsPerPixel: Double { isLowEnd ? 0.12 : 0.15 }
 }
