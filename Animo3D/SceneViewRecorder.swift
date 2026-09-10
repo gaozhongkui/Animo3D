@@ -214,7 +214,11 @@ final class SceneViewRecorder: ObservableObject {
     private func prepareWatermark() {
         watermarkImage = nil
         guard let text = watermark, size.width > 1 else { return }
+
+        // All calculations here are in PIXELS to match the video buffer.
         let fontSize = max(18, size.height * 0.028)
+        let pad: CGFloat = 10 // Increased padding for better shadow clearance
+
         let attrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
             .foregroundColor: UIColor.white.withAlphaComponent(0.85),
@@ -225,16 +229,23 @@ final class SceneViewRecorder: ObservableObject {
                 return sh
             }()
         ]
+
         let textSize = (text as NSString).size(withAttributes: attrs)
-        // Room for the shadow, which draws outside the text's own box.
-        let pad: CGFloat = 8
-        let boxSize = CGSize(width: ceil(textSize.width) + pad * 2, height: ceil(textSize.height) + pad * 2)
-        let renderer = UIGraphicsImageRenderer(size: boxSize)
+        let boxSize = CGSize(width: ceil(textSize.width) + pad * 2,
+                             height: ceil(textSize.height) + pad * 2)
+
+        // Force scale to 1.0 so the points in the renderer map 1:1 to video pixels.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        let renderer = UIGraphicsImageRenderer(size: boxSize, format: format)
+
         let img = renderer.image { _ in
             (text as NSString).draw(at: CGPoint(x: pad, y: pad), withAttributes: attrs)
         }
         watermarkImage = img.cgImage
+
         let margin = size.height * 0.02
+        // Position relative to the bottom-right, all in pixels.
         watermarkOrigin = CGPoint(x: size.width - boxSize.width - margin + pad,
                                   y: size.height - boxSize.height - margin + pad)
     }
@@ -288,9 +299,11 @@ final class SceneViewRecorder: ObservableObject {
         }
         if let mark = watermarkImage {
             let w = CGFloat(mark.width), h = CGFloat(mark.height)
-            // The context is bottom-left origin, and `watermarkOrigin` was computed top-left.
-            ctx.draw(mark, in: CGRect(x: watermarkOrigin.x - 8,
-                                      y: size.height - watermarkOrigin.y - h + 8,
+            let pad: CGFloat = 10
+            // The context is bottom-left origin. Draw the watermark image (the whole box)
+            // so that its visible text ends up at the correct margin.
+            ctx.draw(mark, in: CGRect(x: watermarkOrigin.x - pad,
+                                      y: size.height - watermarkOrigin.y - h + pad,
                                       width: w, height: h))
         }
         return buffer
