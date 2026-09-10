@@ -477,7 +477,9 @@ private final class TitleHeader: UICollectionReusableView {
 
 struct ProfileView: View {
     var body: some View {
-        ProfileNav().ignoresSafeArea()
+        ProfileNav()
+            .ignoresSafeArea()
+            .trackScreen("Me")
     }
 }
 
@@ -563,6 +565,7 @@ struct SettingsView: View {
                 .padding(.leading, 20)
                 .padding(.top, 10)
         }
+        .trackScreen("Settings")
     }
 
     private func settingIcon(_ system: String, color: UInt) -> some View {

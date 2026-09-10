@@ -140,6 +140,7 @@ struct DanceStudioView: View {
             // back a step" from "gave up here"; this can.
             if step != .perform { Track.log(.studioAbandoned, ["step": String(describing: step)]) }
         }
+        .trackScreen("Studio_\(String(describing: step))")
     }
 
     // MARK: Step header (progress)

@@ -116,6 +116,7 @@ struct PaywallView: View {
             animateItems = true
             Track.log(.paywallShown, ["source": source])
         }
+        .trackScreen("Paywall")
     }
 
     private var purchaseArea: some View {

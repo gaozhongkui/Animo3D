@@ -40,6 +40,7 @@ struct CharactersView: View {
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: seg)
         }
         .background(Color(.systemBackground).ignoresSafeArea())
+        .trackScreen("Characters")
     }
 
     private func pickerItem(title: LocalizedStringKey, tag: Int) -> some View {

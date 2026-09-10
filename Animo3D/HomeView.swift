@@ -44,7 +44,10 @@ struct HomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(Array(remoteAssets.characters.enumerated()), id: \.element.id) { i, c in
-                        Button { launch = StudioLaunch(character: c.id) } label: {
+                        Button {
+                            launch = StudioLaunch(character: c.id)
+                            Track.log(.characterSelected, ["character": c.id, "source": "home_carousel"])
+                        } label: {
                             posterCard(title: c.name, subtitle: "Ready to Dance") {
                                 CharacterThumbView(characterKey: c.id, tint: tints[i % tints.count])
                             }
@@ -64,7 +67,10 @@ struct HomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(Array(remoteAssets.dances.prefix(12).enumerated()), id: \.element.id) { i, d in
-                        Button { launch = StudioLaunch(dance: d.id) } label: {
+                        Button {
+                            launch = StudioLaunch(dance: d.id)
+                            Track.log(.danceSelected, ["dance": d.id, "source": "home_carousel"])
+                        } label: {
                             posterCard(title: d.name, subtitle: "Hot Trend") {
                                 if i == 0 {
                                     CardBackdrop(style: 0)
@@ -100,6 +106,7 @@ struct HomeView: View {
                     Button {
                         HapticManager.medium()
                         launch = StudioLaunch()
+                        Track.log(.studioStep, ["step": "start", "source": "home_hero"])
                     } label: { heroCard }
                         .buttonStyle(PlainButtonStyle())
                         .padding(.horizontal)
@@ -128,6 +135,7 @@ struct HomeView: View {
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("Create")
             .navigationBarTitleDisplayMode(.large)
+            .trackScreen("Home")
             .fullScreenCover(item: $launch) { l in
                 studioCover(DanceStudioView(initialCharacter: l.character, initialDance: l.dance))
             }
