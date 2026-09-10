@@ -91,11 +91,11 @@ final class ProfileViewController: UIViewController {
                     s.boundarySupplementaryItems = [Self.createHeader(L("My Creations"))]
                     return s
                 }
-                let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(0.5), heightDimension: .fractionalHeight(1))
+                let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0/3.0), heightDimension: .fractionalHeight(1))
                 let item = NSCollectionLayoutItem(layoutSize: itemSize)
-                item.contentInsets = .init(top: 8, leading: 8, bottom: 8, trailing: 8)
-                let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(240))
-                let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.horizontal(layoutSize: groupSize, subitems: [item, item]))
+                item.contentInsets = .init(top: 4, leading: 4, bottom: 4, trailing: 4)
+                let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(150))
+                let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.horizontal(layoutSize: groupSize, subitems: [item, item, item]))
                 s.contentInsets = .init(top: 4, leading: 12, bottom: 32, trailing: 12)
                 s.boundarySupplementaryItems = [Self.createHeader(L("My Creations"))]
                 return s
@@ -433,18 +433,18 @@ private final class GalleryWorkCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.backgroundColor = .white
-        contentView.layer.cornerRadius = 24; contentView.clipsToBounds = true
+        contentView.layer.cornerRadius = 16; contentView.clipsToBounds = true
         contentView.layer.borderWidth = 1; contentView.layer.borderColor = UIColor.systemGray6.cgColor
 
         imgV.contentMode = .scaleAspectFill; imgV.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(imgV)
         NSLayoutConstraint.activate([
-            imgV.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            imgV.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
-            imgV.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
-            imgV.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4)
+            imgV.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 3),
+            imgV.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 3),
+            imgV.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -3),
+            imgV.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -3)
         ])
-        imgV.layer.cornerRadius = 20; imgV.clipsToBounds = true
+        imgV.layer.cornerRadius = 13; imgV.clipsToBounds = true
     }
     func configure(url: URL) { imgV.image = WorksStore.shared.thumbnail(for: url) }
     required init?(coder: NSCoder) { fatalError() }
