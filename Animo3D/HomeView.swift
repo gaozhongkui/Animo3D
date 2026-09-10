@@ -113,7 +113,10 @@ struct HomeView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         sectionHeader("Discover More")
                         VStack(spacing: 12) {
-                            Button { showVideo = true } label: {
+                            Button {
+                                showVideo = true
+                                Track.log(.videoDriveStarted)
+                            } label: {
                                 actionCard(icon: "video.fill", title: "Video Drive Motion", subtitle: "Upload video to mimic motions in real-time", color: .blue)
                             }.buttonStyle(.plain)
                         }

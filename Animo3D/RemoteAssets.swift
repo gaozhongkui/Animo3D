@@ -206,6 +206,10 @@ final class RemoteAssets: ObservableObject {
         } catch {
             NSLog("[RemoteAssets] index fetch failed (holding %@): %@",
                   catalogSource.rawValue, error.localizedDescription)
+            // Without this the worst failure this app has is also its quietest: no index means
+            // empty grids on every screen, and nothing anywhere says why.
+            Track.log(.catalogFailed, ["reason": String(describing: type(of: error)),
+                                       "holding": catalogSource.rawValue])
             return catalog != nil
         }
     }
@@ -260,6 +264,8 @@ final class RemoteAssets: ObservableObject {
 
         NSLog("[RemoteAssets] %@ index rev=%d chars=%d dances=%d",
               source.rawValue, cat.revision, cat.characters.count, cat.dances.count)
+        Track.log(.catalogLoaded, ["source": source.rawValue, "revision": cat.revision,
+                                   "characters": cat.characters.count, "dances": cat.dances.count])
         // A declared built-in that is not actually in the bundle means every "no network needed"
         // path quietly downloads instead. Say so rather than letting it hide.
         if let b = cat.builtin {
@@ -344,6 +350,10 @@ final class RemoteAssets: ObservableObject {
     private func download(_ path: AssetPath) async throws -> URL {
         let key = path.assetName
         if let local = localURL(for: key) { return local }
+        // Timed and sized. A character model is 17-26MB; on a slow connection this wait is the
+        // most likely place to lose somebody who has already chosen what they want to make, and
+        // right now it is completely invisible.
+        let started = CFAbsoluteTimeGetCurrent()
         guard let base = snapshotBaseUrl(), let url = URL(string: base + path) else {
             throw AssetError.noBaseURL(path)
         }
@@ -358,13 +368,31 @@ final class RemoteAssets: ObservableObject {
 
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             try? FileManager.default.removeItem(at: tmp)
+            Track.log(.assetDownload, ["kind": kind(of: path), "ok": "no",
+                                       "status": (response as? HTTPURLResponse)?.statusCode ?? -1,
+                                       "ms": Track.ms(since: started)])
             throw AssetError.http((response as? HTTPURLResponse)?.statusCode ?? -1, path)
         }
+
+        let bytes = ((try? FileManager.default.attributesOfItem(atPath: tmp.path))?[.size] as? Int) ?? 0
+        Track.log(.assetDownload, ["kind": kind(of: path), "ok": "yes",
+                                   "mb": (Double(bytes) / 1e6 * 10).rounded() / 10,
+                                   "ms": Track.ms(since: started)])
 
         let local = localCacheURL(for: key)
         try? FileManager.default.removeItem(at: local)
         try FileManager.default.moveItem(at: tmp, to: local)
         return local
+    }
+
+    /// character / dance / thumb, from the path the index gave. Kept coarse on purpose: the useful
+    /// question is which *class* of asset is slow, and a per-file breakdown is already available
+    /// from the catalog itself.
+    private func kind(of path: AssetPath) -> String {
+        if path.hasPrefix("characters/") { return "character" }
+        if path.hasPrefix("dances/") { return "dance" }
+        if path.hasPrefix("thumbs/") { return "thumb" }
+        return "other"
     }
 
     private func snapshotBaseUrl() -> String? {

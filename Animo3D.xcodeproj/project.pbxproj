@@ -93,6 +93,7 @@
 				05E2C0C23025ACE200A42B38 /* Sources */,
 				05E2C0C33025ACE200A42B38 /* Frameworks */,
 				05E2C0C43025ACE200A42B38 /* Resources */,
+				B34EC2390336A94C0D6BBFEC /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -157,6 +158,27 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		B34EC2390336A94C0D6BBFEC /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Animo3D/Pods-Animo3D-frameworks-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			inputPaths = (
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Animo3D/Pods-Animo3D-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Animo3D/Pods-Animo3D-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
 		CC2392150CBFF7AA8922F552 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;

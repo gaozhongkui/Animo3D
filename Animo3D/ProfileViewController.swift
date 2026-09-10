@@ -224,7 +224,8 @@ final class ProfileViewController: UIViewController {
         present(host, animated: true)
     }
     private func openPaywall() {
-        let host = UIHostingController(rootView: PaywallView { [weak self] in self?.dismiss(animated: true) })
+        let host = UIHostingController(rootView: PaywallView(
+            onClose: { [weak self] in self?.dismiss(animated: true) }, source: "profile"))
         present(host, animated: true)
     }
 

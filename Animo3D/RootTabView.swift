@@ -54,6 +54,7 @@ struct DiscoverView: View {
                 Button {
                     HapticManager.light()
                     showSearch = true
+                    Track.log(.communitySearch)
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -101,6 +102,7 @@ struct DiscoverView: View {
                                                   abs(v.translation.height) < 8 else { return }
                                             HapticManager.light()
                                             withAnimation(.spring(response: 0.3)) { selectedCategory = cat }
+                                            Track.log(.communityCategory, ["category": cat])
                                         }
                                 )
                         }
@@ -114,6 +116,7 @@ struct DiscoverView: View {
             // searchText stays empty here for good: browsing is by category only now.
             DiscoverViewControllerRepresentable(searchText: $searchText, selectedCategory: $selectedCategory) { model in
                 self.selectedModel = model
+                Track.log(.communityModelOpened, ["model": model.name])
             }
         }
         .fullScreenCover(isPresented: $showSearch) { DiscoverSearchView() }
@@ -387,6 +390,7 @@ struct ModelDetailView: View {
         arReceived = 0
         arTotal = nil
         arLoading = true
+        let started = CFAbsoluteTimeGetCurrent()
         Task {
             do {
                 let local = try await SketchfabClient.shared.downloadUSDZ(uid: model.uid) { received, total in
@@ -401,12 +405,17 @@ struct ModelDetailView: View {
                     // a clip is the point of finding a model in the first place. Models SceneKit
                     // genuinely cannot draw hand themselves off to AR Quick Look from there, once
                     // the loader has reported what the model costs after pruning.
+                    Track.log(.communityModelAR, ["model": model.name, "ok": "yes",
+                                                  "ms": Track.ms(since: started),
+                                                  "mb": (Double(arReceived) / 1e6 * 10).rounded() / 10])
                     arReady = ARModel(url: local)
                 }
             } catch {
                 await MainActor.run {
                     arLoading = false
                     arError = error.localizedDescription
+                    Track.log(.communityModelAR, ["model": model.name, "ok": "no",
+                                                  "ms": Track.ms(since: started)])
                 }
             }
         }

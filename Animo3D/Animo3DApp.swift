@@ -11,6 +11,14 @@ import SwiftUI
 struct Animo3DApp: App {
     @State private var showMainView = false
 
+    /// Firebase is configured here rather than in a `.task`, because `Track.start()` has to have
+    /// run before the first event can be logged and the splash screen already logs one.
+    init() {
+        Track.start()
+        Track.setDeviceTier()
+        Track.setPro(ProStore.shared.isPro)
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {

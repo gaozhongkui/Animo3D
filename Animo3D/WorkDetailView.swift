@@ -98,6 +98,7 @@ struct WorkDetailView: View {
         .confirmationDialog("Delete this creation?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 player.pause()
+                Track.log(.workDeleted)
                 WorksStore.shared.delete(url)
                 onClose()
             }
@@ -116,6 +117,7 @@ struct WorkDetailView: View {
         Button {
             guard !preparingShare else { return }
             HapticManager.light()
+            Track.log(.workShared)
             if shareItem != nil { showShare = true; return }   // already prepared
             preparingShare = true
             Task.detached(priority: .userInitiated) {

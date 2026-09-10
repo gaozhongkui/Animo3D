@@ -47,6 +47,14 @@ struct DanceStudioView: View {
     @State private var finished: FinishedWork?      // Completion page after a recording
     @State private var showAudioDoc = false
     @State private var processing = false   // Mixing music
+    /// When the current take started, so `record_finished` can carry its length.
+    @State private var recordStartedAt: Date?
+    /// When Start Performance was pressed, so `stage_ready` can carry how long the user waited for
+    /// the first frame. That wait is a download plus a scene build, and it is the one place this
+    /// app can lose somebody who has already decided they want the video.
+    @State private var performStartedAt: CFAbsoluteTime = 0
+    /// When AR was entered, so `ar_plane_found` can say how long the room took.
+    @State private var arEnteredAt: CFAbsoluteTime = 0
     @State private var loading = false      // Loading character/dance (model + animation parsing in background)
     @State private var stageWatchdog: Task<Void, Never>?
     @State private var vfx = DanceVFX()         // Stage VFX
@@ -115,6 +123,9 @@ struct DanceStudioView: View {
         }
         .onChange(of: step) { s in
             if s == .character || s == .dance { music.stop() }
+            // The four-step wizard is the activation funnel. One event with the step as a
+            // parameter, so it reads in order rather than as four counts nobody can line up.
+            Track.log(.studioStep, ["step": String(describing: s)])
             // Parse the model while the user is still browsing dances and music. By the time they
             // press Start Performance the scene is already built, so the button has nothing to wait on.
             if s == .dance || s == .music { stage.prewarm(character: character) }
@@ -123,7 +134,12 @@ struct DanceStudioView: View {
             // The grid only shows pre-rendered art; pull the full take now.
             stage.prewarm(dance: d)
         }
-        .onDisappear { music.stop(); vfx.remove(); stage.stop() }
+        .onDisappear {
+            music.stop(); vfx.remove(); stage.stop()
+            // Leaving before performing is the drop-off. Step counts alone cannot separate "went
+            // back a step" from "gave up here"; this can.
+            if step != .perform { Track.log(.studioAbandoned, ["step": String(describing: step)]) }
+        }
     }
 
     // MARK: Step header (progress)
@@ -212,6 +228,7 @@ struct DanceStudioView: View {
                     .onTapGesture {
                         HapticManager.light()
                         character = c.id
+                        Track.log(.characterSelected, ["character": c.id])
                     }
                 }
             }
@@ -296,6 +313,7 @@ struct DanceStudioView: View {
                     .onTapGesture {
                         HapticManager.light()
                         dance = d.id
+                        Track.log(.danceSelected, ["dance": d.id, "character": character])
                     }
                 }
             }
@@ -312,6 +330,7 @@ struct DanceStudioView: View {
             VStack(spacing: 10) {
                 musicRow(title: "No Music", system: "speaker.slash", selected: selectedMusic == nil) {
                     selectedMusic = nil; music.stop()
+                    Track.log(.musicSelected, ["music": "none"])
                 }
                 if !MusicTrack.presets.isEmpty {
                     sectionLabel("Presets")
@@ -391,10 +410,15 @@ struct DanceStudioView: View {
                                     onPlaced: { node in
                                         arContainer = node
                                         arPlaced = true
+                                        Track.log(.arPlaced, ["character": character, "dance": dance,
+                                                              "ms": arEnteredAt > 0 ? Track.ms(since: arEnteredAt) : 0])
                                         retireCoach()
                                         installVFX()      // effects only exist once there is somewhere to put them
                                     },
-                                    onPlacementMissed: { retireCoach(); flashPlacementMiss() },
+                                    onPlacementMissed: {
+                                        retireCoach(); flashPlacementMiss()
+                                        Track.log(.arPlaceMissed, ["character": character])
+                                    },
                                     onRelocated: { stage.rebaseRetarget() },
                                     onCoaching: { arCoaching = $0 },
                                     onTrackingHint: { arTrackingHint = $0 },
@@ -458,6 +482,18 @@ struct DanceStudioView: View {
                     Picker("", selection: $arMode) { Text("Screen").tag(false); Text("AR").tag(true) }
                         .pickerStyle(.segmented).frame(width: 120)
                         .opacity(recorder.isRecording ? 0 : 1) // hidden while recording
+                        .onChange(of: arMode) { on in
+                            if on {
+                                arEnteredAt = CFAbsoluteTimeGetCurrent()
+                                Track.log(.arEntered, ["character": character, "dance": dance])
+                            } else if arEnteredAt > 0 {
+                                // Whether the room ever gave us somewhere to stand is the number
+                                // that says AR failed, and it is only knowable on the way out.
+                                Track.log(.arAbandoned, ["placed": arPlaced ? "yes" : "no",
+                                                         "seconds": Int(CFAbsoluteTimeGetCurrent() - arEnteredAt)])
+                                arEnteredAt = 0
+                            }
+                        }
                 }
                 .padding(.horizontal, 12).padding(.top, 6)
 
@@ -524,26 +560,43 @@ struct DanceStudioView: View {
         Button {
             if recorder.isRecording {
                 HapticManager.medium()
+                let seconds = recordStartedAt.map { Int(Date().timeIntervalSince($0)) } ?? 0
+                recordStartedAt = nil
                 recorder.stop { url in
+                    Track.log(.recordFinished, ["character": character, "dance": dance,
+                                                "mode": arMode ? "ar" : "screen",
+                                                "seconds": seconds,
+                                                "ok": url == nil ? "no" : "yes"])
                     guard let url else { return }
                     // The watermark is already in the frames, so only music still needs an export pass.
                     if let audio = selectedMusic?.url {
                         processing = true
                         Task {
+                            let exportStart = CFAbsoluteTimeGetCurrent()
                             let final = await VideoAudioMixer.export(video: url, audio: audio) ?? url
                             await MainActor.run {
+                                Track.log(.exportFinished, ["ms": Track.ms(since: exportStart),
+                                                            "ok": final == url ? "no" : "yes"])
                                 HapticManager.success()
                                 processing = false
-                                if let saved = WorksStore.shared.add(from: final) { finished = FinishedWork(url: saved) }
+                                if let saved = WorksStore.shared.add(from: final) {
+                                    Track.log(.workSaved, ["music": "yes"])
+                                    finished = FinishedWork(url: saved)
+                                }
                             }
                         }
                     } else if let saved = WorksStore.shared.add(from: url) {
+                        Track.log(.workSaved, ["music": "no"])
                         HapticManager.success()
                         finished = FinishedWork(url: saved)
                     }
                 }
             } else if let v = holder.scnView {
                 HapticManager.medium()
+                recordStartedAt = Date()
+                Track.log(.recordStarted, ["character": character, "dance": dance,
+                                           "mode": arMode ? "ar" : "screen",
+                                           "plan": pro.isPro ? "pro" : "free"])
                 recorder.start(view: v, watermark: pro.isPro ? nil : "Livo 3D")
             }
         } label: {
@@ -651,10 +704,14 @@ struct DanceStudioView: View {
     private func startPerform() {
         guard !loading else { return }
         loading = true
+        performStartedAt = CFAbsoluteTimeGetCurrent()
         let ch = character, dc = dance
         Task {
             guard await stage.load(character: ch, dance: dc) else { loading = false; return }
             if let m = selectedMusic { music.play(m) } else { music.stop() }
+            Track.log(.performanceStarted, ["character": ch, "dance": dc,
+                                            "music": selectedMusic?.name ?? "none",
+                                            "mode": arMode ? "ar" : "screen"])
             step = .perform
             installVFX()
             // The mask deliberately stays up past this point. Switching to .perform is when the
@@ -676,6 +733,12 @@ struct DanceStudioView: View {
     private func stageDidRender() {
         stageWatchdog?.cancel()
         stageWatchdog = nil
+        // Only the first frame of a performance counts; this also fires when AR re-attaches.
+        if performStartedAt > 0 {
+            Track.log(.stageReady, ["character": character, "dance": dance,
+                                    "ms": Track.ms(since: performStartedAt)])
+            performStartedAt = 0
+        }
         loading = false
     }
 
@@ -719,6 +782,7 @@ struct DanceStudioView: View {
         HapticManager.selection()
         selectedMusic = track
         music.play(track)   // Audition
+        Track.log(.musicSelected, ["music": track.name])
     }
 }
 

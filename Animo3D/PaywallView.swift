@@ -10,6 +10,9 @@ import StoreKit
 
 struct PaywallView: View {
     var onClose: () -> Void
+    /// Where the user came from. The same screen shown after tapping a locked character and shown
+    /// from the profile button convert very differently, and without this they are one number.
+    var source: String = "unknown"
     @ObservedObject private var store = ProStore.shared
     @State private var animateItems = false
 
@@ -109,7 +112,10 @@ struct PaywallView: View {
                     )
             }
         }
-        .onAppear { animateItems = true }
+        .onAppear {
+            animateItems = true
+            Track.log(.paywallShown, ["source": source])
+        }
     }
 
     private var purchaseArea: some View {

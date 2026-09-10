@@ -113,17 +113,22 @@ final class ProStore: ObservableObject {
         guard purchasingID == nil else { return false }
         purchasingID = product.id
         defer { purchasingID = nil }
+        Track.log(.purchaseStarted, ["product": product.id])
         do {
             switch try await product.purchase() {
             case .success(let verification):
                 guard let transaction = try? Self.verify(verification) else {
                     lastError = "That purchase could not be verified."
+                    Track.log(.purchaseFailed, ["product": product.id, "reason": "unverified"])
                     return false
                 }
                 await transaction.finish()
                 await refreshEntitlements()
+                Track.log(.purchaseSucceeded, ["product": product.id])
+                Track.setPro(true)
                 return isPro
             case .userCancelled:
+                Track.log(.purchaseFailed, ["product": product.id, "reason": "cancelled"])
                 return false
             case .pending:
                 // Ask To Buy, or a payment method awaiting approval. Transaction.updates delivers it later.
@@ -146,6 +151,8 @@ final class ProStore: ObservableObject {
         defer { isRestoring = false }
         try? await AppStore.sync()
         await refreshEntitlements()
+        Track.log(.purchaseRestored, ["ok": isPro ? "yes" : "no"])
+        if isPro { Track.setPro(true) }
         if !isPro { lastError = "No previous purchase was found for this Apple ID." }
     }
 
