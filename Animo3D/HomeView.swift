@@ -202,21 +202,25 @@ struct HomeView: View {
                 .frame(width: 150, height: 150)
                 .offset(x: 200, y: -40)
 
-            HStack(spacing: 20) {
-                VStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Enter Dance Studio")
-                            .font(.title2.bold())
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Start New AR Show")
+                            .font(.system(size: 24, weight: .black, design: .rounded))
                             .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+
+                        Text("Bring 3D characters into your world and direct your own immersive performance.")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.95))
                             .lineLimit(2)
-                            .minimumScaleFactor(0.85)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text("Start your immersive AR journey")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.9))
-                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    // The text container now takes up ~70% of the horizontal space, giving the
+                    // messaging more room to breathe before being interrupted by the icon.
+                    .frame(maxWidth: 260, alignment: .leading)
 
                     HStack(spacing: 8) {
                         Text("Start Now")
@@ -224,22 +228,22 @@ struct HomeView: View {
                         Image(systemName: "arrow.right")
                             .font(.system(size: 12, weight: .bold))
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
                     .background(.white)
                     .foregroundStyle(Color.accentColor)
                     .clipShape(Capsule())
-                    .shadow(color: .black.opacity(0.1), radius: 5, y: 2)
+                    .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
                 }
 
                 Spacer()
 
                 Image(systemName: "arkit")
                     .font(.system(size: 60))
-                    .foregroundStyle(.white.opacity(0.2))
-                    .padding(.trailing, 10)
+                    .foregroundStyle(.white.opacity(0.15))
+                    .padding(.trailing, 8)
             }
-            .padding(24)
+            .padding(26)
         }
         .frame(minHeight: 160)
     }
