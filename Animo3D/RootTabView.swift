@@ -193,8 +193,22 @@ struct ModelDetailView: View {
     /// at. Floored so a small phone does not end up with a letterbox, capped so a large one does
     /// not push the AR button off the bottom - the page has to keep fitting without scrolling.
     private var previewHeight: CGFloat {
-        min(max(UIScreen.main.bounds.height * 0.62, 400), 580)
+        // Sized to the column, not to the screen. On an iPad the page is centred in a
+        // `maxContentWidth` column, so measuring 62% of a 1366pt screen gave a preview far taller
+        // than the thing it sits in is wide - a tall slot with a small model floating in it.
+        let screen = UIScreen.main.bounds
+        let column = min(screen.width, Self.maxContentWidth)
+        return min(max(min(screen.height * 0.62, column * 1.25), 400), 580)
     }
+
+    /// How wide the page is allowed to get.
+    ///
+    /// Everything here is a single column of reading material - title, author, stats, description,
+    /// one action button. Left unbounded it runs the full width of an iPad: description lines get
+    /// long enough to lose your place between them, and the AR button becomes a 976pt slab. A
+    /// bounded, centred column is what the same content looks like on a phone, which is the layout
+    /// it was designed for.
+    static let maxContentWidth: CGFloat = 700
 
     private var arFraction: Double? {
         guard let total = arTotal, total > 0 else { return nil }
@@ -331,6 +345,8 @@ struct ModelDetailView: View {
                     .padding(.horizontal, 24)
                 }
                 .padding(.bottom, 24)
+                .frame(maxWidth: Self.maxContentWidth, alignment: .leading)
+                .frame(maxWidth: .infinity)          // and centre that column in the page
             }
             // Content here only just exceeds the screen, so the rubber-band made the page feel like
             // it was sliding at the slightest touch. `.basedOnSize` bounces only when there is

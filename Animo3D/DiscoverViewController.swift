@@ -7,6 +7,9 @@ import UIKit
 import SwiftUI
 
 final class DiscoverViewController: UIViewController {
+    /// The width a card wants to be. The column count is whatever gets closest to it.
+    private static let targetCellWidth: CGFloat = 190
+
 
     private var models: [SketchfabModel] = []
     private var collectionView: UICollectionView!
@@ -47,16 +50,39 @@ final class DiscoverViewController: UIViewController {
     }
 
     private func setupCollectionView() {
-        let layout = UICollectionViewCompositionalLayout { _, _ in
-            let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(0.5), heightDimension: .absolute(240))
-            let item = NSCollectionLayoutItem(layoutSize: itemSize)
-            item.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
+        // Columns come from the width available, not from a constant.
+        //
+        // This was `fractionalWidth(0.5)` with a flat 240pt row - two columns, whatever the device.
+        // On an iPad that is two ~470pt-wide cells whose thumbnail is pinned to 130pt tall, so
+        // every card is a squashed letterbox with an acre of empty space under the title. Aiming
+        // for a cell about 190pt wide gives two columns on a phone exactly as before, and four to
+        // six across an iPad - and it follows Split View and Stage Manager, because the layout
+        // closure re-runs with the new container width rather than reading the screen.
+        let layout = UICollectionViewCompositionalLayout { _, env in
+            let outerInset: CGFloat = 10, itemInset: CGFloat = 10
+            let available = max(1, env.container.effectiveContentSize.width - outerInset * 2)
+            let columns = max(2, min(6, Int((available / Self.targetCellWidth).rounded())))
+            // What the card itself gets, once its own insets are taken off.
+            let cardWidth = available / CGFloat(columns) - itemInset * 2
+            // Matches the aspect the cell pins its image view to; the two have to agree or the
+            // title is clipped on one side and floats on the other.
+            let rowHeight = (cardWidth * ModelCell.imageAspect + ModelCell.textBlockHeight
+                             + itemInset * 2).rounded()
 
-            let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .absolute(240))
-            let group = NSCollectionLayoutGroup.horizontal(layoutSize: groupSize, subitems: [item])
+            let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0 / CGFloat(columns)),
+                                                  heightDimension: .absolute(rowHeight))
+            let item = NSCollectionLayoutItem(layoutSize: itemSize)
+            item.contentInsets = NSDirectionalEdgeInsets(top: itemInset, leading: itemInset,
+                                                         bottom: itemInset, trailing: itemInset)
+
+            let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0),
+                                                   heightDimension: .absolute(rowHeight))
+            let group = NSCollectionLayoutGroup.horizontal(layoutSize: groupSize,
+                                                           repeatingSubitem: item, count: columns)
 
             let section = NSCollectionLayoutSection(group: group)
-            section.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
+            section.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: outerInset,
+                                                            bottom: 10, trailing: outerInset)
             return section
         }
 
@@ -317,7 +343,11 @@ final class ModelCell: UICollectionViewCell {
             imageView.topAnchor.constraint(equalTo: containerView.topAnchor),
             imageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            imageView.heightAnchor.constraint(equalToConstant: 130),
+            // An aspect ratio, not a constant. 130pt was right for the one cell width this grid
+            // used to have; at any other width it is a letterbox. The layout computes the row
+            // height from the same ratio.
+            imageView.heightAnchor.constraint(equalTo: imageView.widthAnchor,
+                                              multiplier: ModelCell.imageAspect),
 
             titleLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 12),
             titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 12),
@@ -329,6 +359,12 @@ final class ModelCell: UICollectionViewCell {
             infoLabel.bottomAnchor.constraint(lessThanOrEqualTo: containerView.bottomAnchor, constant: -12)
         ])
     }
+
+    /// Thumbnail height as a fraction of the card's width, and the space the two labels need
+    /// under it (12 top + two lines of 15pt + 6 + one line of 12pt + 12 bottom). The layout reads
+    /// both so the row is exactly as tall as the cell wants to be.
+    static let imageAspect: CGFloat = 0.72
+    static let textBlockHeight: CGFloat = 84
 
     override func layoutSubviews() {
         super.layoutSubviews()
