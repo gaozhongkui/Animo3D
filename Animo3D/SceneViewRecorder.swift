@@ -25,6 +25,9 @@ final class SceneHolder: ObservableObject {
 }
 
 final class SceneViewRecorder: ObservableObject {
+    /// Longest edge of a recorded frame, in pixels.
+    static let maxLongSide: CGFloat = 1920
+
     @Published var isRecording = false
 
     private var writer: AVAssetWriter?
@@ -33,7 +36,10 @@ final class SceneViewRecorder: ObservableObject {
     private var link: CADisplayLink?
     private weak var view: SCNView?
     private var size = CGSize.zero
-    private var frameIndex: Int64 = 0
+    /// When the first frame was captured, and the last presentation time written. Frames are
+    /// timestamped from the clock, not counted, so the two have to be remembered across ticks.
+    private var startTimestamp: CFTimeInterval = 0
+    private var lastPTS = CMTime.zero
     private var outURL: URL?
     /// Text burned into every frame, or nil for Pro users.
     private var watermark: String?
@@ -42,7 +48,18 @@ final class SceneViewRecorder: ObservableObject {
         guard !isRecording else { return }
         self.view = view
         self.watermark = watermark
-        let scale = view.window?.screen.scale ?? UIScreen.main.scale
+        // Capture scale is capped, not taken straight from the screen.
+        //
+        // At native retina an iPhone 17 Pro frame is 1206x2622 and an iPad is larger still, and
+        // every one of those frames costs an SCNView.snapshot() plus a full CGContext draw. That
+        // does not fit in a 30Hz tick, so ticks get skipped - which is what made the finished video
+        // play fast, back when frames were timestamped by index. Capping the long side at 1920
+        // roughly halves the per-frame work, keeps the aspect exactly, and is a more ordinary size
+        // to hand to a share sheet than a 2622-pixel-tall file.
+        let screenScale = view.window?.screen.scale ?? UIScreen.main.scale
+        let longSide = max(view.bounds.width, view.bounds.height) * screenScale
+        let scale = longSide > Self.maxLongSide
+            ? screenScale * (Self.maxLongSide / longSide) : screenScale
         func even(_ v: CGFloat) -> Int { let n = Int(v * scale); return n - (n % 2) }
         let w = max(2, even(view.bounds.width)), h = max(2, even(view.bounds.height))
         size = CGSize(width: w, height: h)
@@ -51,9 +68,22 @@ final class SceneViewRecorder: ObservableObject {
             .appendingPathComponent("cap_\(UUID().uuidString).mp4")
         outURL = url
         guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mp4) else { return }
+        // An explicit bitrate. Without AVVideoCompressionPropertiesKey the encoder picks its own
+        // default for the dimensions, and for a frame this size that default is low enough to show
+        // as mush on the character's face and banding across the stage floor - the "quality is bad"
+        // half of the report. 0.15 bits per pixel per frame is the usual rule of thumb for h264;
+        // the clamp keeps a small frame from being starved and a huge one from being absurd.
+        let bitrate = min(24_000_000, max(6_000_000, Int(Double(w * h * 30) * 0.15)))
         let settings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: w, AVVideoHeightKey: h
+            AVVideoWidthKey: w, AVVideoHeightKey: h,
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: bitrate,
+                // One keyframe a second: enough for scrubbing without spending the budget on them.
+                AVVideoMaxKeyFrameIntervalKey: 30,
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                AVVideoAllowFrameReorderingKey: true,
+            ] as [String: Any]
         ]
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
@@ -69,22 +99,40 @@ final class SceneViewRecorder: ObservableObject {
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
         self.writer = writer; self.input = input; self.adaptor = adaptor
-        frameIndex = 0
+        startTimestamp = 0
+        lastPTS = .zero
 
-        let l = CADisplayLink(target: self, selector: #selector(capture))
+        let l = CADisplayLink(target: self, selector: #selector(capture(_:)))
         l.preferredFramesPerSecond = 30
         l.add(to: .main, forMode: .common)
         link = l
         isRecording = true
     }
 
-    @objc private func capture() {
+    @objc private func capture(_ link: CADisplayLink) {
         guard let view, let input, let adaptor, input.isReadyForMoreMediaData else { return }
+
+        // Timestamp from the clock, never from a frame count.
+        //
+        // This used to write `CMTime(value: frameIndex, timescale: 30)`, which says "every frame I
+        // appended is exactly 1/30s after the last one". But frames are dropped all the time - the
+        // guard above declines whenever the encoder is busy, and a snapshot that overruns its tick
+        // makes the display link skip the next one. Every dropped frame therefore removed 1/30s
+        // from the finished video while real time went on, so a 20s dance came out as maybe 14s of
+        // footage and played visibly fast. That is the whole of the "感觉有点加速" report; nothing
+        // was actually being played faster, the file was simply short.
+        //
+        // Elapsed time also keeps the audio mix honest: VideoAudioMixer lays the track against the
+        // video's duration, so a video that ran short desynchronised the music as well.
+        if startTimestamp == 0 { startTimestamp = link.timestamp }
+        var pts = CMTime(seconds: max(0, link.timestamp - startTimestamp), preferredTimescale: 600)
+        // Presentation times have to strictly increase; two ticks inside one 1/600s would not.
+        if pts <= lastPTS { pts = lastPTS + CMTime(value: 1, timescale: 600) }
+
         let image = view.snapshot()
         guard let pb = pixelBuffer(from: image, size: size) else { return }
-        let time = CMTime(value: frameIndex, timescale: 30)
-        adaptor.append(pb, withPresentationTime: time)
-        frameIndex += 1
+        adaptor.append(pb, withPresentationTime: pts)
+        lastPTS = pts
     }
 
     func stop(completion: @escaping (URL?) -> Void) {
