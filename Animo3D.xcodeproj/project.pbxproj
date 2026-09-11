@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		05A810FB3045CC5D00A3645E /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 05A810FA3045CC5D00A3645E /* StoreKit.framework */; };
+		05F00A1130000001000000C1 /* VRMKit in Frameworks */ = {isa = PBXBuildFile; productRef = 05F00A1130000001000000B1 /* VRMKit */; };
+		05F00A1130000001000000C2 /* VRMSceneKit in Frameworks */ = {isa = PBXBuildFile; productRef = 05F00A1130000001000000B2 /* VRMSceneKit */; };
 		88831A36BCFDBD52DE95F6F8 /* Pods_Animo3D.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9C7DF5B00CC0017211A99A6A /* Pods_Animo3D.framework */; };
 /* End PBXBuildFile section */
 
@@ -39,6 +41,8 @@
 			files = (
 				05A810FB3045CC5D00A3645E /* StoreKit.framework in Frameworks */,
 				88831A36BCFDBD52DE95F6F8 /* Pods_Animo3D.framework in Frameworks */,
+				05F00A1130000001000000C1 /* VRMKit in Frameworks */,
+				05F00A1130000001000000C2 /* VRMSceneKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -103,6 +107,10 @@
 				05E2C0C83025ACE200A42B38 /* Animo3D */,
 			);
 			name = Animo3D;
+			packageProductDependencies = (
+				05F00A1130000001000000B1 /* VRMKit */,
+				05F00A1130000001000000B2 /* VRMSceneKit */,
+			);
 			productName = Animo3D;
 			productReference = 05E2C0C63025ACE200A42B38 /* Animo3D.app */;
 			productType = "com.apple.product-type.application";
@@ -137,6 +145,9 @@
 			);
 			mainGroup = 05E2C0BD3025ACE200A42B38;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				05F00A1130000001000000A1 /* XCRemoteSwiftPackageReference "VRMKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 05E2C0C73025ACE200A42B38 /* Products */;
 			projectDirPath = "";
@@ -429,6 +440,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		05F00A1130000001000000A1 /* XCRemoteSwiftPackageReference "VRMKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/tattn/VRMKit.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		05F00A1130000001000000B1 /* VRMKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 05F00A1130000001000000A1 /* XCRemoteSwiftPackageReference "VRMKit" */;
+			productName = VRMKit;
+		};
+		05F00A1130000001000000B2 /* VRMSceneKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 05F00A1130000001000000A1 /* XCRemoteSwiftPackageReference "VRMKit" */;
+			productName = VRMSceneKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 05E2C0BE3025ACE200A42B38 /* Project object */;
 }

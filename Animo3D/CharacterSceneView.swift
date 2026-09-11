@@ -10,6 +10,13 @@ import SwiftUI
 import SceneKit
 import Combine
 
+#if canImport(VRMKit)
+import VRMKit
+#endif
+#if canImport(VRMSceneKit)
+import VRMSceneKit
+#endif
+
 final class CharacterSceneController: ObservableObject, BoneRig {
 
     /// Which scene the performance happens in.
@@ -24,7 +31,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     }
 
     let scene = SCNScene()
-    private(set) var boneNodes: [String: SCNNode] = [:]
+    internal(set) var boneNodes: [String: SCNNode] = [:]
     private(set) var characterRoot: SCNNode?
     private(set) var cameraNode: SCNNode?
     private(set) var isLoaded = false
@@ -41,7 +48,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     // Skeletal pose at load time, used for resetting.
     private var bindPose: [(node: SCNNode, orientation: simd_quatf, position: simd_float3)] = []
 
-    private func captureBindPose() {
+    func captureBindPose() {
         bindPose = boneNodes.values.map { ($0, $0.simdOrientation, $0.simdPosition) }
     }
 
@@ -1201,7 +1208,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     """
 
     /// Bring imported materials back to a predictable physically based setup.
-    private func sanitizeMaterials(_ root: SCNNode) {
+    func sanitizeMaterials(_ root: SCNNode) {
         root.enumerateHierarchy { node, _ in
             guard let geometry = node.geometry else { return }
             for material in geometry.materials {
@@ -1243,7 +1250,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
 
     /// Calculate the actual Up/Left/Forward axes using bone positions, forcing the root node to be
     /// Y-up and facing +Z. Do not rely on USD's upAxis metadata (that metadata is unreliable).
-    private func normalizeOrientation(_ root: SCNNode) {
+    func normalizeOrientation(_ root: SCNNode) {
         guard let hips = boneNodes[scheme.hips]?.simdWorldPosition,
               let head = boneNodes[scheme.head]?.simdWorldPosition,
               let lsh = boneNodes[scheme.leftShoulder]?.simdWorldPosition,
@@ -1258,7 +1265,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     }
 
     /// Set a fixed front fullscreen camera using bone positions (more reliable than bounding boxes, not affected by skeleton extensions).
-    private func setupFrontCamera() {
+    func setupFrontCamera() {
         guard let hips = boneNodes[scheme.hips]?.simdWorldPosition,
               let head = boneNodes[scheme.head]?.simdWorldPosition,
               let foot = boneNodes[scheme.leftFoot]?.simdWorldPosition else { return }
@@ -1501,12 +1508,20 @@ struct CharacterSceneView: UIViewRepresentable {
         private var firstFrameDelivered = false
         private let controller: CharacterSceneController
 
-        init(controller: CharacterSceneController) { self.controller = controller }
+        init(controller: CharacterSceneController) {
+            self.controller = controller
+        }
 
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
             controller.driveStage()
-
             controller.stepCameraMove()
+
+            // 物理系统：让头发、裙子动起来
+            #if canImport(VRMKit) && canImport(VRMSceneKit)
+            if let vrm = controller.characterRoot as? VRMNode {
+                vrm.update(at: time)
+            }
+            #endif
         }
 
         /// Fires once, after SceneKit has actually put a frame on screen.

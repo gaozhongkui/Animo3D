@@ -30,6 +30,8 @@ struct HomeView: View {
     @ObservedObject private var remoteAssets = RemoteAssets.shared
     @State private var launch: StudioLaunch?
     @State private var showVideo = false
+    @State private var showVRMTest = false
+    @State private var showVRMFace = false
 
     private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
 
@@ -143,6 +145,26 @@ struct HomeView: View {
                                            subtitle: "Thousands of shared 3D models, ready to view in AR",
                                            iconFill: communityGradient)
                             }.buttonStyle(CardButtonStyle())
+
+                            // Test entry point for VRM + Flair dance
+                            Button {
+                                showVRMTest = true
+                            } label: {
+                                actionCard(icon: "testtube.2",
+                                           title: "VRM Test Page",
+                                           subtitle: "Preview VRM model with Flair dance effect",
+                                           iconFill: Color.purple)
+                            }.buttonStyle(CardButtonStyle())
+
+                            // Test entry point for VRM Face Editor
+                            Button {
+                                showVRMFace = true
+                            } label: {
+                                actionCard(icon: "face.smiling.fill",
+                                           title: "VRM Face Editor",
+                                           subtitle: "Adjust BlendShapes and expressions",
+                                           iconFill: Color.indigo)
+                            }.buttonStyle(CardButtonStyle())
                         }
                         .padding(.horizontal, gutter)
                     }
@@ -159,6 +181,12 @@ struct HomeView: View {
             }
             .fullScreenCover(isPresented: $showVideo) {
                 studioCover(VideoDriveView())
+            }
+            .fullScreenCover(isPresented: $showVRMTest) {
+                VRMTestView()
+            }
+            .fullScreenCover(isPresented: $showVRMFace) {
+                VRMFaceEditorView()
             }
             // index.json is the only source for both carousels, so until it lands there is nothing
             // to show. On a normal launch the splash holds until it arrives, so this is really the

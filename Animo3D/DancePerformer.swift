@@ -21,6 +21,13 @@ import SceneKit
 import Combine
 import simd
 
+#if canImport(VRMKit)
+import VRMKit
+#endif
+#if canImport(VRMSceneKit)
+import VRMSceneKit
+#endif
+
 @MainActor
 final class DancePerformer: ObservableObject {
     let controller = CharacterSceneController()
@@ -176,11 +183,203 @@ final class DancePerformer: ObservableObject {
     /// Drive the skeleton from live pose landmarks (camera or video source).
     func drive(_ world: [simd_float3]) { retargeter?.apply(world: world) }
 
+    /// Update a VRM blendshape weight (0.0 - 1.0)
+    func setBlendShape(value: Float, for preset: String) {
+        #if canImport(VRMKit) && canImport(VRMSceneKit)
+        guard let vrm = controller.characterRoot as? VRMNode else { return }
+
+        var applied = false
+        // 优先使用库的 ExpressionRuntime 设置
+        if let info = vrm.availableExpressions.first(where: { $0.name == preset }) {
+            SCNTransaction.begin()
+            SCNTransaction.animationDuration = 0
+            vrm.setExpression(value: CGFloat(value), for: info.key)
+            SCNTransaction.commit()
+            applied = true
+        }
+
+        // 保底逻辑：如果上面的方法没生效，直接驱动底层的 SCNMorpher
+        controller.characterRoot?.enumerateHierarchy { node, _ in
+            if let morpher = node.morpher {
+                for i in 0..<morpher.targets.count {
+                    let targetName = morpher.targets[i].name ?? "Morph-\(i)"
+                    if targetName == preset || targetName.lowercased().contains(preset.lowercased()) {
+                        SCNTransaction.begin()
+                        SCNTransaction.animationDuration = 0
+                        morpher.setWeight(CGFloat(value), forTargetAt: i)
+                        SCNTransaction.commit()
+                        applied = true
+                    }
+                }
+            }
+        }
+
+        if applied {
+            vrm.update(at: CACurrentMediaTime())
+        }
+        #endif
+    }
+
+    /// 获取当前模型支持的所有表情名称 (VRM 预设 + 底层 Morpher 目标)
+    func getAvailableVRMExpressions() -> [String] {
+        #if canImport(VRMKit) && canImport(VRMSceneKit)
+        guard let vrm = controller.characterRoot as? VRMNode else { return [] }
+
+        // 1. 尝试获取 VRM 标准定义的表情
+        let vrmNames = vrm.availableExpressions.map { $0.name }
+        if !vrmNames.isEmpty { return vrmNames }
+
+        // 2. 如果没有 VRM 定义，则扫描底层 SCNMorpher 的所有 Target 名称
+        var rawNames = Set<String>()
+        controller.characterRoot?.enumerateHierarchy { node, _ in
+            if let morpher = node.morpher {
+                for i in 0..<morpher.targets.count {
+                    if let name = morpher.targets[i].name, !name.isEmpty {
+                        rawNames.insert(name)
+                    } else {
+                        // 如果目标没有名字，至少给个索引
+                        rawNames.insert("Morph-\(i)")
+                    }
+                }
+            }
+        }
+        return Array(rawNames).sorted()
+        #else
+        return []
+        #endif
+    }
+
+    #if canImport(VRMKit) && canImport(VRMSceneKit)
+    private func vrm_expression_for(_ name: String) -> ExpressionKey? {
+        switch name.lowercased() {
+        case "a": return .preset(.aa)
+        case "i": return .preset(.ih)
+        case "u": return .preset(.ou)
+        case "e": return .preset(.ee)
+        case "o": return .preset(.oh)
+        case "joy": return .preset(.happy)
+        case "angry": return .preset(.angry)
+        case "sorrow": return .preset(.sad)
+        case "fun": return .preset(.relaxed)
+        case "blink": return .preset(.blink)
+        case "lookup": return .preset(.lookUp)
+        case "lookdown": return .preset(.lookDown)
+        default: return nil
+        }
+    }
+    #endif
+
     /// Always call this when the view goes away: `CADisplayLink(target:)` retains its target, so a
     /// player left running keeps burning CPU after the page is dismissed.
     func stop() {
         player?.stop()
         player = nil
         loadedDance = ""
+    }
+
+    // MARK: - Test Support
+
+    /// Load a character and a dance from local URLs, bypassing the catalog.
+    func loadLocal(modelURL: URL, danceURL: URL? = nil, isVRM: Bool = false) async -> Bool {
+        stop()
+
+        var loadedScene: SCNScene?
+        var vrmNode: SCNNode?
+
+        if isVRM {
+            #if canImport(VRMKit) && canImport(VRMSceneKit)
+            do {
+                let loader = try VRMSceneLoader(withURL: modelURL)
+                let scene = try loader.loadScene()
+                loadedScene = scene
+                vrmNode = scene.vrmNode
+            } catch {
+                NSLog("[Performer] VRMKit load failed: %@", error.localizedDescription)
+                return false
+            }
+            #else
+            NSLog("[Performer] VRMKit/VRMSceneKit not found, falling back to SceneKit")
+            loadedScene = CharacterSceneController.loadSceneFile(at: modelURL, warmUp: true)
+            #endif
+        } else {
+            loadedScene = CharacterSceneController.loadSceneFile(at: modelURL, warmUp: true)
+        }
+
+        guard let scene = loadedScene else { return false }
+        controller.install(scene)
+
+        // VRM Bone Mapping: Map VRM humanoid bones to the names expected by the Mixamo scheme.
+        // This allows setupFrontCamera() and normalizeOrientation() to find the character's head, feet, etc.
+        #if canImport(VRMKit) && canImport(VRMSceneKit)
+        if isVRM, let vrm = vrmNode as? VRMNode {
+            let mapping: [HumanoidBone: String] = [
+                .hips: "mixamorig_Hips",
+                .spine: "mixamorig_Spine",
+                .head: "mixamorig_Head",
+                .leftShoulder: "mixamorig_LeftShoulder",
+                .rightShoulder: "mixamorig_RightShoulder",
+                .leftUpperArm: "mixamorig_LeftArm",
+                .rightUpperArm: "mixamorig_RightArm",
+                .leftLowerArm: "mixamorig_LeftForeArm",
+                .rightLowerArm: "mixamorig_RightForeArm",
+                .leftHand: "mixamorig_LeftHand",
+                .rightHand: "mixamorig_RightHand",
+                .leftUpperLeg: "mixamorig_LeftUpLeg",
+                .rightUpperLeg: "mixamorig_RightUpLeg",
+                .leftLowerLeg: "mixamorig_LeftLeg",
+                .rightLowerLeg: "mixamorig_RightLeg",
+                .leftFoot: "mixamorig_LeftFoot",
+                .rightFoot: "mixamorig_RightFoot",
+                .leftToes: "mixamorig_LeftToeBase",
+                .rightToes: "mixamorig_RightToeBase"
+            ]
+
+            var mappedCount = 0
+            for (bone, mixamoName) in mapping {
+                if let node = vrm.humanoid.node(for: bone) {
+                    controller.boneNodes[mixamoName] = node
+                    mappedCount += 1
+                }
+            }
+            NSLog("[Performer] VRM mapping complete: %d bones mapped", mappedCount)
+
+            // Re-run setup now that bones are mapped
+            if let root = controller.characterRoot {
+                controller.sanitizeMaterials(root)
+                controller.normalizeOrientation(root)
+                controller.setupFrontCamera()
+                controller.updateBackgroundAndGround()
+                controller.captureBindPose()
+
+                // 开启表情逻辑 (修正后的 0.10.0 API)
+                vrm.setExpression(value: 0.8, for: .preset(.happy))
+                vrm.setExpression(value: 0.2, for: .preset(.blink))
+
+                // If it's still not visible, it might be a scale issue. VRM is meters, but some are cm.
+                if controller.modelHeight < 0.1 {
+                    NSLog("[Performer] Model seems too small (%.2fm), applying 100x scale", controller.modelHeight)
+                    root.simdScale = simd_float3(repeating: 100)
+                    controller.setupFrontCamera() // Recalculate camera for new scale
+                }
+            }
+        }
+        #endif
+
+        guard controller.isLoaded else { return false }
+
+        loadedCharacter = "local"
+        let rt = PoseRetargeter(controller: controller)
+        rt.resetCapture()
+        retargeter = rt
+        isReady = true
+
+        if let danceURL, let clip = MocapClip.load(danceURL) {
+            player = MocapPlayer(clip: clip, retargeter: rt)
+            player?.start()
+            loadedDance = "local"
+            NSLog("[Performer] local performance started")
+        }
+
+        return true
     }
 }
