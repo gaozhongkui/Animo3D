@@ -46,6 +46,40 @@ enum MixamoBoneMap {
     static let shoulderCenter = 100
     static let hipCenter = 101
 
+    /// VRM humanoid bone (1.0 spelling, as a `.vrma` names it) -> the node name on our characters.
+    ///
+    /// This is what lets a `.vrma` take drive a Mixamo character as well as a VRM one: the take is
+    /// bone rotations keyed by humanoid name, and `VRMAnimationPlayer` only ever asks "which node
+    /// is this bone" - a VRM answers from its own humanoid table, a Mixamo rig answers from here.
+    /// The thumb is the one joint the two VRM versions name differently; 1.0's metacarpal /
+    /// proximal / distal is what a `.vrma` uses, and it is Mixamo's Thumb1 / 2 / 3.
+    static let humanoid: [String: String] = {
+        var map: [String: String] = [
+            "hips": "Hips", "spine": "Spine", "chest": "Spine1", "upperChest": "Spine2",
+            "neck": "Neck", "head": "Head",
+        ]
+        for (side, vrm) in [("Left", "left"), ("Right", "right")] {
+            map["\(vrm)Shoulder"] = "\(side)Shoulder"
+            map["\(vrm)UpperArm"] = "\(side)Arm"
+            map["\(vrm)LowerArm"] = "\(side)ForeArm"
+            map["\(vrm)Hand"] = "\(side)Hand"
+            map["\(vrm)UpperLeg"] = "\(side)UpLeg"
+            map["\(vrm)LowerLeg"] = "\(side)Leg"
+            map["\(vrm)Foot"] = "\(side)Foot"
+            map["\(vrm)Toes"] = "\(side)ToeBase"
+            for (finger, mixamo) in [("Thumb", "Thumb"), ("Index", "Index"), ("Middle", "Middle"),
+                                     ("Ring", "Ring"), ("Little", "Pinky")] {
+                let joints = finger == "Thumb"
+                    ? ["Metacarpal", "Proximal", "Distal"]
+                    : ["Proximal", "Intermediate", "Distal"]
+                for (n, joint) in joints.enumerated() {
+                    map["\(vrm)\(finger)\(joint)"] = "\(side)Hand\(mixamo)\(n + 1)"
+                }
+            }
+        }
+        return map.mapValues { "mixamorig_" + $0 }
+    }()
+
     static let rootNode = "mixamorig_Hips"
 }
 

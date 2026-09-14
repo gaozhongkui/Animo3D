@@ -40,6 +40,7 @@ final class DancePerformer: ObservableObject {
     /// Set instead of `player` when the take is a `.vrma` rather than a mocap JSON.
     private var vrmaPlayer: VRMAnimationPlayer?
     /// The mounted VRM, kept so a second `.vrma` can be swapped in without reloading the model.
+    /// Nil whenever what is mounted is not a VRM; every `install()` has to clear or set it.
     private var vrmRoot: SCNNode?
     private var loadedCharacter = ""
     private var loadedDance = ""
@@ -102,6 +103,11 @@ final class DancePerformer: ObservableObject {
             // A parsed scene can only be installed once - install() reparents its root node - so
             // the prewarmed copy is consumed here rather than left for a second Start.
             controller.install(scene)
+            // The previous character is off the scene graph now. Leaving this set is how a `.vrma`
+            // ended up posing a VRM that was no longer on screen while the newly mounted Mixamo
+            // character stood in its bind pose: `playVRMA` looked bones up through the stale node
+            // and bound all 51 of them, to a skeleton nobody could see.
+            vrmRoot = nil
             guard controller.isLoaded else {
                 NSLog("[Performer] model %@ mounted with no skeleton", character)
                 return false
@@ -396,11 +402,15 @@ final class DancePerformer: ObservableObject {
         return true
     }
 
-    /// Swap in a `.vrma` take on the already-mounted VRM, without reloading the model.
+    /// Swap in a `.vrma` take on whatever is already mounted, without reloading the model.
+    ///
+    /// Works for both kinds of character. A VRM answers "which node is this humanoid bone" from its
+    /// own humanoid table; a Mixamo `.scn` answers from `MixamoBoneMap.humanoid`. Nothing else
+    /// differs - the take is bone rotations keyed by humanoid name, and the player re-expresses each
+    /// one between the take's rest pose and the model's, so rig, scale and build all drop out.
     @discardableResult
     func playVRMA(_ url: URL) async -> Bool {
-        #if canImport(VRMKit) && canImport(VRMSceneKit)
-        guard let vrm = vrmRoot as? VRMNode, let root = controller.characterRoot else { return false }
+        guard let root = controller.characterRoot else { return false }
         vrmaPlayer?.stop()
         vrmaPlayer = nil
         // The next player reads the skeleton's current pose as the rest it retargets against, so
@@ -415,20 +425,31 @@ final class DancePerformer: ObservableObject {
             NSLog("[Performer] %@ did not parse", url.lastPathComponent)
             return false
         }
-        // A VRM 0.x model faces the opposite way from a `.vrma`, so its take turns half a turn.
-        let facingFlip = vrm.vrm.forwardDirection.z < 0
-        vrmaPlayer = VRMAnimationPlayer(clip: clip, root: root, facingFlip: facingFlip) { name in
-            HumanoidBone(rawValue: name).flatMap { vrm.humanoid.node(for: $0) }
+
+        var tick: ((TimeInterval) -> Void)?
+        let lookup: (String) -> SCNNode?
+        #if canImport(VRMKit) && canImport(VRMSceneKit)
+        if let vrm = vrmRoot as? VRMNode {
+            lookup = { name in HumanoidBone(rawValue: name).flatMap { vrm.humanoid.node(for: $0) } }
+            // Hair and skirt only swing if the spring bones are stepped, and nothing else in the
+            // app does it - the shipped characters have their `J_Sec_*` chains but no driver.
+            tick = { [weak vrm] time in vrm?.update(at: time) }
+        } else {
+            lookup = { [weak self] name in
+                MixamoBoneMap.humanoid[name].flatMap { self?.controller.boneNodes[$0] }
+            }
         }
-        // Hair and skirt only swing if the spring bones are stepped, and nothing else in the app
-        // does it - the shipped characters have their `J_Sec_*` chains but no driver.
-        vrmaPlayer?.onFrame = { [weak vrm] time in vrm?.update(at: time) }
+        #else
+        lookup = { [weak self] name in
+            MixamoBoneMap.humanoid[name].flatMap { self?.controller.boneNodes[$0] }
+        }
+        #endif
+
+        vrmaPlayer = VRMAnimationPlayer(clip: clip, root: root, bone: lookup)
+        vrmaPlayer?.onFrame = tick
         vrmaPlayer?.start()
         loadedDance = url.deletingPathExtension().lastPathComponent
         NSLog("[Performer] playing %@", url.lastPathComponent)
         return vrmaPlayer != nil
-        #else
-        return false
-        #endif
     }
 }

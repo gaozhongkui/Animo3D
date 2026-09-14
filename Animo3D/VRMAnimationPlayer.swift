@@ -57,15 +57,9 @@ final class VRMAnimationPlayer {
     /// - Parameters:
     ///   - root: the node the retarget measures model space against - the character's root, so the
     ///     rotation `normalizeOrientation()` puts on it does not enter the math.
-    ///   - facingFlip: true for a VRM 0.x model, which faces the opposite way from a `.vrma`.
     ///   - bone: VRM humanoid bone name (1.0 spelling) -> the model's node, nil when it has none.
-    init?(clip: VRMAnimationClip, root: SCNNode, facingFlip: Bool, bone: (String) -> SCNNode?) {
+    init?(clip: VRMAnimationClip, root: SCNNode, bone: (String) -> SCNNode?) {
         self.clip = clip
-
-        let flip = facingFlip
-            ? simd_quatf(angle: .pi, axis: simd_float3(0, 1, 0))
-            : simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
-        let flipMatrix = simd_float4x4(flip)
 
         // Which source node each humanoid bone is, and which of them the model actually has. The
         // eyes are left out: a VRM aims its gaze through look-at, not through bone animation.
@@ -76,6 +70,43 @@ final class VRMAnimationPlayer {
             guard name != "leftEye", name != "rightEye" else { continue }
             if let node = bone(name) { targetForNode[index] = node }
         }
+
+        /// Rest rotation of a model node relative to `root`. Composed from the node's own
+        /// orientations rather than read off a world transform, so a scaled ancestor cannot skew it.
+        func restRotation(_ node: SCNNode) -> simd_quatf {
+            var result = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
+            var current: SCNNode? = node
+            while let step = current, step !== root {
+                result = step.simdOrientation * result
+                current = step.parent
+            }
+            return result
+        }
+
+        func restMatrix(_ node: SCNNode) -> simd_float4x4 {
+            var result = matrix_identity_float4x4
+            var current: SCNNode? = node
+            while let step = current, step !== root {
+                result = step.simdTransform * result
+                current = step.parent
+            }
+            return result
+        }
+
+        // Which way the model is built facing, as the rotation from the frame a `.vrma` is
+        // authored in (VRM 1.0: +X the character's left, +Y up, +Z forward) into the model's own.
+        //
+        // This started life as a `facingFlip` flag for VRM 0.x, which faces -Z and so needs half a
+        // turn about Y. Measuring it instead covers that case identically - a 0.x rig measures to
+        // exactly that half turn - and covers a Mixamo `.scn` too, whose authored frame is whatever
+        // the FBX -> USDZ -> SCN conversion left behind and is not worth asserting. It is the same
+        // construction `CharacterSceneController.normalizeOrientation()` uses on the root node,
+        // read here from the bind pose rather than applied.
+        let flip = Self.modelFrame(hips: bone("hips"), head: bone("head"),
+                                   leftShoulder: bone("leftShoulder"),
+                                   rightShoulder: bone("rightShoulder"),
+                                   rest: restMatrix)
+        let flipMatrix = simd_float4x4(flip)
 
         /// The world rotation a source bone adds to its parent's, in flipped model space.
         func delta(at index: Int) -> Delta? {
@@ -99,28 +130,6 @@ final class VRMAnimationPlayer {
                 ancestor = clip.nodes[current].parent
             }
             return result.reversed()
-        }
-
-        /// Rest rotation of a model node relative to `root`. Composed from the node's own
-        /// orientations rather than read off a world transform, so a scaled ancestor cannot skew it.
-        func restRotation(_ node: SCNNode) -> simd_quatf {
-            var result = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
-            var current: SCNNode? = node
-            while let step = current, step !== root {
-                result = step.simdOrientation * result
-                current = step.parent
-            }
-            return result
-        }
-
-        func restMatrix(_ node: SCNNode) -> simd_float4x4 {
-            var result = matrix_identity_float4x4
-            var current: SCNNode? = node
-            while let step = current, step !== root {
-                result = step.simdTransform * result
-                current = step.parent
-            }
-            return result
         }
 
         // The hips motion is the only translation retargeted, and it scales by how much taller one
@@ -168,6 +177,26 @@ final class VRMAnimationPlayer {
             && $0.key != "rightEye" }.keys.sorted()
         NSLog("[VRMA] bound %d bones, %.1fs%@", bindings.count, clip.duration,
               missing.isEmpty ? "" : ", model has no \(missing.joined(separator: ", "))")
+    }
+
+    /// The rotation from a `.vrma`'s authored frame into the model's own, read off the bind pose.
+    /// Identity when the bones it needs are missing, which leaves the take unrotated.
+    private static func modelFrame(hips: SCNNode?, head: SCNNode?,
+                                   leftShoulder: SCNNode?, rightShoulder: SCNNode?,
+                                   rest: (SCNNode) -> simd_float4x4) -> simd_quatf {
+        let identity = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
+        guard let hips, let head, let leftShoulder, let rightShoulder else { return identity }
+        func position(_ node: SCNNode) -> simd_float3 {
+            let c = rest(node).columns.3
+            return simd_float3(c.x, c.y, c.z)
+        }
+        let up = simd_normalize(position(head) - position(hips))
+        let across = simd_normalize(position(leftShoulder) - position(rightShoulder))
+        guard up.x.isFinite, across.x.isFinite else { return identity }
+        let forward = simd_normalize(simd_cross(across, up))
+        let left = simd_normalize(simd_cross(up, forward))
+        guard forward.x.isFinite, left.x.isFinite else { return identity }
+        return simd_quatf(simd_float3x3(left, up, forward))
     }
 
     func start() {

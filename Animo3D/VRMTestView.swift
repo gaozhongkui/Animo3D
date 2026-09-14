@@ -20,6 +20,11 @@ struct VRMTestView: View {
     /// so the pair answers whether a converted take holds up next to a native one.
     private static let takes = ["MaftyDance", "Gangnam_Style", "Hip_Hop_Dancing", "Samba_Dancing"]
 
+    /// Empty means the bundled VRM; anything else is a catalog character, loaded as a `.scn`.
+    /// Switching between them is the whole point of the page: one `.vrma` has to drive both.
+    @State private var character = ""
+    @ObservedObject private var assets = RemoteAssets.shared
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -53,6 +58,7 @@ struct VRMTestView: View {
                 }
 
                 if !loading && errorMessage == nil {
+                    characterPicker
                     takePicker
                 }
 
@@ -78,27 +84,64 @@ struct VRMTestView: View {
         }
     }
 
+    private var characterPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                pill("VRM (bundled)", selected: character.isEmpty) { switchCharacter("") }
+                ForEach(assets.characters.prefix(6)) { item in
+                    pill(item.id.replacingOccurrences(of: "_", with: " "),
+                         selected: character == item.id) { switchCharacter(item.id) }
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+        .padding(.bottom, 8)
+    }
+
     private var takePicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(Self.takes, id: \.self) { name in
-                    Button {
+                    pill(name.replacingOccurrences(of: "_", with: " "), selected: take == name) {
                         take = name
-                        Task { await performer.playVRMA(url(for: name) ?? URL(fileURLWithPath: "/")) }
-                    } label: {
-                        Text(name.replacingOccurrences(of: "_", with: " "))
-                            .font(.subheadline.weight(.medium))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(take == name ? Color.accentColor : Color.white.opacity(0.15),
-                                        in: Capsule())
-                            .foregroundStyle(.white)
+                        if let url = url(for: name) {
+                            Task { await performer.playVRMA(url) }
+                        }
                     }
                 }
             }
             .padding(.horizontal, 16)
         }
         .padding(.bottom, 24)
+    }
+
+    private func pill(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(selected ? Color.accentColor : Color.white.opacity(0.15), in: Capsule())
+                .foregroundStyle(.white)
+        }
+    }
+
+    private func switchCharacter(_ id: String) {
+        guard id != character else { return }
+        character = id
+        loading = true
+        Task {
+            if id.isEmpty {
+                await loadTestAssets()
+            } else {
+                // The catalog path, the same one the real stage uses - so this also proves a take
+                // survives a model that was never near a VRM.
+                let ok = await performer.load(character: id)
+                if ok, let url = url(for: take) { await performer.playVRMA(url) }
+                errorMessage = ok ? nil : "Could not load \(id)"
+                loading = false
+            }
+        }
     }
 
     private func url(for name: String) -> URL? {
