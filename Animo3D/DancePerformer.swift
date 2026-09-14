@@ -39,6 +39,8 @@ final class DancePerformer: ObservableObject {
     private var player: MocapPlayer?
     /// Set instead of `player` when the take is a `.vrma` rather than a mocap JSON.
     private var vrmaPlayer: VRMAnimationPlayer?
+    /// The mounted VRM, kept so a second `.vrma` can be swapped in without reloading the model.
+    private var vrmRoot: SCNNode?
     private var loadedCharacter = ""
     private var loadedDance = ""
 
@@ -378,28 +380,11 @@ final class DancePerformer: ObservableObject {
         retargeter = rt
         isReady = true
 
-        #if canImport(VRMKit) && canImport(VRMSceneKit)
-        if let vrmaURL, let vrm = vrmNode as? VRMNode, let root = controller.characterRoot {
-            // Parsing is ~600KB of float accessors, off the main thread like every other take.
-            guard let clip = await Task.detached(priority: .userInitiated,
-                                                 operation: { VRMAnimationClip.load(vrmaURL) }).value else {
-                NSLog("[Performer] %@ did not parse", vrmaURL.lastPathComponent)
-                return true
-            }
-            // A VRM 0.x model faces the opposite way from a `.vrma`, so its take turns half a turn.
-            let facingFlip = vrm.vrm.forwardDirection.z < 0
-            vrmaPlayer = VRMAnimationPlayer(clip: clip, root: root, facingFlip: facingFlip) { name in
-                HumanoidBone(rawValue: name).flatMap { vrm.humanoid.node(for: $0) }
-            }
-            // Hair and skirt only swing if the spring bones are stepped, and nothing else in the
-            // app does it - the shipped characters have their `J_Sec_*` chains but no driver.
-            vrmaPlayer?.onFrame = { [weak vrm] time in vrm?.update(at: time) }
-            vrmaPlayer?.start()
-            loadedDance = "local"
-            NSLog("[Performer] playing %@", vrmaURL.lastPathComponent)
+        vrmRoot = vrmNode
+        if let vrmaURL {
+            _ = await playVRMA(vrmaURL)
             return true
         }
-        #endif
 
         if let danceURL, let clip = MocapClip.load(danceURL) {
             player = MocapPlayer(clip: clip, retargeter: rt)
@@ -409,5 +394,41 @@ final class DancePerformer: ObservableObject {
         }
 
         return true
+    }
+
+    /// Swap in a `.vrma` take on the already-mounted VRM, without reloading the model.
+    @discardableResult
+    func playVRMA(_ url: URL) async -> Bool {
+        #if canImport(VRMKit) && canImport(VRMSceneKit)
+        guard let vrm = vrmRoot as? VRMNode, let root = controller.characterRoot else { return false }
+        vrmaPlayer?.stop()
+        vrmaPlayer = nil
+        // The next player reads the skeleton's current pose as the rest it retargets against, so
+        // the last take's pose has to come off first - otherwise every switch compounds the one
+        // before it. `resetToRestPose()` has carried this warning since it was written for the
+        // thumbnail renderer.
+        controller.resetToRestPose()
+
+        // Parsing is a megabyte or two of float accessors, off the main thread like every take.
+        guard let clip = await Task.detached(priority: .userInitiated,
+                                             operation: { VRMAnimationClip.load(url) }).value else {
+            NSLog("[Performer] %@ did not parse", url.lastPathComponent)
+            return false
+        }
+        // A VRM 0.x model faces the opposite way from a `.vrma`, so its take turns half a turn.
+        let facingFlip = vrm.vrm.forwardDirection.z < 0
+        vrmaPlayer = VRMAnimationPlayer(clip: clip, root: root, facingFlip: facingFlip) { name in
+            HumanoidBone(rawValue: name).flatMap { vrm.humanoid.node(for: $0) }
+        }
+        // Hair and skirt only swing if the spring bones are stepped, and nothing else in the app
+        // does it - the shipped characters have their `J_Sec_*` chains but no driver.
+        vrmaPlayer?.onFrame = { [weak vrm] time in vrm?.update(at: time) }
+        vrmaPlayer?.start()
+        loadedDance = url.deletingPathExtension().lastPathComponent
+        NSLog("[Performer] playing %@", url.lastPathComponent)
+        return vrmaPlayer != nil
+        #else
+        return false
+        #endif
     }
 }
