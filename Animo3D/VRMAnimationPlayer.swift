@@ -174,8 +174,12 @@ final class VRMAnimationPlayer {
         stop()
         startTime = 0
         let link = CADisplayLink(target: self, selector: #selector(tick))
-        // The take is authored at 30fps; sampling it twice per key only burns battery.
-        link.preferredFramesPerSecond = 30
+        // Above the take's own 30fps on purpose. `MocapPlayer` is pinned to 30 because it steps
+        // one stored frame per tick and has no in-between to show; this player samples a continuous
+        // clock, so the extra ticks cost one slerp per bone and buy real smoothing. It matters for
+        // a take like this one, whose forearms turn a median 13 degrees *per authored frame* -
+        // held at 30fps that reads as strobing, which is most of why the dance looks frantic.
+        link.preferredFramesPerSecond = 60
         link.add(to: .main, forMode: .common)
         self.link = link
     }
