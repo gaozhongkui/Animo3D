@@ -10,12 +10,6 @@ import SwiftUI
 import SceneKit
 import Combine
 
-#if canImport(VRMKit)
-import VRMKit
-#endif
-#if canImport(VRMSceneKit)
-import VRMSceneKit
-#endif
 
 final class CharacterSceneController: ObservableObject, BoneRig {
 
@@ -1516,12 +1510,11 @@ struct CharacterSceneView: UIViewRepresentable {
             controller.driveStage()
             controller.stepCameraMove()
 
-            // 物理系统：让头发、裙子动起来
-            #if canImport(VRMKit) && canImport(VRMSceneKit)
-            if let vrm = controller.characterRoot as? VRMNode {
-                vrm.update(at: time)
-            }
-            #endif
+            // Hair and skirt physics used to be stepped here, on a `VRMNode` mounted straight from
+            // a `.vrm` file. Nothing mounts one any more - every character is a `.scn` built by
+            // `tools/auto_rig.py` - so this only ever saw a nil cast. The `J_Sec_*` spring chains
+            // are still *in* those `.scn` files, skinned but undriven; driving them needs a spring
+            // solver of our own, not this.
         }
 
         /// Fires once, after SceneKit has actually put a frame on screen.
@@ -1565,7 +1558,7 @@ struct CharacterSceneView: UIViewRepresentable {
         view.delegate = context.coordinator          // Feeds the music-driven stage rig each frame
         view.rendersContinuously = true      // Continuous rendering to avoid frozen frames after switching
         view.isPlaying = true
-        // The take is sampled at 30fps and `MocapPlayer` drives the skeleton at 30fps, so half of
+        // The take is sampled at 30fps and the skeleton is driven at 30fps, so half of
         // the frames a 60Hz view draws - and three quarters of a 120Hz one's - are the same pose
         // rendered again. Nothing on screen moves between them, and during a recording that
         // duplicated pass competes with the capture render for the same main thread. `playbackFPS`

@@ -13,7 +13,7 @@ and Animo3D/Res/seed_catalog.json. There is one document now, in one schema, and
 Everything the index covers lives under assets_src/, and everything under assets_src/ is remote:
 
     assets_src/characters/<Id>.scn      the model
-    assets_src/dances/<Id>.json         the sampled mocap take
+    assets_src/dances/<Id>.vrma         the take (VRMC_vrm_animation)
     assets_src/thumbs/thumb_<Id>.png    pre-rendered character card art
 
 Music is not in the index. All four tracks ship in Animo3D/Res/music, where the bundled copy wins
@@ -29,7 +29,7 @@ The bucket keeps one folder per kind, and the index names each file by its path 
 
     <bucket>/index.json
     <bucket>/characters/char_<Id>.scn
-    <bucket>/dances/mocap_<Id>.json
+    <bucket>/dances/<Id>.vrma
     <bucket>/thumbs/thumb_<Id>.png
 
 `--stage` writes exactly that tree into dist/upload/, so it can be dropped into the bucket as-is.
@@ -52,6 +52,30 @@ def display_name(stem):
 
 # An entry is just its bucket-relative path. No size (that is Content-Length) and no digest (a file
 # that fails to parse is evicted and re-fetched), so there is nothing here to keep in sync.
+
+
+
+def vrma_duration(path):
+    """Seconds a `.vrma` take runs, off the last keyframe of its first animation sampler."""
+    import struct
+    data = open(path, "rb").read()
+    if data[:4] != b"glTF":
+        raise ValueError("not a GLB container")
+    chunks, offset = {}, 12
+    while offset + 8 <= len(data):
+        length, kind = struct.unpack_from("<II", data, offset)
+        chunks[kind] = data[offset + 8:offset + 8 + length]
+        offset += 8 + length
+    gltf = json.loads(chunks[0x4E4F534A])
+    binary = chunks.get(0x004E4942, b"")
+    animation = gltf["animations"][0]
+    longest = 0.0
+    for sampler in animation["samplers"]:
+        accessor = gltf["accessors"][sampler["input"]]
+        view = gltf["bufferViews"][accessor["bufferView"]]
+        start = view.get("byteOffset", 0) + accessor.get("byteOffset", 0) + (accessor["count"] - 1) * 4
+        longest = max(longest, struct.unpack_from("<f", binary, start)[0])
+    return longest
 
 
 def main():
@@ -102,24 +126,22 @@ def main():
         characters.append(item)
 
     # ---- dances -------------------------------------------------------------
+    # A take is a `.vrma`: every humanoid bone's rotation, fingers included. It replaced a mocap
+    # `.json` of 12 joint positions, which nothing reads any more - see tools/README.md.
     dances = []
     ddir = os.path.join(src, "dances")
     for fn in sorted(os.listdir(ddir)) if os.path.isdir(ddir) else []:
-        if not fn.endswith(".json") or fn.startswith("."):
+        if not fn.endswith(".vrma") or fn.startswith("."):
             continue
         stem = fn[:-5]
         p = os.path.join(ddir, fn)
-        remote = f"dances/mocap_{fn}"
+        remote = f"dances/{fn}"
         item = {"id": stem, "name": display_name(stem), "clip": remote}
         uploads.append((p, remote))
 
-        # Duration comes out of the take itself; the app shows it on the card.
+        # Duration comes off the take's own timeline; the app shows it on the card.
         try:
-            clip = json.load(open(p))
-            fps = clip.get("fps") or 30
-            frames = clip.get("frames") or []
-            if frames:
-                item["duration"] = round(len(frames) / float(fps), 2)
+            item["duration"] = round(vrma_duration(p), 2)
         except Exception as e:                                  # noqa: BLE001
             problems.append(f"could not read {fn}: {e}")
 
@@ -133,8 +155,8 @@ def main():
     for fn in sorted(os.listdir(bdir)) if os.path.isdir(bdir) else []:
         if fn.startswith("char_") and fn.endswith(".scn"):
             builtin["character"] = fn[len("char_"):-4]
-        elif fn.startswith("mocap_") and fn.endswith(".json"):
-            builtin["dance"] = fn[len("mocap_"):-5]
+        elif fn.endswith(".vrma"):
+            builtin["dance"] = fn[:-5]
     for key, pool in (("character", characters), ("dance", dances)):
         if key in builtin and not any(x["id"] == builtin[key] for x in pool):
             problems.append(f"Res/builtin holds {key} {builtin[key]}, which is not in assets_src")

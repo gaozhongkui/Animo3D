@@ -36,11 +36,32 @@ final class VRMAnimationPlayer {
         let pre: simd_quatf
         /// target rest rotation, in model space.
         let post: simd_quatf
-        /// Hips only: takes the source's local translation into the target's parent space.
-        let translation: (track: VRMAnimationClip.VectorTrack, transform: simd_float4x4)?
+        /// Hips only. The take's translation is not used as an absolute position: it is measured
+        /// from a reference and added to where the model's own hips rest, so the character dances
+        /// where it was put instead of teleporting to wherever the take's rig stood.
+        let translation: Hips?
 
         func rotation(at time: Float) -> simd_quatf {
             deltas.reduce(pre) { $0 * $1.value(at: time) } * post
+        }
+    }
+
+    /// How the hips follow the take: source translation -> target parent space, less a reference,
+    /// plus the model's own rest position.
+    private struct Hips {
+        let track: VRMAnimationClip.VectorTrack
+        let transform: simd_float4x4
+        /// Subtracted from every mapped sample. Horizontally it is the take's opening frame, so the
+        /// character starts where it stands; vertically it is the take's *lowest* hip, so a take
+        /// that never returns to its rest height does not leave the character sunk for its whole
+        /// length. `PoseRetargeter` splits the reference the same way, for the same reason.
+        let reference: simd_float3
+        /// The model's hips, in its own bind pose.
+        let rest: simd_float3
+
+        func position(at time: Float) -> simd_float3 {
+            let mapped = transform * simd_float4(track.value(at: time), 1)
+            return rest + simd_float3(mapped.x, mapped.y, mapped.z) - reference
         }
     }
 
@@ -48,6 +69,22 @@ final class VRMAnimationPlayer {
     private let bindings: [Binding]
     private var link: CADisplayLink?
     private var startTime: CFTimeInterval = 0
+
+    // MARK: Foot planting
+    //
+    // A retargeted take does not know how long the model's legs are, so a squat that grounded the
+    // source rig leaves this one hovering, and a long-legged model drives its boots through the
+    // floor. Both are corrected the way `PoseRetargeter` corrects them - the algorithm below is
+    // that one, and its comments explain the choices this inherits.
+
+    /// The bones whose soles are watched, with each one's rest distance to the ground. Four, not
+    /// one: an ankle barely moves while a pointed toe goes straight through the floor.
+    private var soleOffsets: [(node: SCNNode, offset: Float)] = []
+    private var plantOffsetY: Float = 0
+    private let soleNodes: [SCNNode]
+    private let hipsNode: SCNNode?
+    private let torsoLength: Float
+    private let groundY: () -> Float?
 
     /// Called after every pose, with the frame's timestamp. The VRM spring bones are driven here.
     var onFrame: ((TimeInterval) -> Void)?
@@ -57,9 +94,16 @@ final class VRMAnimationPlayer {
     /// - Parameters:
     ///   - root: the node the retarget measures model space against - the character's root, so the
     ///     rotation `normalizeOrientation()` puts on it does not enter the math.
+    ///   - groundY: the world height of the floor the character stands on, read fresh every frame
+    ///     because in AR the user can tap to move the character to another plane at any time.
+    ///     Nil disables foot planting, which is what an offscreen thumbnail render wants.
     ///   - bone: VRM humanoid bone name (1.0 spelling) -> the model's node, nil when it has none.
-    init?(clip: VRMAnimationClip, root: SCNNode, bone: (String) -> SCNNode?) {
+    init?(clip: VRMAnimationClip, root: SCNNode, groundY: @escaping () -> Float? = { nil },
+          bone: (String) -> SCNNode?) {
         self.clip = clip
+        self.groundY = groundY
+        self.hipsNode = bone("hips")
+        self.soleNodes = ["leftFoot", "rightFoot", "leftToes", "rightToes"].compactMap(bone)
 
         // Which source node each humanoid bone is, and which of them the model actually has. The
         // eyes are left out: a VRM aims its gaze through look-at, not through bone animation.
@@ -108,6 +152,14 @@ final class VRMAnimationPlayer {
                                    rest: restMatrix)
         let flipMatrix = simd_float4x4(flip)
 
+        // Scales the planting tolerance and its safety rail, so neither is a magic number in metres.
+        if let hips = bone("hips"), let head = bone("head") {
+            let a = restMatrix(hips).columns.3, b = restMatrix(head).columns.3
+            torsoLength = max(1e-3, simd_length(simd_float3(b.x - a.x, b.y - a.y, b.z - a.z)))
+        } else {
+            torsoLength = 1
+        }
+
         /// The world rotation a source bone adds to its parent's, in flipped model space.
         func delta(at index: Int) -> Delta? {
             guard let track = clip.rotations[index] else { return nil }
@@ -150,12 +202,25 @@ final class VRMAnimationPlayer {
             var deltas = skippedAncestorDeltas(above: index)
             if let own = delta(at: index) { deltas.append(own) }
 
-            var translation: (VRMAnimationClip.VectorTrack, simd_float4x4)?
-            if boneNameForNode[index] == "hips", let track = clip.hipsTranslation {
+            var translation: Hips?
+            if boneNameForNode[index] == "hips", let track = clip.hipsTranslation,
+               !track.values.isEmpty {
                 let sourceParent = clip.nodes[index].parent.map { clip.nodes[$0].worldMatrix }
                     ?? matrix_identity_float4x4
                 let targetParent = node.parent.map { restMatrix($0) } ?? matrix_identity_float4x4
-                translation = (track, targetParent.inverse * modelTransform * sourceParent)
+                let transform = targetParent.inverse * modelTransform * sourceParent
+                // Measured after mapping, not on the raw track: a take converted out of Blender
+                // carries its height on a different axis than a natively authored one, and which
+                // component is "up" only settles once the transform has been applied.
+                let mapped = track.values.map { value -> simd_float3 in
+                    let v = transform * simd_float4(value, 1)
+                    return simd_float3(v.x, v.y, v.z)
+                }
+                let reference = simd_float3(mapped[0].x,
+                                            mapped.map(\.y).min() ?? mapped[0].y,
+                                            mapped[0].z)
+                translation = Hips(track: track, transform: transform,
+                                   reference: reference, rest: node.simdPosition)
             }
             guard !deltas.isEmpty || translation != nil else { continue }
 
@@ -177,6 +242,10 @@ final class VRMAnimationPlayer {
             && $0.key != "rightEye" }.keys.sorted()
         NSLog("[VRMA] bound %d bones, %.1fs%@", bindings.count, clip.duration,
               missing.isEmpty ? "" : ", model has no \(missing.joined(separator: ", "))")
+
+        // The caller resets the skeleton before building a player, so the pose being measured here
+        // is the bind pose - which is the only one these offsets mean anything in.
+        captureSoles()
     }
 
     /// The rotation from a `.vrma`'s authored frame into the model's own, read off the bind pose.
@@ -203,11 +272,10 @@ final class VRMAnimationPlayer {
         stop()
         startTime = 0
         let link = CADisplayLink(target: self, selector: #selector(tick))
-        // Above the take's own 30fps on purpose. `MocapPlayer` is pinned to 30 because it steps
-        // one stored frame per tick and has no in-between to show; this player samples a continuous
-        // clock, so the extra ticks cost one slerp per bone and buy real smoothing. It matters for
-        // a take like this one, whose forearms turn a median 13 degrees *per authored frame* -
-        // held at 30fps that reads as strobing, which is most of why the dance looks frantic.
+        // Above the take's own 30fps on purpose. Sampling is against a continuous clock rather
+        // than stepping one stored frame per tick, so the extra ticks cost one slerp per bone and
+        // buy real smoothing. It matters: a fast take's forearms turn a median 13 degrees *per
+        // authored frame*, and held at 30fps that reads as strobing rather than as speed.
         link.preferredFramesPerSecond = 60
         link.add(to: .main, forMode: .common)
         self.link = link
@@ -235,12 +303,62 @@ final class VRMAnimationPlayer {
         SCNTransaction.animationDuration = 0
         for binding in bindings {
             binding.node.simdOrientation = binding.rotation(at: time)
-            if let (track, transform) = binding.translation {
-                let value = track.value(at: time)
-                let position = transform * simd_float4(value, 1)
-                binding.node.simdPosition = simd_float3(position.x, position.y, position.z)
+            if let hips = binding.translation {
+                binding.node.simdPosition = hips.position(at: time)
             }
         }
+        // Carried into the hips before the soles are measured, not written onto the node after:
+        // the next frame re-sets the hips from the take, which would throw a correction away.
+        if plantOffsetY != 0, let hips = hipsNode { hips.simdWorldPosition.y -= plantOffsetY }
+        plantFeet()
         SCNTransaction.commit()
+    }
+
+    /// Pull the lowest sole back onto the floor, and keep the correction for the next frame.
+    ///
+    /// Lifted from `PoseRetargeter.plantFeet()`, including the asymmetry: a sole floating a
+    /// centimetre above the ground goes unnoticed, a boot sunk into it is the first thing anyone
+    /// sees, so a foot below the floor is corrected at full rate and one above it within a
+    /// tolerance band is left alone. A take with a real jump has that jump flattened; none in the
+    /// library jumps, and a character floating at knee height reads far worse than a lost hop.
+    private func plantFeet() {
+        // Read live: in AR the ground moves whenever the user taps to place the character
+        // somewhere else, and the sole offsets stay valid across that - they are bone-to-sole
+        // distances, not absolute heights.
+        guard let hips = hipsNode, let ground = groundY() else { return }
+        if soleOffsets.isEmpty { return }
+
+        let lowestSole = soleOffsets.map { $0.node.simdWorldPosition.y - $0.offset }.min() ?? ground
+        let sole = lowestSole - ground
+        let tolerance = torsoLength * 0.02
+        let error: Float = sole > tolerance ? sole - tolerance : (sole < 0 ? sole : 0)
+        guard error != 0 else { return }
+
+        hips.simdWorldPosition.y -= error
+        plantOffsetY += error
+        let limit = torsoLength * 0.5
+        plantOffsetY = min(max(plantOffsetY, -limit), limit)
+    }
+
+    /// Re-measure the soles against the floor the character is standing on now, and drop the
+    /// correction built up against the old one.
+    ///
+    /// Called when the character is re-mounted or moved - screen <-> AR, and every tap-to-place.
+    /// Unlike `PoseRetargeter`, nothing else has to be re-captured: the hips are written as a
+    /// position local to their parent, so wherever the character's root is anchored, the take
+    /// follows it. Only the ground is absolute.
+    func rebase() {
+        plantOffsetY = 0
+        captureSoles()
+    }
+
+    /// Each watched bone's height above the floor in the pose it is in now, which the caller
+    /// guarantees is the bind pose.
+    private func captureSoles() {
+        guard let ground = groundY() else {
+            soleOffsets = []
+            return
+        }
+        soleOffsets = soleNodes.map { ($0, $0.simdWorldPosition.y - ground) }
     }
 }

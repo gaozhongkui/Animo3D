@@ -358,12 +358,21 @@ Girl_D.scn
 
 ## 约束与坑
 
-- **`make_catalog.py` 只扫 `.scn`。** `fbx_to_character.py` 默认输出 `.scn`,走正常流程没问题;
+- **舞蹈只有 `.vrma` 一种格式。** 旧的 mocap JSON(12 关节世界坐标 + `PoseRetargeter` 拟合 8 根
+  肢体骨)连同 `fbx_to_mocap.py` 一起删了,`MocapClip`/`MocapPlayer` 也删了。要翻旧账看
+  `git show 01a1de0^`。加新舞只有一条路:Mixamo 下 FBX → `fbx_to_vrma.py`。
+- **目录也换 bucket 了。** `RemoteAssets.indexBase` 指向 `vrm-models`,不再是 `models`。
+  旧 bucket 留着给还没更新的老版本用(它们读不了 `.vrma`),两边互不干扰。
+- **`make_catalog.py` 的角色部分只扫 `.scn`。** `fbx_to_character.py` 默认输出 `.scn`,走正常流程没问题;
   但用 `--format usdz` 产出的角色生成器看不到 —— 尽管 App 本身能正常加载 usdz。
 - **Supabase 免费版单文件 50MB。** 记得跑纹理压缩。
-- **App 运行时只认 Mixamo 骨骼名这一种。** VRM 的运行时部分(`VRoidClipPlayer`、`BoneScheme.vrm`、
-  四元数 clip)全部移除。VRM 模型仍然能用,但改名发生在**离线**的 `auto_rig.py` 里,进 App 的
-  永远是 `mixamorig_*`。Mixamo 也仍然是动作素材的来源,同样只在离线这一侧。
+- **App 运行时只认 Mixamo 骨骼名这一种。** VRM 模型仍然能用,但改名发生在**离线**的
+  `auto_rig.py` 里,进 App 的永远是 `mixamorig_*`。Mixamo 也仍然是动作素材的来源,同样只在离线这一侧。
+- **`.vrma` 里的骨骼名是 VRM 1.0 人形骨名,不是 `mixamorig_*`。** 这是故意的:一支舞按人形骨名
+  索引,`MixamoBoneMap.humanoid` 负责在运行时翻译成本项目角色的节点名。所以**一个文件驱动所有角色**,
+  跟它是在哪个骨架上录的无关。
+- **`PoseRetargeter` 不会因为换了 `.vrma` 就废弃。** 实时摄像头/视频驱动那条路没有"片子",
+  MediaPipe 每帧给 33 个 landmark,把它变成骨骼旋转的只有它。存档舞蹈走 clip,实时驱动走 landmark。
 - **Debug 和 Release 配了两个不同的 `DEVELOPMENT_TEAM`**,而 bundle id 相同。
   同一台设备上装了一个再装另一个会在签名主体上冲突。
 - **代码里一律不出现中文** —— 注释、UI 文案、多语言都不要(多语言支持 en/de/es/fr/ja/ko/pt,
@@ -378,7 +387,7 @@ Girl_D.scn
 | `auto_rig.py` | VRM/VRoid → Mixamo 命名的绑定后 FBX(**替代 glb_to_fbx + mixamo.com 两步**);`--albedo-gain` 压 MToon 过亮的贴图 |
 | `glb_to_fbx.py` | `.vrm`/`.glb`/`.gltf` → 供 Mixamo 自动绑定的裸网格 FBX(只有**没骨架**的模型才需要) |
 | `fbx_to_character.py` | 绑定后的 FBX → `assets_src/characters/` 下的 `.scn`/`.usdz` |
-| `fbx_to_mocap.py` | Mixamo 动画 FBX → `assets_src/dances/` 下的 mocap JSON;`--check` 校验现有文件 |
+| `fbx_to_vrma.py` | Mixamo 动画 FBX → `assets_src/dances/` 下的 `.vrma`(全身 52 根骨,含手指);`--check` 校验 |
 | `compress_textures.swift` | 压缩 `.scn` 内嵌贴图;幂等;附带 roughness 抬底 |
 | `render_thumbs.swift` | 离线卡图(`characters` 模式进管线;`dances` 模式只是预览辅助) |
 | `inspect_model.swift` | 用 App 的方式加载模型并报告是否可用 |

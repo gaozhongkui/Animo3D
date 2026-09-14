@@ -36,7 +36,7 @@ import Combine
 
 // MARK: - Catalog models
 
-/// A bucket-relative path, e.g. "dances/mocap_Hip_Hop_Dancing.json". Its URL is `baseUrl + path`.
+/// A bucket-relative path, e.g. "dances/Hip_Hop_Dancing.vrma". Its URL is `baseUrl + path`.
 typealias AssetPath = String
 
 extension String {
@@ -88,7 +88,14 @@ final class RemoteAssets: ObservableObject {
     static let shared = RemoteAssets()
 
     /// A plain public-bucket URL: no token, so nothing here expires.
-    private static let indexBase = "https://dekbcnbakegjgbjxflxe.supabase.co/storage/v1/object/public/models/index.json"
+    ///
+    /// The `vrm-models` bucket, not the `models` one this used to read. That is where the takes
+    /// live now that a dance ships as a `.vrma` - every humanoid bone's rotation rather than the
+    /// twelve joint positions the old mocap JSON carried - and the two buckets are kept apart on
+    /// purpose: a build already on someone's phone cannot read a `.vrma`, and pointing it at a
+    /// catalog full of them would break every dance it has. Those builds keep reading `models`,
+    /// which still serves the old catalog, until their owners update.
+    private static let indexBase = "https://dekbcnbakegjgbjxflxe.supabase.co/storage/v1/object/public/vrm-models/index.json"
 
     /// The index URL with a cache-buster, bucketed to five minutes.
     ///

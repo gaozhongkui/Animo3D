@@ -27,8 +27,9 @@ Notes measured off the takes in `/Volumes/SD/Downloads/fbx`, not assumed:
     non-identity rest rotation and the hips resting at 1.06m. Download either way.
   - **Facing lands on its own.** A Mixamo rig faces Blender -Y, the exporter maps that to glTF +Z,
     and VRM 1.0 states a model faces +Z. No rotation is applied here.
-  - **The root motion stays in**, as in `fbx_to_mocap.py`: the hips translation is the one
-    translation a `.vrma` carries, and the player scales it by the two rigs' rest hip heights.
+  - **The root motion stays in.** The hips translation is the one translation a `.vrma` carries;
+    the player measures it from the take's opening frame and scales it by the two rigs' rest hip
+    heights, so the character dances where it stands rather than where the source rig stood.
   - **Download at 30fps with keyframe reduction off.** The exporter bakes whatever it is given.
 """
 import argparse

@@ -105,15 +105,20 @@ final class ThumbRenderer {
             return nil
         }
         return await rendered(key: dk) { [weak self] in
-            guard let self, self.ensureModel(at: modelURL, id: who) else { return nil }
-            // Reset first: otherwise PoseRetargeter samples the previous dance's pose as the rest
-            // pose and every card after the first drifts further out of shape.
+            guard let self, self.ensureModel(at: modelURL, id: who),
+                  let root = self.controller.characterRoot else { return nil }
+            // Reset first: otherwise the rest pose sampled here is the previous dance's pose and
+            // every card after the first drifts further out of shape.
             self.controller.resetToRestPose()
-            guard let clip = MocapClip.load(clipURL), !clip.frames.isEmpty else { return nil }
-            // The retargeter smooths over time, so the same frame is applied until it converges.
-            let rt = PoseRetargeter(controller: self.controller)
-            let idx = min(Int(Double(clip.frames.count) * Self.signatureFrame), clip.frames.count - 1)
-            for _ in 0..<12 { rt.apply(world: clip.frames[idx]) }
+            guard let clip = VRMAnimationClip.load(clipURL),
+                  let player = VRMAnimationPlayer(clip: clip, root: root, bone: { name in
+                      MixamoBoneMap.humanoid[name].flatMap { self.controller.boneNodes[$0] }
+                  }) else { return nil }
+            // One apply. The pose comes straight out of the take's keys, so there is nothing to
+            // converge - the twelve rounds this used to run were `PoseRetargeter`'s smoothing
+            // settling. No ground is handed over either: an offscreen render has no floor to
+            // plant against.
+            player.apply(at: clip.duration * Float(Self.signatureFrame))
             return self.snapshot()
         }
     }

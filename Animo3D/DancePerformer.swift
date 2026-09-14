@@ -6,12 +6,18 @@
 //
 //  There were four copies of this before: the stage (DanceStage), the selected dance card
 //  (LiveDanceView), the enlarged preview (PreviewStage) and the thumbnail renderer each loaded a
-//  model, built their own PoseRetargeter and started their own MocapPlayer. They had drifted apart
+//  model, built their own retargeter and started their own player. They had drifted apart
 //  in every detail that matters - one parsed on the main thread, one forgot `warmUp`, one assumed
 //  every model was a `.scn`, one leaked its display link on dismiss - and a fix applied to one of
 //  them stayed broken in the other three. Everything that performs a dance goes through here now.
 //
-//  Loading is deliberately two-phase: the model (4-60MB) and the clip (~600KB) are parsed on a
+//  A take is a `.vrma`: every humanoid bone's rotation, fingers included, retargeted onto whatever
+//  is mounted. The mocap JSON it replaced held twelve joint *positions* for `PoseRetargeter` to fit
+//  eight limb bones to - no spine chain, no head, no toes, no fingers. `PoseRetargeter` stays
+//  regardless: the camera and video screens have no take to play, only landmarks arriving a frame
+//  at a time, and fitting those to a skeleton is what it is for.
+//
+//  Loading is deliberately two-phase: the model (4-60MB) and the clip (0.2-2.3MB) are parsed on a
 //  background task and only node mounting happens on the main thread. Doing the parse inline is
 //  what used to freeze the screen when entering the stage and on every character switch.
 //
@@ -21,13 +27,6 @@ import SceneKit
 import Combine
 import simd
 
-#if canImport(VRMKit)
-import VRMKit
-#endif
-#if canImport(VRMSceneKit)
-import VRMSceneKit
-#endif
-
 @MainActor
 final class DancePerformer: ObservableObject {
     let controller = CharacterSceneController()
@@ -35,13 +34,10 @@ final class DancePerformer: ObservableObject {
     /// True once the character is mounted and the scene is worth showing.
     @Published private(set) var isReady = false
 
+    /// Built for every character whether or not a take is playing: the video-drive screen feeds it
+    /// MediaPipe landmarks instead of a stored take.
     private var retargeter: PoseRetargeter?
-    private var player: MocapPlayer?
-    /// Set instead of `player` when the take is a `.vrma` rather than a mocap JSON.
     private var vrmaPlayer: VRMAnimationPlayer?
-    /// The mounted VRM, kept so a second `.vrma` can be swapped in without reloading the model.
-    /// Nil whenever what is mounted is not a VRM; every `install()` has to clear or set it.
-    private var vrmRoot: SCNNode?
     private var loadedCharacter = ""
     private var loadedDance = ""
 
@@ -49,7 +45,7 @@ final class DancePerformer: ObservableObject {
     private var prewarmKey = ""
     private var prewarmTask: Task<SCNScene?, Never>?
 
-    var isAnimating: Bool { player != nil }
+    var isAnimating: Bool { vrmaPlayer != nil }
 
     /// Who owns this performer, for logs only.
     private let owner: String
@@ -103,11 +99,6 @@ final class DancePerformer: ObservableObject {
             // A parsed scene can only be installed once - install() reparents its root node - so
             // the prewarmed copy is consumed here rather than left for a second Start.
             controller.install(scene)
-            // The previous character is off the scene graph now. Leaving this set is how a `.vrma`
-            // ended up posing a VRM that was no longer on screen while the newly mounted Mixamo
-            // character stood in its bind pose: `playVRMA` looked bones up through the stale node
-            // and bound all 51 of them, to a skeleton nobody could see.
-            vrmRoot = nil
             guard controller.isLoaded else {
                 NSLog("[Performer] model %@ mounted with no skeleton", character)
                 return false
@@ -124,11 +115,22 @@ final class DancePerformer: ObservableObject {
         loadedDance = ""
 
         guard let dance, !dance.isEmpty else { return true }
-        guard let clip = await clip(for: dance) else { return false }
-        player = MocapPlayer(clip: clip, retargeter: rt)
-        player?.start()
+        guard let path = RemoteAssets.shared.dance(dance)?.clip else {
+            NSLog("[Performer] %@ is not in the catalog", dance)
+            return false
+        }
+        guard let url = try? await RemoteAssets.shared.resolve(path) else {
+            NSLog("[Performer] failed to download/locate clip %@", path)
+            return false
+        }
+        guard await playVRMA(url) else {
+            // Whatever is cached under that name does not parse. Drop it so the next attempt
+            // re-downloads instead of failing identically on every launch.
+            RemoteAssets.shared.evict(path)
+            return false
+        }
         loadedDance = dance
-        NSLog("[Performer] %@: %@ performing %@ (%d frames)", owner, character, dance, clip.frames.count)
+        NSLog("[Performer] %@: %@ performing %@", owner, character, dance)
         return true
     }
 
@@ -147,24 +149,6 @@ final class DancePerformer: ObservableObject {
         return await Task.detached(priority: .userInitiated) {
             CharacterSceneController.loadSceneFile(at: url, warmUp: true)
         }.value
-    }
-
-    private func clip(for dance: String) async -> MocapClip? {
-        guard let path = RemoteAssets.shared.dance(dance)?.clip else {
-            NSLog("[Performer] %@ is not in the catalog", dance)
-            return nil
-        }
-        guard let url = try? await RemoteAssets.shared.resolve(path) else {
-            NSLog("[Performer] failed to download/locate clip %@", path)
-            return nil
-        }
-        guard let clip = await Task.detached(priority: .userInitiated, operation: { MocapClip.load(url) }).value else {
-            // Whatever is cached under that name does not parse. Drop it so the next attempt
-            // re-downloads instead of failing identically on every launch.
-            RemoteAssets.shared.evict(path)
-            return nil
-        }
-        return clip
     }
 
     // MARK: - Control
@@ -188,226 +172,33 @@ final class DancePerformer: ObservableObject {
     func rebaseRetarget() {
         controller.resetToRestPose()
         retargeter?.resetCapture()
+        // The `.vrma` player writes the hips as a position local to their parent, so it needs no
+        // re-capture to follow the character to a new anchor. What it does need is the new floor:
+        // its sole offsets and the correction built up against the old ground are both stale.
+        vrmaPlayer?.rebase()
     }
 
     /// Drive the skeleton from live pose landmarks (camera or video source).
+    ///
+    /// The one thing `.vrma` playback does not replace: there is no clip here, only MediaPipe
+    /// landmarks arriving a frame at a time, and turning those into bone rotations is what
+    /// `PoseRetargeter` is for.
     func drive(_ world: [simd_float3]) { retargeter?.apply(world: world) }
-
-    /// Update a VRM blendshape weight (0.0 - 1.0)
-    func setBlendShape(value: Float, for preset: String) {
-        #if canImport(VRMKit) && canImport(VRMSceneKit)
-        guard let vrm = controller.characterRoot as? VRMNode else { return }
-
-        var applied = false
-        // The library's own expression runtime first
-        if let info = vrm.availableExpressions.first(where: { $0.name == preset }) {
-            SCNTransaction.begin()
-            SCNTransaction.animationDuration = 0
-            vrm.setExpression(value: CGFloat(value), for: info.key)
-            SCNTransaction.commit()
-            applied = true
-        }
-
-        // Fallback: drive the underlying SCNMorpher when the model declares no expression
-        controller.characterRoot?.enumerateHierarchy { node, _ in
-            if let morpher = node.morpher {
-                for i in 0..<morpher.targets.count {
-                    let targetName = morpher.targets[i].name ?? "Morph-\(i)"
-                    if targetName == preset || targetName.lowercased().contains(preset.lowercased()) {
-                        SCNTransaction.begin()
-                        SCNTransaction.animationDuration = 0
-                        morpher.setWeight(CGFloat(value), forTargetAt: i)
-                        SCNTransaction.commit()
-                        applied = true
-                    }
-                }
-            }
-        }
-
-        if applied {
-            vrm.update(at: CACurrentMediaTime())
-        }
-        #endif
-    }
-
-    /// Every expression this model can show: the VRM presets, or the raw morph targets.
-    func getAvailableVRMExpressions() -> [String] {
-        #if canImport(VRMKit) && canImport(VRMSceneKit)
-        guard let vrm = controller.characterRoot as? VRMNode else { return [] }
-
-        // The expressions the VRM itself declares
-        let vrmNames = vrm.availableExpressions.map { $0.name }
-        if !vrmNames.isEmpty { return vrmNames }
-
-        // Nothing declared: fall back to whatever the meshes' morphers are called
-        var rawNames = Set<String>()
-        controller.characterRoot?.enumerateHierarchy { node, _ in
-            if let morpher = node.morpher {
-                for i in 0..<morpher.targets.count {
-                    if let name = morpher.targets[i].name, !name.isEmpty {
-                        rawNames.insert(name)
-                    } else {
-                        // An unnamed target is still addressable by its index
-                        rawNames.insert("Morph-\(i)")
-                    }
-                }
-            }
-        }
-        return Array(rawNames).sorted()
-        #else
-        return []
-        #endif
-    }
-
-    #if canImport(VRMKit) && canImport(VRMSceneKit)
-    private func vrm_expression_for(_ name: String) -> ExpressionKey? {
-        switch name.lowercased() {
-        case "a": return .preset(.aa)
-        case "i": return .preset(.ih)
-        case "u": return .preset(.ou)
-        case "e": return .preset(.ee)
-        case "o": return .preset(.oh)
-        case "joy": return .preset(.happy)
-        case "angry": return .preset(.angry)
-        case "sorrow": return .preset(.sad)
-        case "fun": return .preset(.relaxed)
-        case "blink": return .preset(.blink)
-        case "lookup": return .preset(.lookUp)
-        case "lookdown": return .preset(.lookDown)
-        default: return nil
-        }
-    }
-    #endif
 
     /// Always call this when the view goes away: `CADisplayLink(target:)` retains its target, so a
     /// player left running keeps burning CPU after the page is dismissed.
     func stop() {
-        player?.stop()
-        player = nil
         vrmaPlayer?.stop()
         vrmaPlayer = nil
         loadedDance = ""
     }
 
-    // MARK: - Test Support
-
-    /// Load a character and a dance from local URLs, bypassing the catalog.
+    /// Start a `.vrma` take on whatever is already mounted.
     ///
-    /// Two kinds of take are accepted: `danceURL` is a mocap JSON driven through `PoseRetargeter`,
-    /// the way every shipped dance is; `vrmaURL` is a `.vrma` retargeted straight onto the model's
-    /// humanoid bones. A VRM model is needed for the second, and only one of the two runs.
-    func loadLocal(modelURL: URL, danceURL: URL? = nil, vrmaURL: URL? = nil,
-                   isVRM: Bool = false) async -> Bool {
-        stop()
-
-        var loadedScene: SCNScene?
-        var vrmNode: SCNNode?
-
-        if isVRM {
-            #if canImport(VRMKit) && canImport(VRMSceneKit)
-            do {
-                let loader = try VRMSceneLoader(withURL: modelURL)
-                let scene = try loader.loadScene()
-                loadedScene = scene
-                vrmNode = scene.vrmNode
-            } catch {
-                NSLog("[Performer] VRMKit load failed: %@", error.localizedDescription)
-                return false
-            }
-            #else
-            NSLog("[Performer] VRMKit/VRMSceneKit not found, falling back to SceneKit")
-            loadedScene = CharacterSceneController.loadSceneFile(at: modelURL, warmUp: true)
-            #endif
-        } else {
-            loadedScene = CharacterSceneController.loadSceneFile(at: modelURL, warmUp: true)
-        }
-
-        guard let scene = loadedScene else { return false }
-        controller.install(scene)
-
-        // VRM Bone Mapping: Map VRM humanoid bones to the names expected by the Mixamo scheme.
-        // This allows setupFrontCamera() and normalizeOrientation() to find the character's head, feet, etc.
-        #if canImport(VRMKit) && canImport(VRMSceneKit)
-        if isVRM, let vrm = vrmNode as? VRMNode {
-            let mapping: [HumanoidBone: String] = [
-                .hips: "mixamorig_Hips",
-                .spine: "mixamorig_Spine",
-                .head: "mixamorig_Head",
-                .leftShoulder: "mixamorig_LeftShoulder",
-                .rightShoulder: "mixamorig_RightShoulder",
-                .leftUpperArm: "mixamorig_LeftArm",
-                .rightUpperArm: "mixamorig_RightArm",
-                .leftLowerArm: "mixamorig_LeftForeArm",
-                .rightLowerArm: "mixamorig_RightForeArm",
-                .leftHand: "mixamorig_LeftHand",
-                .rightHand: "mixamorig_RightHand",
-                .leftUpperLeg: "mixamorig_LeftUpLeg",
-                .rightUpperLeg: "mixamorig_RightUpLeg",
-                .leftLowerLeg: "mixamorig_LeftLeg",
-                .rightLowerLeg: "mixamorig_RightLeg",
-                .leftFoot: "mixamorig_LeftFoot",
-                .rightFoot: "mixamorig_RightFoot",
-                .leftToes: "mixamorig_LeftToeBase",
-                .rightToes: "mixamorig_RightToeBase"
-            ]
-
-            var mappedCount = 0
-            for (bone, mixamoName) in mapping {
-                if let node = vrm.humanoid.node(for: bone) {
-                    controller.boneNodes[mixamoName] = node
-                    mappedCount += 1
-                }
-            }
-            NSLog("[Performer] VRM mapping complete: %d bones mapped", mappedCount)
-
-            // Re-run setup now that bones are mapped
-            if let root = controller.characterRoot {
-                controller.sanitizeMaterials(root)
-                controller.normalizeOrientation(root)
-                controller.setupFrontCamera()
-                controller.updateBackgroundAndGround()
-                controller.captureBindPose()
-
-                // If it's still not visible, it might be a scale issue. VRM is meters, but some are cm.
-                if controller.modelHeight < 0.1 {
-                    NSLog("[Performer] Model seems too small (%.2fm), applying 100x scale", controller.modelHeight)
-                    root.simdScale = simd_float3(repeating: 100)
-                    controller.setupFrontCamera() // Recalculate camera for new scale
-                }
-            }
-        }
-        #endif
-
-        guard controller.isLoaded else { return false }
-
-        loadedCharacter = "local"
-        let rt = PoseRetargeter(controller: controller)
-        rt.resetCapture()
-        retargeter = rt
-        isReady = true
-
-        vrmRoot = vrmNode
-        if let vrmaURL {
-            _ = await playVRMA(vrmaURL)
-            return true
-        }
-
-        if let danceURL, let clip = MocapClip.load(danceURL) {
-            player = MocapPlayer(clip: clip, retargeter: rt)
-            player?.start()
-            loadedDance = "local"
-            NSLog("[Performer] local performance started")
-        }
-
-        return true
-    }
-
-    /// Swap in a `.vrma` take on whatever is already mounted, without reloading the model.
-    ///
-    /// Works for both kinds of character. A VRM answers "which node is this humanoid bone" from its
-    /// own humanoid table; a Mixamo `.scn` answers from `MixamoBoneMap.humanoid`. Nothing else
-    /// differs - the take is bone rotations keyed by humanoid name, and the player re-expresses each
-    /// one between the take's rest pose and the model's, so rig, scale and build all drop out.
+    /// The take is bone rotations keyed by VRM humanoid name, and `MixamoBoneMap.humanoid` says
+    /// which node on our characters each name is. The player re-expresses every rotation between
+    /// the take's rest pose and the model's, so rig, scale and build all drop out - which is why
+    /// one file drives every character.
     @discardableResult
     func playVRMA(_ url: URL) async -> Bool {
         guard let root = controller.characterRoot else { return false }
@@ -426,27 +217,11 @@ final class DancePerformer: ObservableObject {
             return false
         }
 
-        var tick: ((TimeInterval) -> Void)?
-        let lookup: (String) -> SCNNode?
-        #if canImport(VRMKit) && canImport(VRMSceneKit)
-        if let vrm = vrmRoot as? VRMNode {
-            lookup = { name in HumanoidBone(rawValue: name).flatMap { vrm.humanoid.node(for: $0) } }
-            // Hair and skirt only swing if the spring bones are stepped, and nothing else in the
-            // app does it - the shipped characters have their `J_Sec_*` chains but no driver.
-            tick = { [weak vrm] time in vrm?.update(at: time) }
-        } else {
-            lookup = { [weak self] name in
-                MixamoBoneMap.humanoid[name].flatMap { self?.controller.boneNodes[$0] }
-            }
-        }
-        #else
-        lookup = { [weak self] name in
+        vrmaPlayer = VRMAnimationPlayer(clip: clip, root: root,
+                                        groundY: { [weak controller] in controller?.groundY }) {
+            [weak self] name in
             MixamoBoneMap.humanoid[name].flatMap { self?.controller.boneNodes[$0] }
         }
-        #endif
-
-        vrmaPlayer = VRMAnimationPlayer(clip: clip, root: root, bone: lookup)
-        vrmaPlayer?.onFrame = tick
         vrmaPlayer?.start()
         loadedDance = url.deletingPathExtension().lastPathComponent
         NSLog("[Performer] playing %@", url.lastPathComponent)

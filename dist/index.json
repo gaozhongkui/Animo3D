@@ -1,13 +1,13 @@
 {
  "schema": 2,
- "revision": 4,
- "generated": "2026-09-09",
+ "revision": 5,
+ "generated": "2026-09-14",
  "minAppVersion": null,
- "baseUrl": "https://dekbcnbakegjgbjxflxe.supabase.co/storage/v1/object/public/models/",
+ "baseUrl": "https://dekbcnbakegjgbjxflxe.supabase.co/storage/v1/object/public/vrm-models/",
  "notice": null,
  "builtin": {
-  "character": "X_Bot",
-  "dance": "Hip_Hop_Dancing"
+  "dance": "Hip_Hop_Dancing",
+  "character": "X_Bot"
  },
  "characters": [
   {
@@ -103,244 +103,406 @@
  ],
  "dances": [
   {
+   "id": "Armada",
+   "name": "Armada",
+   "clip": "dances/Armada.vrma",
+   "duration": 1.67
+  },
+  {
+   "id": "Au_To_Role",
+   "name": "Au To Role",
+   "clip": "dances/Au_To_Role.vrma",
+   "duration": 4.03
+  },
+  {
    "id": "Belly_Dance",
    "name": "Belly Dance",
-   "clip": "dances/mocap_Belly_Dance.json",
+   "clip": "dances/Belly_Dance.vrma",
    "duration": 19.67
+  },
+  {
+   "id": "Booty_Hip_Hop_Dance",
+   "name": "Booty Hip Hop Dance",
+   "clip": "dances/Booty_Hip_Hop_Dance.vrma",
+   "duration": 4.93
   },
   {
    "id": "Breakdance_Swipes",
    "name": "Breakdance Swipes",
-   "clip": "dances/mocap_Breakdance_Swipes.json",
+   "clip": "dances/Breakdance_Swipes.vrma",
    "duration": 3.03
+  },
+  {
+   "id": "Capoeira",
+   "name": "Capoeira",
+   "clip": "dances/Capoeira.vrma",
+   "duration": 4.83
+  },
+  {
+   "id": "Capoeira_1",
+   "name": "Capoeira 1",
+   "clip": "dances/Capoeira_1.vrma",
+   "duration": 4.83
+  },
+  {
+   "id": "Capoeira_2",
+   "name": "Capoeira 2",
+   "clip": "dances/Capoeira_2.vrma",
+   "duration": 4.83
   },
   {
    "id": "Chicken_Dance",
    "name": "Chicken Dance",
-   "clip": "dances/mocap_Chicken_Dance.json",
+   "clip": "dances/Chicken_Dance.vrma",
    "duration": 4.8
   },
   {
    "id": "Dancing",
    "name": "Dancing",
-   "clip": "dances/mocap_Dancing.json",
+   "clip": "dances/Dancing.vrma",
    "duration": 12.4
   },
   {
    "id": "Dancing_1",
    "name": "Dancing 1",
-   "clip": "dances/mocap_Dancing_1.json",
+   "clip": "dances/Dancing_1.vrma",
    "duration": 21.43
   },
   {
    "id": "Dancing_Maraschino_Step",
    "name": "Dancing Maraschino Step",
-   "clip": "dances/mocap_Dancing_Maraschino_Step.json",
+   "clip": "dances/Dancing_Maraschino_Step.vrma",
    "duration": 3.27
   },
   {
    "id": "Dancing_Running_Man",
    "name": "Dancing Running Man",
-   "clip": "dances/mocap_Dancing_Running_Man.json",
+   "clip": "dances/Dancing_Running_Man.vrma",
    "duration": 10.87
   },
   {
    "id": "Dancing_Twerk",
    "name": "Dancing Twerk",
-   "clip": "dances/mocap_Dancing_Twerk.json",
+   "clip": "dances/Dancing_Twerk.vrma",
    "duration": 15.23
   },
   {
    "id": "Dancing_Twerk_1",
    "name": "Dancing Twerk 1",
-   "clip": "dances/mocap_Dancing_Twerk_1.json",
+   "clip": "dances/Dancing_Twerk_1.vrma",
    "duration": 15.23
+  },
+  {
+   "id": "Esquiva_2",
+   "name": "Esquiva 2",
+   "clip": "dances/Esquiva_2.vrma",
+   "duration": 2.27
+  },
+  {
+   "id": "Excited",
+   "name": "Excited",
+   "clip": "dances/Excited.vrma",
+   "duration": 6.6
   },
   {
    "id": "Flair",
    "name": "Flair",
-   "clip": "dances/mocap_Flair.json",
+   "clip": "dances/Flair.vrma",
    "duration": 1.7
   },
   {
    "id": "Gangnam_Style",
    "name": "Gangnam Style",
-   "clip": "dances/mocap_Gangnam_Style.json",
+   "clip": "dances/Gangnam_Style.vrma",
    "duration": 12.4
+  },
+  {
+   "id": "Ginga_Sideways_To_Au",
+   "name": "Ginga Sideways To Au",
+   "clip": "dances/Ginga_Sideways_To_Au.vrma",
+   "duration": 3.8
+  },
+  {
+   "id": "Ginga_Variation_1",
+   "name": "Ginga Variation 1",
+   "clip": "dances/Ginga_Variation_1.vrma",
+   "duration": 3.57
+  },
+  {
+   "id": "Golf_Putt_Victory",
+   "name": "Golf Putt Victory",
+   "clip": "dances/Golf_Putt_Victory.vrma",
+   "duration": 8.37
+  },
+  {
+   "id": "Golf_Putt_Victory_1",
+   "name": "Golf Putt Victory 1",
+   "clip": "dances/Golf_Putt_Victory_1.vrma",
+   "duration": 12.27
+  },
+  {
+   "id": "Golf_Putt_Victory_2",
+   "name": "Golf Putt Victory 2",
+   "clip": "dances/Golf_Putt_Victory_2.vrma",
+   "duration": 12.27
+  },
+  {
+   "id": "Golf_Putting_Victory",
+   "name": "Golf Putting Victory",
+   "clip": "dances/Golf_Putting_Victory.vrma",
+   "duration": 6.9
   },
   {
    "id": "Hip_Hop_Dancing",
    "name": "Hip Hop Dancing",
-   "clip": "dances/mocap_Hip_Hop_Dancing.json",
+   "clip": "dances/Hip_Hop_Dancing.vrma",
    "duration": 6.37
   },
   {
    "id": "Hip_Hop_Dancing_1",
    "name": "Hip Hop Dancing 1",
-   "clip": "dances/mocap_Hip_Hop_Dancing_1.json",
+   "clip": "dances/Hip_Hop_Dancing_1.vrma",
    "duration": 18.6
   },
   {
    "id": "Hip_Hop_Dancing_2",
    "name": "Hip Hop Dancing 2",
-   "clip": "dances/mocap_Hip_Hop_Dancing_2.json",
+   "clip": "dances/Hip_Hop_Dancing_2.vrma",
    "duration": 4.77
   },
   {
    "id": "Hip_Hop_Dancing_3",
    "name": "Hip Hop Dancing 3",
-   "clip": "dances/mocap_Hip_Hop_Dancing_3.json",
+   "clip": "dances/Hip_Hop_Dancing_3.vrma",
    "duration": 12.0
   },
   {
    "id": "Hip_Hop_Dancing_4",
    "name": "Hip Hop Dancing 4",
-   "clip": "dances/mocap_Hip_Hop_Dancing_4.json",
+   "clip": "dances/Hip_Hop_Dancing_4.vrma",
    "duration": 12.0
   },
   {
    "id": "Hip_Hop_Dancing_5",
    "name": "Hip Hop Dancing 5",
-   "clip": "dances/mocap_Hip_Hop_Dancing_5.json",
+   "clip": "dances/Hip_Hop_Dancing_5.vrma",
    "duration": 3.4
   },
   {
    "id": "Hip_Hop_Dancing_6",
    "name": "Hip Hop Dancing 6",
-   "clip": "dances/mocap_Hip_Hop_Dancing_6.json",
+   "clip": "dances/Hip_Hop_Dancing_6.vrma",
    "duration": 4.5
   },
   {
    "id": "Hip_Hop_Dancing_7",
    "name": "Hip Hop Dancing 7",
-   "clip": "dances/mocap_Hip_Hop_Dancing_7.json",
+   "clip": "dances/Hip_Hop_Dancing_7.vrma",
    "duration": 4.5
   },
   {
    "id": "Hip_Hop_Dancing_8",
    "name": "Hip Hop Dancing 8",
-   "clip": "dances/mocap_Hip_Hop_Dancing_8.json",
+   "clip": "dances/Hip_Hop_Dancing_8.vrma",
    "duration": 13.67
   },
   {
    "id": "Jazz_Dancing",
    "name": "Jazz Dancing",
-   "clip": "dances/mocap_Jazz_Dancing.json",
+   "clip": "dances/Jazz_Dancing.vrma",
    "duration": 5.47
   },
   {
    "id": "Jazz_Dancing_1",
    "name": "Jazz Dancing 1",
-   "clip": "dances/mocap_Jazz_Dancing_1.json",
+   "clip": "dances/Jazz_Dancing_1.vrma",
    "duration": 5.47
   },
   {
    "id": "Jazz_Dancing_2",
    "name": "Jazz Dancing 2",
-   "clip": "dances/mocap_Jazz_Dancing_2.json",
+   "clip": "dances/Jazz_Dancing_2.vrma",
    "duration": 2.37
   },
   {
    "id": "Jazz_Dancing_3",
    "name": "Jazz Dancing 3",
-   "clip": "dances/mocap_Jazz_Dancing_3.json",
+   "clip": "dances/Jazz_Dancing_3.vrma",
    "duration": 2.37
   },
   {
    "id": "Jazz_Dancing_4",
    "name": "Jazz Dancing 4",
-   "clip": "dances/mocap_Jazz_Dancing_4.json",
+   "clip": "dances/Jazz_Dancing_4.vrma",
    "duration": 2.77
   },
   {
    "id": "Macarena_Dance_2",
    "name": "Macarena Dance 2",
-   "clip": "dances/mocap_Macarena_Dance_2.json",
+   "clip": "dances/Macarena_Dance_2.vrma",
    "duration": 8.27
   },
   {
    "id": "Northern_Soul_Floor_Combo",
    "name": "Northern Soul Floor Combo",
-   "clip": "dances/mocap_Northern_Soul_Floor_Combo.json",
+   "clip": "dances/Northern_Soul_Floor_Combo.vrma",
    "duration": 10.63
+  },
+  {
+   "id": "Rasteira_2",
+   "name": "Rasteira 2",
+   "clip": "dances/Rasteira_2.vrma",
+   "duration": 2.5
   },
   {
    "id": "Robot_Hip_Hop_Dance",
    "name": "Robot Hip Hop Dance",
-   "clip": "dances/mocap_Robot_Hip_Hop_Dance.json",
+   "clip": "dances/Robot_Hip_Hop_Dance.vrma",
    "duration": 15.47
   },
   {
    "id": "Robot_Hip_Hop_Dance_1",
    "name": "Robot Hip Hop Dance 1",
-   "clip": "dances/mocap_Robot_Hip_Hop_Dance_1.json",
+   "clip": "dances/Robot_Hip_Hop_Dance_1.vrma",
    "duration": 15.47
   },
   {
    "id": "Salsa_Dancing",
    "name": "Salsa Dancing",
-   "clip": "dances/mocap_Salsa_Dancing.json",
+   "clip": "dances/Salsa_Dancing.vrma",
    "duration": 2.3
   },
   {
    "id": "Salsa_Dancing_1",
    "name": "Salsa Dancing 1",
-   "clip": "dances/mocap_Salsa_Dancing_1.json",
+   "clip": "dances/Salsa_Dancing_1.vrma",
    "duration": 2.3
   },
   {
    "id": "Samba_Dancing",
    "name": "Samba Dancing",
-   "clip": "dances/mocap_Samba_Dancing.json",
+   "clip": "dances/Samba_Dancing.vrma",
    "duration": 27.9
   },
   {
    "id": "Samba_Dancing_1",
    "name": "Samba Dancing 1",
-   "clip": "dances/mocap_Samba_Dancing_1.json",
+   "clip": "dances/Samba_Dancing_1.vrma",
    "duration": 27.9
   },
   {
    "id": "Samba_Dancing_2",
    "name": "Samba Dancing 2",
-   "clip": "dances/mocap_Samba_Dancing_2.json",
+   "clip": "dances/Samba_Dancing_2.vrma",
    "duration": 21.83
   },
   {
    "id": "Samba_Dancing_3",
    "name": "Samba Dancing 3",
-   "clip": "dances/mocap_Samba_Dancing_3.json",
+   "clip": "dances/Samba_Dancing_3.vrma",
    "duration": 18.67
   },
   {
    "id": "Samba_Dancing_4",
    "name": "Samba Dancing 4",
-   "clip": "dances/mocap_Samba_Dancing_4.json",
+   "clip": "dances/Samba_Dancing_4.vrma",
    "duration": 18.67
   },
   {
    "id": "Silly_Dancing",
    "name": "Silly Dancing",
-   "clip": "dances/mocap_Silly_Dancing.json",
+   "clip": "dances/Silly_Dancing.vrma",
    "duration": 5.47
   },
   {
    "id": "Silly_Dancing_1",
    "name": "Silly Dancing 1",
-   "clip": "dances/mocap_Silly_Dancing_1.json",
+   "clip": "dances/Silly_Dancing_1.vrma",
    "duration": 3.87
+  },
+  {
+   "id": "Sitting_Victory",
+   "name": "Sitting Victory",
+   "clip": "dances/Sitting_Victory.vrma",
+   "duration": 5.63
   },
   {
    "id": "Swing_Dancing",
    "name": "Swing Dancing",
-   "clip": "dances/mocap_Swing_Dancing.json",
+   "clip": "dances/Swing_Dancing.vrma",
    "duration": 20.93
+  },
+  {
+   "id": "Thriller_Idle",
+   "name": "Thriller Idle",
+   "clip": "dances/Thriller_Idle.vrma",
+   "duration": 4.37
+  },
+  {
+   "id": "Thriller_Part_1",
+   "name": "Thriller Part 1",
+   "clip": "dances/Thriller_Part_1.vrma",
+   "duration": 29.87
+  },
+  {
+   "id": "Thriller_Part_2",
+   "name": "Thriller Part 2",
+   "clip": "dances/Thriller_Part_2.vrma",
+   "duration": 18.87
+  },
+  {
+   "id": "Thriller_Part_3",
+   "name": "Thriller Part 3",
+   "clip": "dances/Thriller_Part_3.vrma",
+   "duration": 25.6
+  },
+  {
+   "id": "Thriller_Part_4",
+   "name": "Thriller Part 4",
+   "clip": "dances/Thriller_Part_4.vrma",
+   "duration": 37.1
+  },
+  {
+   "id": "Troca_1",
+   "name": "Troca 1",
+   "clip": "dances/Troca_1.vrma",
+   "duration": 5.2
   },
   {
    "id": "Twist_Dance",
    "name": "Twist Dance",
-   "clip": "dances/mocap_Twist_Dance.json",
+   "clip": "dances/Twist_Dance.vrma",
    "duration": 9.47
+  },
+  {
+   "id": "Victory",
+   "name": "Victory",
+   "clip": "dances/Victory.vrma",
+   "duration": 4.53
+  },
+  {
+   "id": "Victory_1",
+   "name": "Victory 1",
+   "clip": "dances/Victory_1.vrma",
+   "duration": 8.57
+  },
+  {
+   "id": "Victory_Idle",
+   "name": "Victory Idle",
+   "clip": "dances/Victory_Idle.vrma",
+   "duration": 1.9
+  },
+  {
+   "id": "Victory_Idle_1",
+   "name": "Victory Idle 1",
+   "clip": "dances/Victory_Idle_1.vrma",
+   "duration": 1.9
+  },
+  {
+   "id": "Victory_Idle_2",
+   "name": "Victory Idle 2",
+   "clip": "dances/Victory_Idle_2.vrma",
+   "duration": 1.83
   }
  ]
 }
