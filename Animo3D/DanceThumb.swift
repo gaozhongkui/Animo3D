@@ -29,14 +29,14 @@ struct DanceCardView: View {
                 ProgressView().tint(.white).scaleEffect(1.2)
             }
         }
-        .task(id: character + "|" + dance) {
+        .task(id: character + "|" + dance + "|\(style)") {
             // A memory hit displays synchronously: no loading flash and no disk access, which is
             // the path that matters while the list scrolls.
-            if let m = ThumbRenderer.shared.memoryCached(character: character, dance: dance) {
+            if let m = ThumbRenderer.shared.memoryCached(character: character, dance: dance, style: style) {
                 image = m; return
             }
             image = nil
-            let img = await ThumbRenderer.shared.danceCard(character: character, dance: dance)
+            let img = await ThumbRenderer.shared.danceCard(character: character, dance: dance, style: style)
             guard !Task.isCancelled else { return }
             image = img
         }

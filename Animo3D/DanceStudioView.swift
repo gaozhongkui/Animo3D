@@ -269,8 +269,15 @@ struct DanceStudioView: View {
                         ZStack(alignment: .bottomLeading) {
                             Group {
                                 if isSelected && DeviceTier.allowsLiveDanceCards {
+                                    // The same aspect the static card carries, and for the same
+                                    // reason: `CardBackdrop` is a GeometryReader and `LiveDanceView`
+                                    // is a UIViewRepresentable, so neither offers an intrinsic
+                                    // height. Without this the selected cell collapsed to a sliver
+                                    // and the live dance read as "selection stopped the card".
                                     CardBackdrop(style: i)
-                                        .overlay(LiveDanceView(character: previewCharacter, dance: d.id))
+                                        .overlay(LiveDanceView(character: previewCharacter, dance: d.id,
+                                                               accent: CardBackdrop.accent(for: i)))
+                                        .aspectRatio(3.0/4.0, contentMode: .fill)
                                 } else {
                                     DanceCardView(character: previewCharacter, dance: d.id, style: i)
                                         .aspectRatio(3.0/4.0, contentMode: .fill)

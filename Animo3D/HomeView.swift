@@ -81,7 +81,8 @@ struct HomeView: View {
                             posterCard(title: d.name) {
                                 if i == 0 {
                                     CardBackdrop(style: 0)
-                                        .overlay(LiveDanceView(character: showcaseCharacter, dance: d.id))
+                                        .overlay(LiveDanceView(character: showcaseCharacter, dance: d.id,
+                                                               accent: CardBackdrop.accent(for: 0)))
                                 } else {
                                     DanceCardView(character: showcaseCharacter, dance: d.id, style: i)
                                 }

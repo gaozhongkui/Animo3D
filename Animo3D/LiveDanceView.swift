@@ -16,6 +16,12 @@ struct LiveDanceView: UIViewRepresentable {
     let character: String
     let dance: String
     var interactive = false   // Detail page: allow gesture rotation and zoom
+    /// Width / height of the box this fills, so the camera can be framed on the whole take. The
+    /// default is the card grid's shape.
+    var aspect: Float = 3.0 / 4.0
+    /// The accent of the backdrop behind this view; the dancer is rimmed in it so the two read as
+    /// one light. Nil leaves the rig's white rim alone.
+    var accent: Color? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -37,15 +43,26 @@ struct LiveDanceView: UIViewRepresentable {
         v.backgroundColor = .clear
         v.rendersContinuously = true
         v.isPlaying = true
-        v.autoenablesDefaultLighting = true
+        // Off: it adds a white omni on the camera, over the rig the controller already installed,
+        // and a flat frontal fill is what made the dancer read as a sticker rather than a figure
+        // standing in the light the card is painted with.
+        v.autoenablesDefaultLighting = false
         v.antialiasingMode = DeviceTier.antialiasing
         v.allowsCameraControl = interactive
         v.scene = c.performer.controller.scene
 
-        let ch = character, dn = dance
+        c.performer.controller.setRimTint(accent.map { UIColor($0) })
+
+        let ch = character, dn = dance, ar = aspect
         c.task = Task { @MainActor in
             guard await c.performer.load(character: ch, dance: dn) else { return }
             guard !Task.isCancelled else { return }
+            // install() rebuilds the rig, so the tint has to be re-applied once the model is in.
+            c.performer.controller.setRimTint(accent.map { UIColor($0) })
+            // Before the first frame is shown: the install-time camera frames a standing character,
+            // and a take that jumps or travels would carry the dancer out of a card this small. The
+            // camera rides the dance from here rather than standing back far enough to contain it.
+            c.performer.followCameraOnTake(aspect: ar)
             if let cam = c.performer.controller.cameraNode { v.pointOfView = cam }
         }
         return v

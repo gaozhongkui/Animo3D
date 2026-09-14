@@ -38,6 +38,8 @@ final class DancePerformer: ObservableObject {
     /// MediaPipe landmarks instead of a stored take.
     private var retargeter: PoseRetargeter?
     private var vrmaPlayer: VRMAnimationPlayer?
+    /// Kept so the take can be measured after the fact - see `frameCameraOnTake(aspect:)`.
+    private var loadedClip: VRMAnimationClip?
     private var loadedCharacter = ""
     private var loadedDance = ""
 
@@ -188,9 +190,60 @@ final class DancePerformer: ObservableObject {
     /// Always call this when the view goes away: `CADisplayLink(target:)` retains its target, so a
     /// player left running keeps burning CPU after the page is dismissed.
     func stop() {
+        controller.endCameraFollow()
         vrmaPlayer?.stop()
         vrmaPlayer = nil
         loadedDance = ""
+    }
+
+    /// Ride the camera along with the take, so the dancer fills the frame throughout.
+    ///
+    /// The alternative, `frameCameraOnTake(aspect:)`, buys a motionless camera by standing far
+    /// enough back to hold every pose in the dance - which on a card leaves the dancer small for
+    /// the entire take just because one moment of it is big. Opt-in, like that one: the stage has
+    /// its own camera and must not be touched.
+    ///
+    /// - Parameter aspect: width / height of the box the view occupies.
+    func followCameraOnTake(aspect: Float) {
+        controller.beginCameraFollow(aspect: aspect)
+        // `onFrame` fires from the player's own display link, straight after the pose for that
+        // frame is written - which is exactly when the bounds are worth measuring.
+        vrmaPlayer?.onFrame = { [weak controller] _ in controller?.stepCameraFollow() }
+    }
+
+    /// Aim the camera at everything the loaded take does, once, so the dancer stays inside a view
+    /// of this shape for the whole dance without the camera ever moving.
+    ///
+    /// `setupFrontCamera()` frames the character standing still, at install time. A take that
+    /// jumps, tips or travels then carries the dancer straight out of a small card - which looked
+    /// exactly like playback having failed. Opt-in, because the stage does its own framing.
+    ///
+    /// - Parameter aspect: width / height of the box the view occupies.
+    func frameCameraOnTake(aspect: Float, samples: Int = 16) {
+        guard let root = controller.characterRoot, let clip = loadedClip, clip.duration > 0,
+              samples > 1 else { return }
+        // A scout of its own: `apply()` carries a foot-planting offset between calls, and the
+        // player that is currently on screen must not inherit this sweep's.
+        guard let scout = VRMAnimationPlayer(clip: clip, root: root, bone: { [weak self] name in
+            MixamoBoneMap.humanoid[name].flatMap { self?.controller.boneNodes[$0] }
+        }) else { return }
+
+        var lo = simd_float3(repeating: .greatestFiniteMagnitude)
+        var hi = simd_float3(repeating: -.greatestFiniteMagnitude)
+        var measured = false
+        for i in 0..<samples {
+            scout.apply(at: clip.duration * Float(i) / Float(samples - 1))
+            guard let b = controller.posedBounds() else { continue }
+            lo = simd_min(lo, b.min)
+            hi = simd_max(hi, b.max)
+            measured = true
+        }
+        guard measured else { return }
+
+        // Hand the skeleton back: the running player re-poses it on its next tick anyway, but it
+        // must not be left holding the last sample if that tick is a frame away.
+        controller.resetToRestPose()
+        controller.frameCamera(on: (lo, hi), aspect: aspect)
     }
 
     /// Start a `.vrma` take on whatever is already mounted.
@@ -217,6 +270,7 @@ final class DancePerformer: ObservableObject {
             return false
         }
 
+        loadedClip = clip
         vrmaPlayer = VRMAnimationPlayer(clip: clip, root: root,
                                         groundY: { [weak controller] in controller?.groundY }) {
             [weak self] name in

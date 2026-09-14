@@ -32,6 +32,10 @@ struct CardBackdrop: View {
     /// colour: the system blue looked bolted on next to a teal or amber card.
     static func accent(for style: Int) -> Color { Self(style: style).palette.accent }
 
+    /// The same accent for the SceneKit side, which lights the figure with it. The offscreen
+    /// renderer has no other reason to import SwiftUI.
+    static func accentUIColor(for style: Int) -> UIColor { UIColor(accent(for: style)) }
+
     private var palette: Palette {
         switch ((style % 5) + 5) % 5 {
         case 0: return Palette(top: hex(0x241A4D), bottom: hex(0x0D0B1F),

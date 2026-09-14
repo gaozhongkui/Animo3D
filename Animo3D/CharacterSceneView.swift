@@ -1400,6 +1400,129 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         root.simdOrientation = simd_quatf(m).inverse
     }
 
+    // MARK: - Framing a posed skeleton
+
+    /// World bounds of the skeleton *as it is posed right now*, padded out to the silhouette.
+    ///
+    /// Bones rather than `boundingBox`: SceneKit reports a skinned geometry's bounds from its bind
+    /// pose, so that box never moves however far the take throws the skeleton - which is the exact
+    /// blind spot this exists to cover.
+    func posedBounds() -> (min: simd_float3, max: simd_float3)? {
+        guard isLoaded, modelHeight > 0 else { return nil }
+        var lo = simd_float3(repeating: .greatestFiniteMagnitude)
+        var hi = simd_float3(repeating: -.greatestFiniteMagnitude)
+        var counted = 0
+        for (name, node) in boneNodes where name.hasPrefix("mixamorig") || name.hasPrefix("J_Sec_") {
+            let p = node.simdWorldPosition
+            lo = simd_min(lo, p)
+            hi = simd_max(hi, p)
+            counted += 1
+        }
+        guard counted > 0 else { return nil }
+
+        // A joint sits inside the body: the skull bone is well below the top of the hair, the ankle
+        // well above the sole, the wrist short of the fingertips. Pad out to what is drawn, with
+        // the extra headroom hair actually needs.
+        let side = modelHeight * 0.09
+        lo -= simd_float3(side, modelHeight * 0.06, side)
+        hi += simd_float3(side, modelHeight * 0.13, side)
+        return (lo, hi)
+    }
+
+    /// Aim the camera at the pose currently on the skeleton, so the whole figure lands inside an
+    /// image of the given aspect ratio (width / height).
+    ///
+    /// `setupFrontCamera()` frames the *rest* pose once, at install time, and then never moves. Any
+    /// take that lifts, tips or travels the hips - a jump, a handstand, a roll - leaves the figure
+    /// half outside the frame or out of it entirely, which is what produced cards showing a shin,
+    /// and one card showing nothing at all.
+    ///
+    /// The narrower default field of view is deliberate: 62 degrees is a wide-angle lens pointed at
+    /// a person from two metres, and it stretched whichever limb was nearest the camera.
+    func frameCameraOnPose(aspect: Float, margin: Float = 1.1, fieldOfView: CGFloat = 42) {
+        guard let b = posedBounds() else { return }
+        frameCamera(on: b, aspect: aspect, margin: margin, fieldOfView: fieldOfView)
+    }
+
+    /// Same framing, against bounds the caller worked out for itself.
+    func frameCamera(on b: (min: simd_float3, max: simd_float3),
+                     aspect: Float, margin: Float = 1.1, fieldOfView: CGFloat = 42) {
+        let center = (b.min + b.max) * 0.5
+        let half = (b.max - b.min) * 0.5
+        placeCamera(center: center,
+                    distance: distance(forHalfExtent: half, aspect: aspect, margin: margin,
+                                       fieldOfView: fieldOfView),
+                    fieldOfView: fieldOfView)
+    }
+
+    /// How far back the camera has to sit for a box of this size to fit the frame.
+    private func distance(forHalfExtent half: simd_float3, aspect: Float, margin: Float,
+                          fieldOfView: CGFloat) -> Float {
+        // The field of view is vertical, so a wide pose has to be expressed as the height it needs.
+        let needed = max(half.y, half.x / max(aspect, 0.01)) * margin
+        let fov = Float(fieldOfView) * .pi / 180
+        return needed / tan(fov * 0.5) + half.z
+    }
+
+    private func placeCamera(center: simd_float3, distance: Float, fieldOfView: CGFloat) {
+        guard let cam = cameraNode, let camera = cam.camera else { return }
+        camera.projectionDirection = .vertical
+        camera.fieldOfView = fieldOfView
+        cam.simdPosition = simd_float3(center.x, center.y, center.z + distance)
+        cam.look(at: SCNVector3(center))
+        camera.zNear = Double(max(distance * 0.01, 0.001))
+        camera.zFar = Double(distance * 4 + modelHeight * 10)
+    }
+
+    // MARK: - Following a dancer
+
+    /// A camera that rides the performance instead of standing off far enough to contain all of it.
+    ///
+    /// Framing a take on the union of every pose it strikes keeps the dancer in shot, but pays for
+    /// it everywhere: one leap in second twelve pushes the camera back for the whole dance, and on
+    /// a card that small the dancer ends up a thumbnail inside a thumbnail. This tracks the pose
+    /// that is actually on screen and keeps it filling the frame.
+    private struct CameraFollow {
+        let aspect: Float, margin: Float, fieldOfView: CGFloat
+        var center: simd_float3
+        var distance: Float
+    }
+    private var follow: CameraFollow?
+
+    /// Take the camera off its fixed mount. `stepCameraFollow()` then moves it every frame.
+    func beginCameraFollow(aspect: Float, margin: Float = 1.12, fieldOfView: CGFloat = 42) {
+        guard let b = posedBounds() else { return }
+        let half = (b.max - b.min) * 0.5
+        follow = CameraFollow(aspect: aspect, margin: margin, fieldOfView: fieldOfView,
+                              center: (b.min + b.max) * 0.5,
+                              distance: distance(forHalfExtent: half, aspect: aspect,
+                                                 margin: margin, fieldOfView: fieldOfView))
+        stepCameraFollow()
+    }
+
+    func endCameraFollow() { follow = nil }
+
+    /// One step of the follow. Call it once per rendered frame, after the pose is written.
+    ///
+    /// Two things keep this from looking like a camera operator with hiccups. It eases toward the
+    /// pose rather than snapping to it, so a hand flicking out for three frames does not throw the
+    /// shot. And the easing is deliberately lopsided - pulling back is quick, pushing in is slow -
+    /// because losing a limb off the edge is glaring while a beat of extra air around the dancer is
+    /// not. Symmetric rates give the shot a breathing, zooming-in-and-out quality that is worse
+    /// than either error.
+    func stepCameraFollow() {
+        guard var f = follow, let b = posedBounds() else { return }
+        let half = (b.max - b.min) * 0.5
+        let targetCenter = (b.min + b.max) * 0.5
+        let targetDistance = distance(forHalfExtent: half, aspect: f.aspect,
+                                      margin: f.margin, fieldOfView: f.fieldOfView)
+
+        f.center += (targetCenter - f.center) * 0.12
+        f.distance += (targetDistance - f.distance) * (targetDistance > f.distance ? 0.25 : 0.04)
+        follow = f
+        placeCamera(center: f.center, distance: f.distance, fieldOfView: f.fieldOfView)
+    }
+
     /// Set a fixed front fullscreen camera using bone positions (more reliable than bounding boxes, not affected by skeleton extensions).
     func setupFrontCamera() {
         guard let hips = boneNodes[scheme.hips]?.simdWorldPosition,
@@ -1574,6 +1697,18 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             m = SCNMatrix4Mult(m, SCNMatrix4MakeRotation(-Float.pi / 2, 1, 0, 0))
             return SCNMatrix4Mult(m, SCNMatrix4MakeTranslation(cx, groundY, cz))
         }]
+    }
+
+    /// Tint the rim light, the back spot that draws the silhouette.
+    ///
+    /// A card is a dark stage with one coloured glow behind the dancer's shoulders, painted by
+    /// `CardBackdrop`. Lighting the figure with a white rim on top of that is what made it read as
+    /// a cut-out pasted onto the art: the light in the picture and the light on the person came
+    /// from different places. Hand in the card's own accent and the two become one light.
+    ///
+    /// Pass nil for white - the stage rig's own colour, which this must not disturb.
+    func setRimTint(_ color: UIColor?) {
+        rimLight?.color = color ?? UIColor.white
     }
 
     /// Build the four-light rig. Intensities are deliberately not set here - applyLightLevels()
