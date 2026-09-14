@@ -37,6 +37,8 @@ final class DancePerformer: ObservableObject {
 
     private var retargeter: PoseRetargeter?
     private var player: MocapPlayer?
+    /// Set instead of `player` when the take is a `.vrma` rather than a mocap JSON.
+    private var vrmaPlayer: VRMAnimationPlayer?
     private var loadedCharacter = ""
     private var loadedDance = ""
 
@@ -189,7 +191,7 @@ final class DancePerformer: ObservableObject {
         guard let vrm = controller.characterRoot as? VRMNode else { return }
 
         var applied = false
-        // 优先使用库的 ExpressionRuntime 设置
+        // The library's own expression runtime first
         if let info = vrm.availableExpressions.first(where: { $0.name == preset }) {
             SCNTransaction.begin()
             SCNTransaction.animationDuration = 0
@@ -198,7 +200,7 @@ final class DancePerformer: ObservableObject {
             applied = true
         }
 
-        // 保底逻辑：如果上面的方法没生效，直接驱动底层的 SCNMorpher
+        // Fallback: drive the underlying SCNMorpher when the model declares no expression
         controller.characterRoot?.enumerateHierarchy { node, _ in
             if let morpher = node.morpher {
                 for i in 0..<morpher.targets.count {
@@ -220,16 +222,16 @@ final class DancePerformer: ObservableObject {
         #endif
     }
 
-    /// 获取当前模型支持的所有表情名称 (VRM 预设 + 底层 Morpher 目标)
+    /// Every expression this model can show: the VRM presets, or the raw morph targets.
     func getAvailableVRMExpressions() -> [String] {
         #if canImport(VRMKit) && canImport(VRMSceneKit)
         guard let vrm = controller.characterRoot as? VRMNode else { return [] }
 
-        // 1. 尝试获取 VRM 标准定义的表情
+        // The expressions the VRM itself declares
         let vrmNames = vrm.availableExpressions.map { $0.name }
         if !vrmNames.isEmpty { return vrmNames }
 
-        // 2. 如果没有 VRM 定义，则扫描底层 SCNMorpher 的所有 Target 名称
+        // Nothing declared: fall back to whatever the meshes' morphers are called
         var rawNames = Set<String>()
         controller.characterRoot?.enumerateHierarchy { node, _ in
             if let morpher = node.morpher {
@@ -237,7 +239,7 @@ final class DancePerformer: ObservableObject {
                     if let name = morpher.targets[i].name, !name.isEmpty {
                         rawNames.insert(name)
                     } else {
-                        // 如果目标没有名字，至少给个索引
+                        // An unnamed target is still addressable by its index
                         rawNames.insert("Morph-\(i)")
                     }
                 }
@@ -274,13 +276,20 @@ final class DancePerformer: ObservableObject {
     func stop() {
         player?.stop()
         player = nil
+        vrmaPlayer?.stop()
+        vrmaPlayer = nil
         loadedDance = ""
     }
 
     // MARK: - Test Support
 
     /// Load a character and a dance from local URLs, bypassing the catalog.
-    func loadLocal(modelURL: URL, danceURL: URL? = nil, isVRM: Bool = false) async -> Bool {
+    ///
+    /// Two kinds of take are accepted: `danceURL` is a mocap JSON driven through `PoseRetargeter`,
+    /// the way every shipped dance is; `vrmaURL` is a `.vrma` retargeted straight onto the model's
+    /// humanoid bones. A VRM model is needed for the second, and only one of the two runs.
+    func loadLocal(modelURL: URL, danceURL: URL? = nil, vrmaURL: URL? = nil,
+                   isVRM: Bool = false) async -> Bool {
         stop()
 
         var loadedScene: SCNScene?
@@ -351,10 +360,6 @@ final class DancePerformer: ObservableObject {
                 controller.updateBackgroundAndGround()
                 controller.captureBindPose()
 
-                // 开启表情逻辑 (修正后的 0.10.0 API)
-                vrm.setExpression(value: 0.8, for: .preset(.happy))
-                vrm.setExpression(value: 0.2, for: .preset(.blink))
-
                 // If it's still not visible, it might be a scale issue. VRM is meters, but some are cm.
                 if controller.modelHeight < 0.1 {
                     NSLog("[Performer] Model seems too small (%.2fm), applying 100x scale", controller.modelHeight)
@@ -372,6 +377,29 @@ final class DancePerformer: ObservableObject {
         rt.resetCapture()
         retargeter = rt
         isReady = true
+
+        #if canImport(VRMKit) && canImport(VRMSceneKit)
+        if let vrmaURL, let vrm = vrmNode as? VRMNode, let root = controller.characterRoot {
+            // Parsing is ~600KB of float accessors, off the main thread like every other take.
+            guard let clip = await Task.detached(priority: .userInitiated,
+                                                 operation: { VRMAnimationClip.load(vrmaURL) }).value else {
+                NSLog("[Performer] %@ did not parse", vrmaURL.lastPathComponent)
+                return true
+            }
+            // A VRM 0.x model faces the opposite way from a `.vrma`, so its take turns half a turn.
+            let facingFlip = vrm.vrm.forwardDirection.z < 0
+            vrmaPlayer = VRMAnimationPlayer(clip: clip, root: root, facingFlip: facingFlip) { name in
+                HumanoidBone(rawValue: name).flatMap { vrm.humanoid.node(for: $0) }
+            }
+            // Hair and skirt only swing if the spring bones are stepped, and nothing else in the
+            // app does it - the shipped characters have their `J_Sec_*` chains but no driver.
+            vrmaPlayer?.onFrame = { [weak vrm] time in vrm?.update(at: time) }
+            vrmaPlayer?.start()
+            loadedDance = "local"
+            NSLog("[Performer] playing %@", vrmaURL.lastPathComponent)
+            return true
+        }
+        #endif
 
         if let danceURL, let clip = MocapClip.load(danceURL) {
             player = MocapPlayer(clip: clip, retargeter: rt)

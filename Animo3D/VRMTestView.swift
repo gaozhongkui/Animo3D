@@ -2,7 +2,7 @@
 //  VRMTestView.swift
 //  Animo3D
 //
-//  A standalone test page to verify VRM loading (via VRMKit) and Mixamo dance playback.
+//  A standalone test page to verify VRM loading (via VRMKit) and `.vrma` dance playback.
 //
 
 import SwiftUI
@@ -69,17 +69,17 @@ struct VRMTestView: View {
     }
 
     private func loadTestAssets() async {
-        // Model: TestCharacter.glb (VRM format)
-        // Dance: Flair.json (Converted from Flair.dae)
+        // Model: TestCharacter.glb (VRM 0.x, exported from VRoid Studio)
+        // Dance: MaftyDance.vrma (VRMC_vrm_animation, 23s at 30fps)
 
         guard let modelURL = Bundle.main.url(forResource: "TestCharacter", withExtension: "glb"),
-              let danceURL = Bundle.main.url(forResource: "Flair", withExtension: "json") else {
-            errorMessage = "Missing local test resources (TestCharacter.glb or Flair.json)"
+              let danceURL = Bundle.main.url(forResource: "MaftyDance", withExtension: "vrma") else {
+            errorMessage = "Missing local test resources (TestCharacter.glb or MaftyDance.vrma)"
             loading = false
             return
         }
 
-        let ok = await performer.loadLocal(modelURL: modelURL, danceURL: danceURL, isVRM: true)
+        let ok = await performer.loadLocal(modelURL: modelURL, vrmaURL: danceURL, isVRM: true)
 
         if !ok {
             errorMessage = "Failed to load assets. Check logs for VRMKit errors."
