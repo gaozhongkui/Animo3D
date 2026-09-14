@@ -35,8 +35,40 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     var contactShadowOnly = false   // Detail page: Only add contact shadow under feet (to give grounding sense), no dark floor
     private var lightsAdded = false
 
+    /// Only hair swings. A VRoid rig names every secondary bone `J_Sec_*`, which is also the
+    /// bust, the skirt, the coat, the sleeves and the hood strings - `char_VRM_6` alone carries
+    /// over a hundred of them. Driving all of those from one set of constants is not "basic hair
+    /// physics", it is a whole cloth solver, so this takes the hair chains and leaves the rest
+    /// skinned-but-static, exactly as before.
+    private static let hairBonePrefix = "J_Sec_Hair"
+
+    /// One link of a hair chain, simulated as a single particle sitting at the bone's tail.
+    private struct SpringBone {
+        let node: SCNNode
+        /// Where the tail sits in the bone's own space: the next link's position, so the chain
+        /// uses the model's real segment lengths instead of one guessed constant.
+        let localTail: simd_float3
+        /// The bone's orientation in its parent's space with no physics applied. Every frame
+        /// restarts from here, so the solver reads the pose the animation asks for and writes a
+        /// delta on top of it; integrating on its own output instead lets the chain drift away.
+        let restLocalRotation: simd_quatf
+        var current: simd_float3
+        var prev: simd_float3
+    }
+    private var springBones: [SpringBone] = []
+    /// `install()` rebuilds the chains on the main thread while `updatePhysics()` walks them on
+    /// SceneKit's render thread - switching character mid-frame used to be a crash window.
+    private let springLock = NSLock()
+
     @Published var backgroundType: BackgroundType = .sky {
         didSet { updateBackgroundAndGround() }
+    }
+
+    @Published var userScale: Float = 1.0 {
+        didSet { characterRoot?.simdScale = simd_float3(repeating: userScale) }
+    }
+    @Published var userRotationY: Float = 0 {
+        didSet { characterRoot?.simdEulerAngles.y = userRotationY }
     }
 
     // Skeletal pose at load time, used for resetting.
@@ -107,6 +139,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         // handful of switches).
         characterRoot?.removeFromParentNode()
         boneNodes.removeAll()
+        springLock.lock(); springBones.removeAll(); springLock.unlock()
         isLoaded = false
 
         // Do not clone: cloning a skinned node breaks SCNSkinner's bone references (very visible on
@@ -120,6 +153,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         // the clips sit on the bones. Left in place they play themselves and fight the retargeter
         // for control of the skeleton.
         var found: [String] = []
+        var hairNodes: [SCNNode] = []
         root.removeAllAnimations()
         root.enumerateChildNodes { node, _ in
             for key in node.animationKeys { node.removeAnimation(forKey: key) }
@@ -127,12 +161,22 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             if let name = node.name {
                 boneNodes[name] = node
                 if name.hasPrefix("mixamorig") { found.append(name) }
+                if name.hasPrefix(Self.hairBonePrefix) { hairNodes.append(node) }
             }
         }
 
         sanitizeMaterials(root)
         normalizeOrientation(root)
         setupFrontCamera()
+
+        // Apply user adjustments
+        root.simdScale = simd_float3(repeating: userScale)
+        root.simdEulerAngles.y = userRotationY
+
+        // Seed the hair particles only now. normalizeOrientation() and the two lines above all
+        // move the character in world space, and a particle seeded before them starts the first
+        // frame metres away from its bone - which reads as the hair being flung across the stage.
+        seedHairPhysics(hairNodes)
 
         // Fallback height: when bone lookup fails (a Tripo static mesh has no Mixamo skeleton),
         // walk every geometry and convert the 8 corners of its local bounding box to world space.
@@ -147,6 +191,104 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         captureBindPose()
         isLoaded = true
         return found.sorted()
+    }
+
+    /// Build the hair chains from the bones just collected, with the character already in its
+    /// final place. Call this from `install()` and nowhere else.
+    private func seedHairPhysics(_ nodes: [SCNNode]) {
+        var bones: [SpringBone] = []
+        bones.reserveCapacity(nodes.count)
+
+        for node in nodes {
+            // A link swings toward the next link. The tip of a chain - VRoid spells those
+            // `..._end_...` - has nothing to swing toward and is carried by its parent, so it is
+            // simulated by proxy and skipped here.
+            guard let tip = node.childNodes.first(where: {
+                ($0.name ?? "").hasPrefix(Self.hairBonePrefix)
+            }) else { continue }
+            let localTail = tip.simdPosition
+            guard simd_length_squared(localTail) > 1e-8 else { continue }
+
+            let tail = node.simdConvertPosition(localTail, to: nil)
+            bones.append(SpringBone(node: node,
+                                    localTail: localTail,
+                                    restLocalRotation: node.simdOrientation,
+                                    current: tail,
+                                    prev: tail))
+        }
+
+        // Parents first: a link solves against its parent's transform for *this* frame, so a
+        // child solved ahead of its parent would be chasing the previous one and the chain would
+        // ripple a frame late at every joint.
+        bones.sort { depth(of: $0.node) < depth(of: $1.node) }
+
+        springLock.lock(); springBones = bones; springLock.unlock()
+    }
+
+    private func depth(of node: SCNNode) -> Int {
+        var d = 0
+        var n = node.parent
+        while let p = n { d += 1; n = p.parent }
+        return d
+    }
+
+    /// Step the hair chains. Runs once per rendered frame, on SceneKit's render thread.
+    ///
+    /// Verlet particle per link, constrained to the bone's own length, with the result applied as
+    /// a swing *delta* on the pose the `.vrma` player wrote. Everything is scale-relative, so the
+    /// pinch gesture does not change how the hair behaves.
+    func updatePhysics() {
+        guard isLoaded else { return }
+        springLock.lock()
+        defer { springLock.unlock() }
+        guard !springBones.isEmpty else { return }
+
+        let stiffness: Float = 0.08     // how hard a link is pulled back to the animated pose
+        let drag: Float = 0.85          // share of velocity kept each frame
+        let sag: Float = 0.03           // gravity, as a fraction of the link's own length
+
+        for i in springBones.indices {
+            let node = springBones[i].node
+            guard node.parent != nil else { continue }
+
+            // Rest pose first: the parent has already been posed this frame, so this is where the
+            // animation on its own would put the tail.
+            node.simdOrientation = springBones[i].restLocalRotation
+            let origin = node.simdWorldPosition
+            let restTail = node.simdConvertPosition(springBones[i].localTail, to: nil)
+            let length = simd_length(restTail - origin)
+            guard length > 1e-5 else { continue }
+
+            // A character that was just swapped, rescaled or moved leaves the particle nowhere
+            // near its bone. Snap it instead of letting it whip back across the head.
+            if simd_distance(springBones[i].current, origin) > length * 6 {
+                springBones[i].current = restTail
+                springBones[i].prev = restTail
+            }
+
+            let velocity = (springBones[i].current - springBones[i].prev) * drag
+            let pull = (restTail - springBones[i].current) * stiffness
+            var next = springBones[i].current + velocity + pull + simd_float3(0, -sag * length, 0)
+
+            // Hold the particle on the sphere of the bone's length: the link rotates, it does not
+            // stretch.
+            let dir = next - origin
+            guard simd_length_squared(dir) > 1e-10 else { continue }
+            next = origin + simd_normalize(dir) * length
+
+            springBones[i].prev = springBones[i].current
+            springBones[i].current = next
+
+            // Apply the swing on top of the rest orientation. Rebuilding the orientation outright
+            // (look(at:up:)) would throw away the bone's own twist and flip whenever the up vector
+            // lined up with the bone.
+            let from = simd_normalize(restTail - origin)
+            let to = simd_normalize(next - origin)
+            let d = simd_dot(from, to)
+            // Skip a no-op, and skip the antipodal case where the from->to rotation is undefined.
+            guard d < 0.99999, d > -0.99999 else { continue }
+            node.simdWorldOrientation = simd_quatf(from: from, to: to) * node.simdWorldOrientation
+        }
     }
 
     // MARK: - Lighting levels
@@ -1507,14 +1649,16 @@ struct CharacterSceneView: UIViewRepresentable {
         }
 
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
+            controller.updatePhysics()
             controller.driveStage()
             controller.stepCameraMove()
 
-            // Hair and skirt physics used to be stepped here, on a `VRMNode` mounted straight from
-            // a `.vrm` file. Nothing mounts one any more - every character is a `.scn` built by
-            // `tools/auto_rig.py` - so this only ever saw a nil cast. The `J_Sec_*` spring chains
-            // are still *in* those `.scn` files, skinned but undriven; driving them needs a spring
-            // solver of our own, not this.
+            // Hair physics used to be stepped here, on a `VRMNode` mounted straight from a `.vrm`
+            // file. Nothing mounts one any more - every character is a `.scn` built by
+            // `tools/auto_rig.py` - so this only ever saw a nil cast. The spring solver those
+            // `.scn` files needed is now `controller.updatePhysics()`, called above. It drives the
+            // `J_Sec_Hair*` chains only; the other `J_Sec_*` bones (bust, skirt, sleeves) are
+            // still skinned but undriven.
         }
 
         /// Fires once, after SceneKit has actually put a frame on screen.
@@ -1531,6 +1675,20 @@ struct CharacterSceneView: UIViewRepresentable {
             onFirstFrame = nil
             DispatchQueue.main.async { cb?() }
         }
+
+        // MARK: Gestures
+        @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
+            guard g.state == .changed else { return }
+            let s = Float(g.scale)
+            controller.userScale = max(0.1, min(controller.userScale * s, 5.0))
+            g.scale = 1.0
+        }
+
+        @objc func handleRotate(_ g: UIRotationGestureRecognizer) {
+            guard g.state == .changed else { return }
+            controller.userRotationY -= Float(g.rotation)
+            g.rotation = 0
+        }
     }
 
     func makeUIView(context: Context) -> SCNView {
@@ -1541,6 +1699,13 @@ struct CharacterSceneView: UIViewRepresentable {
         view.scene = controller.scene
         view.antialiasingMode = DeviceTier.antialiasing   // Lower anti-aliasing on low-end to reduce lag
         view.allowsCameraControl = true
+
+        // Add gestures for manual model adjustment (Scale & Rotate)
+        let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
+        view.addGestureRecognizer(pinch)
+        let rotate = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRotate(_:)))
+        view.addGestureRecognizer(rotate)
+
         // Controlled turntable: Horizontal orbit around character + restricted pitch angle, avoiding ground halos in face at eye-level
         let cc = view.defaultCameraController
         cc.interactionMode = .orbitTurntable
