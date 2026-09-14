@@ -687,8 +687,16 @@ struct DanceStudioView: View {
     private func setupInitial() {
         if let ic = initialCharacter, remoteAssets.characters.contains(where: { $0.id == ic }) { character = ic }
         if let id = initialDance, remoteAssets.dances.contains(where: { $0.id == id }) { dance = id }
-        // Brought in a character from the library -> go directly to dance selection, and select the first dance by default
-        if !character.isEmpty && initialCharacter != nil { step = .dance; ensureDefaultDance() }
+
+        // Determine starting step based on what was passed from the entry point
+        if !character.isEmpty && !dance.isEmpty {
+            // Both picked (e.g. via deep link or future feature) -> straight to music
+            step = .music
+        } else if !character.isEmpty && initialCharacter != nil {
+            // Character picked -> go to dance selection
+            step = .dance
+            ensureDefaultDance()
+        }
     }
 
     /// When entering dance selection, if none is selected, default to the first one.
@@ -702,7 +710,14 @@ struct DanceStudioView: View {
     private func next() {
         HapticManager.medium()
         switch step {
-        case .character: step = .dance; ensureDefaultDance()
+        case .character:
+            // If the user entered the studio by picking a specific dance, skip the dance selection step
+            if !dance.isEmpty && initialDance != nil {
+                step = .music
+            } else {
+                step = .dance
+                ensureDefaultDance()
+            }
         case .dance:     step = .music
         case .music:     startPerform()
         case .perform:   break

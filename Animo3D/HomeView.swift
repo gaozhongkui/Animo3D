@@ -351,8 +351,11 @@ struct HomeView: View {
             if let action = action {
                 Button(action: action) {
                     Text("All")
-                        .font(.subheadline)
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
                 }
             }
         }
