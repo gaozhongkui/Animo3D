@@ -12,6 +12,7 @@
 
 import Foundation
 import SceneKit
+import VRMKit
 
 enum MixamoBoneMap {
 
@@ -108,6 +109,8 @@ struct BoneScheme {
     let rightShoulder: String
     let leftFoot: String
     let rightFoot: String
+    let leftHand: String
+    let rightHand: String
     /// Toe bones. A pointed toe drops the sole well below the ankle, so planting that watches only
     /// the foot bone reads level while the boot is already through the floor.
     let leftToe: String
@@ -125,9 +128,61 @@ struct BoneScheme {
         hips: "mixamorig_Hips", head: "mixamorig_Head",
         leftShoulder: "mixamorig_LeftShoulder", rightShoulder: "mixamorig_RightShoulder",
         leftFoot: "mixamorig_LeftFoot", rightFoot: "mixamorig_RightFoot",
+        leftHand: "mixamorig_LeftHand", rightHand: "mixamorig_RightHand",
         leftToe: "mixamorig_LeftToeBase", rightToe: "mixamorig_RightToeBase",
         spine: "mixamorig_Spine",
         leftArm: "mixamorig_LeftArm", rightArm: "mixamorig_RightArm",
         leftUpLeg: "mixamorig_LeftUpLeg", rightUpLeg: "mixamorig_RightUpLeg")
+
+    /// The scheme for a model that ships its own VRM humanoid table.
+    ///
+    /// A `.vrm` names its nodes however its author felt like - `J_Bip_C_Hips`, `Bone_014`, a word
+    /// in Japanese - so no fixed table of names can address one. The humanoid table in the file is
+    /// the one reliable way in: resolve every landmark this app needs through it once, at install,
+    /// and the rest of the app goes on addressing bones by node name exactly as it does a Mixamo
+    /// rig, with nothing else needing to know which kind of model is mounted.
+    ///
+    /// Returns nil when the model is missing a bone the app cannot work without - an incomplete
+    /// humanoid is better refused at import than mounted and broken.
+    static func vrm(_ name: (HumanoidBone) -> String?) -> BoneScheme? {
+        guard let hips = name(.hips), let head = name(.head),
+              let leftShoulder = name(.leftShoulder), let rightShoulder = name(.rightShoulder),
+              let leftFoot = name(.leftFoot), let rightFoot = name(.rightFoot),
+              let leftHand = name(.leftHand), let rightHand = name(.rightHand),
+              let spine = name(.spine),
+              let leftArm = name(.leftUpperArm), let rightArm = name(.rightUpperArm),
+              let leftForeArm = name(.leftLowerArm), let rightForeArm = name(.rightLowerArm),
+              let leftUpLeg = name(.leftUpperLeg), let rightUpLeg = name(.rightUpperLeg),
+              let leftLeg = name(.leftLowerLeg), let rightLeg = name(.rightLowerLeg)
+        else { return nil }
+
+        // Toes are optional in VRM 1.0. Foot planting reads the toe when there is one and the
+        // ankle otherwise, so falling back to the foot degrades the plant rather than failing.
+        let leftToe = name(.leftToes) ?? leftFoot
+        let rightToe = name(.rightToes) ?? rightFoot
+
+        // The same eight limb bones, against this model's own node names. The BlazePose indices are
+        // properties of the human body, not of the rig, so they carry over unchanged.
+        let bones: [MixamoBoneMap.BoneDef] = [
+            MixamoBoneMap.BoneDef(node: leftArm,      childNode: leftForeArm,  from: 11, to: 13),
+            MixamoBoneMap.BoneDef(node: leftForeArm,  childNode: leftHand,     from: 13, to: 15),
+            MixamoBoneMap.BoneDef(node: rightArm,     childNode: rightForeArm, from: 12, to: 14),
+            MixamoBoneMap.BoneDef(node: rightForeArm, childNode: rightHand,    from: 14, to: 16),
+            MixamoBoneMap.BoneDef(node: leftUpLeg,    childNode: leftLeg,      from: 23, to: 25),
+            MixamoBoneMap.BoneDef(node: leftLeg,      childNode: leftFoot,     from: 25, to: 27),
+            MixamoBoneMap.BoneDef(node: rightUpLeg,   childNode: rightLeg,     from: 24, to: 26),
+            MixamoBoneMap.BoneDef(node: rightLeg,     childNode: rightFoot,    from: 26, to: 28),
+        ]
+
+        return BoneScheme(bones: bones,
+                          hips: hips, head: head,
+                          leftShoulder: leftShoulder, rightShoulder: rightShoulder,
+                          leftFoot: leftFoot, rightFoot: rightFoot,
+                          leftHand: leftHand, rightHand: rightHand,
+                          leftToe: leftToe, rightToe: rightToe,
+                          spine: spine,
+                          leftArm: leftArm, rightArm: rightArm,
+                          leftUpLeg: leftUpLeg, rightUpLeg: rightUpLeg)
+    }
 
 }

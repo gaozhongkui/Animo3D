@@ -30,7 +30,19 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     private(set) var cameraNode: SCNNode?
     private(set) var isLoaded = false
     private(set) var modelHeight: Float = 0   // Character unit height (for AR scaling)
-    let scheme = BoneScheme.mixamo   // Named bones of the Mixamo rig, the only skeleton shipped
+    /// Which bones this character has and what they are called.
+    ///
+    /// Was a constant back when every character was a Mixamo rig. An imported `.vrm` names its
+    /// nodes whatever its author chose, so the scheme is read out of the file's own humanoid table
+    /// at install time and everything downstream keeps addressing bones by name as before.
+    private(set) var scheme = BoneScheme.mixamo
+    /// The VRM root, when the mounted character is an imported one. It drives its own hair.
+    private(set) var vrmNode: SCNNode?
+    /// The bones the camera measures the pose against - see `posedBounds()`.
+    private var boundsNodes: [SCNNode] = []
+    /// An imported model's humanoid bones, keyed by the name a `.vrma` calls them. Empty for the
+    /// bundled characters, which answer through `MixamoBoneMap` instead.
+    private var vrmHumanoid: [String: SCNNode] = [:]
     var groundEnabled = false   // Ground + top-down view enabled only for large performance view; disabled for thumbnails/small cards
     var contactShadowOnly = false   // Detail page: Only add contact shadow under feet (to give grounding sense), no dark floor
     private var lightsAdded = false
@@ -112,7 +124,11 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// behind any other parse in flight.
     static func loadSceneFile(at url: URL, warmUp: Bool = false) -> SCNScene? {
         parseQueue.sync {
-            guard let loaded = try? SCNScene(url: url, options: [.convertToYUp: false]) else {
+            // SceneKit does not read glTF, so a model the user imported takes the other door.
+            let parsed = VRMCharacter.isVRM(url)
+                ? VRMCharacter.loadScene(at: url)
+                : try? SCNScene(url: url, options: [.convertToYUp: false])
+            guard let loaded = parsed else {
                 print("[Character] failed to load model at url: \(url.lastPathComponent)")
                 return nil
             }
@@ -139,6 +155,10 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         // handful of switches).
         characterRoot?.removeFromParentNode()
         boneNodes.removeAll()
+        boundsNodes.removeAll()
+        vrmHumanoid.removeAll()
+        vrmNode = nil
+        scheme = .mixamo
         springLock.lock(); springBones.removeAll(); springLock.unlock()
         isLoaded = false
 
@@ -162,7 +182,26 @@ final class CharacterSceneController: ObservableObject, BoneRig {
                 boneNodes[name] = node
                 if name.hasPrefix("mixamorig") { found.append(name) }
                 if name.hasPrefix(Self.hairBonePrefix) { hairNodes.append(node) }
+                if name.hasPrefix("mixamorig") || name.hasPrefix("J_Sec_") { boundsNodes.append(node) }
             }
+        }
+
+        // An imported model has to declare its own skeleton before anything reads one. Everything
+        // below - orienting, framing, foot planting - addresses bones through `scheme`, and for a
+        // `.vrm` the names in it come from the file.
+        if let vrm = VRMCharacter.node(in: loaded) {
+            guard let vrmScheme = VRMCharacter.scheme(for: vrm) else {
+                NSLog("[Character] imported model has an incomplete humanoid; refusing to mount")
+                root.removeFromParentNode()
+                characterRoot = nil
+                return []
+            }
+            vrmNode = vrm
+            scheme = vrmScheme
+            // A VRM has no name prefix to search for, and its humanoid set already spans the whole
+            // body - which is exactly what framing needs to measure.
+            vrmHumanoid = VRMCharacter.humanoidNodes(of: vrm)
+            boundsNodes = Array(vrmHumanoid.values)
         }
 
         sanitizeMaterials(root)
@@ -191,6 +230,17 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         captureBindPose()
         isLoaded = true
         return found.sorted()
+    }
+
+    /// The node a `.vrma` means when it names a humanoid bone.
+    ///
+    /// A take is rotations keyed by VRM humanoid name. A bundled character answers through
+    /// `MixamoBoneMap`; an imported one answers through the scheme read out of its own file. Every
+    /// caller that drives a skeleton goes through here, so neither the player, the retargeter nor
+    /// the thumbnail renderer has to know which kind is mounted.
+    func humanoidNode(_ vrmBoneName: String) -> SCNNode? {
+        if vrmNode != nil { return vrmHumanoid[vrmBoneName] }
+        return MixamoBoneMap.humanoid[vrmBoneName].flatMap { boneNodes[$0] }
     }
 
     /// Build the hair chains from the bones just collected, with the character already in its
@@ -239,6 +289,14 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// pinch gesture does not change how the hair behaves.
     func updatePhysics() {
         guard isLoaded else { return }
+
+        // An imported model states where its own spring bones are and how they behave. That is real
+        // data from the file, strictly better than the name matching below, so it drives itself.
+        if let vrm = vrmNode {
+            VRMCharacter.step(vrm, at: CACurrentMediaTime())
+            return
+        }
+
         springLock.lock()
         defer { springLock.unlock() }
         guard !springBones.isEmpty else { return }
@@ -1446,17 +1504,14 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// pose, so that box never moves however far the take throws the skeleton - which is the exact
     /// blind spot this exists to cover.
     func posedBounds() -> (min: simd_float3, max: simd_float3)? {
-        guard isLoaded, modelHeight > 0 else { return nil }
+        guard isLoaded, modelHeight > 0, !boundsNodes.isEmpty else { return nil }
         var lo = simd_float3(repeating: .greatestFiniteMagnitude)
         var hi = simd_float3(repeating: -.greatestFiniteMagnitude)
-        var counted = 0
-        for (name, node) in boneNodes where name.hasPrefix("mixamorig") || name.hasPrefix("J_Sec_") {
+        for node in boundsNodes {
             let p = node.simdWorldPosition
             lo = simd_min(lo, p)
             hi = simd_max(hi, p)
-            counted += 1
         }
-        guard counted > 0 else { return nil }
 
         // A joint sits inside the body: the skull bone is well below the top of the hair, the ankle
         // well above the sole, the wrist short of the fingertips. Pad out to what is drawn, with

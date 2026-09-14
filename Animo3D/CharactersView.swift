@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct CharactersView: View {
     // The segment lives in the router, not in local state, so Home can deep-link straight to
@@ -80,16 +81,48 @@ private struct PickedCharacter: Identifiable { let id: String; let name: String 
 struct MyCharactersView: View {
     @ObservedObject private var remoteAssets = RemoteAssets.shared
     @State private var picked: PickedCharacter?
+    @State private var showImporter = false
+    @State private var importing = false
+    @State private var importError: String?
+    @State private var pendingDelete: PickedCharacter?
     private let cols = [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)]
 
     private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
 
+    /// Characters the user brought in themselves - the only ones that can be deleted.
+    private var isImported: (String) -> Bool {
+        let ids = Set(remoteAssets.userCharacters.map(\.id))
+        return { ids.contains($0) }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("3D Virtual Dancers")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .padding(.horizontal)
+                HStack {
+                    Text("3D Virtual Dancers")
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                    Spacer()
+                    // This is the armory, which is where bringing your own model belongs. It used
+                    // to be the first tile of the studio's character grid - a dashed placeholder
+                    // ahead of every real dancer, on the one screen whose job is picking a dancer
+                    // fast, and with nowhere to manage what had been imported.
+                    Button {
+                        HapticManager.light()
+                        showImporter = true
+                    } label: {
+                        if importing {
+                            ProgressView().frame(width: 32, height: 32)
+                        } else {
+                            Image(systemName: "plus")
+                                .font(.system(size: 15, weight: .bold))
+                                .frame(width: 32, height: 32)
+                                .background(Color(.secondarySystemFill), in: Circle())
+                        }
+                    }
+                    .disabled(importing)
+                    .accessibilityLabel("Import a VRM model")
+                }
+                .padding(.horizontal)
 
                 LazyVGrid(columns: cols, spacing: 18) {
                     ForEach(Array(remoteAssets.characters.enumerated()), id: \.element.id) { i, c in
@@ -100,12 +133,50 @@ struct MyCharactersView: View {
                             CharacterCard(name: c.name, characterKey: c.id, tint: tints[i % tints.count])
                         }
                         .buttonStyle(CardButtonStyle())
+                        .contextMenu {
+                            if isImported(c.id) {
+                                Button(role: .destructive) {
+                                    pendingDelete = PickedCharacter(id: c.id, name: c.name)
+                                } label: { Label("Remove", systemImage: "trash") }
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal)
             }
             .padding(.top, 4)
             .padding(.bottom, 30)
+        }
+        // `.data`, not a VRM type: the system has no type registered for the extension, so
+        // `UTType(filenameExtension: "vrm")` is nil and there is nothing narrower to ask for. The
+        // real check is in the importer, which parses the file before keeping it.
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.data]) { result in
+            guard let url = try? result.get() else { return }
+            importing = true
+            Task {
+                do {
+                    try await remoteAssets.importLocalVRM(at: url)
+                } catch {
+                    importError = error.localizedDescription
+                }
+                importing = false
+            }
+        }
+        .alert("Could not import", isPresented: Binding(get: { importError != nil },
+                                                        set: { if !$0 { importError = nil } })) {
+            Button("OK", role: .cancel) { importError = nil }
+        } message: {
+            Text(importError ?? "")
+        }
+        .alert("Remove this character?", isPresented: Binding(get: { pendingDelete != nil },
+                                                             set: { if !$0 { pendingDelete = nil } })) {
+            Button("Remove", role: .destructive) {
+                if let p = pendingDelete { remoteAssets.deleteUserCharacter(p.id) }
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("\(pendingDelete?.name ?? "") and its model file will be deleted from this device.")
         }
         .fullScreenCover(item: $picked) { p in
             NavigationStack {

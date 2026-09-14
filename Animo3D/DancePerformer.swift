@@ -225,7 +225,7 @@ final class DancePerformer: ObservableObject {
         // A scout of its own: `apply()` carries a foot-planting offset between calls, and the
         // player that is currently on screen must not inherit this sweep's.
         guard let scout = VRMAnimationPlayer(clip: clip, root: root, bone: { [weak self] name in
-            MixamoBoneMap.humanoid[name].flatMap { self?.controller.boneNodes[$0] }
+            self?.controller.humanoidNode(name)
         }) else { return }
 
         var lo = simd_float3(repeating: .greatestFiniteMagnitude)
@@ -248,10 +248,11 @@ final class DancePerformer: ObservableObject {
 
     /// Start a `.vrma` take on whatever is already mounted.
     ///
-    /// The take is bone rotations keyed by VRM humanoid name, and `MixamoBoneMap.humanoid` says
-    /// which node on our characters each name is. The player re-expresses every rotation between
-    /// the take's rest pose and the model's, so rig, scale and build all drop out - which is why
-    /// one file drives every character.
+    /// The take is bone rotations keyed by VRM humanoid name, and `controller.humanoidNode(_:)`
+    /// says which node each name is - through `MixamoBoneMap` for a bundled character, through the
+    /// file's own humanoid table for an imported one. The player re-expresses every rotation
+    /// between the take's rest pose and the model's, so rig, scale and build all drop out - which
+    /// is why one file drives every character, imported ones included.
     @discardableResult
     func playVRMA(_ url: URL) async -> Bool {
         guard let root = controller.characterRoot else { return false }
@@ -274,7 +275,7 @@ final class DancePerformer: ObservableObject {
         vrmaPlayer = VRMAnimationPlayer(clip: clip, root: root,
                                         groundY: { [weak controller] in controller?.groundY }) {
             [weak self] name in
-            MixamoBoneMap.humanoid[name].flatMap { self?.controller.boneNodes[$0] }
+            self?.controller.humanoidNode(name)
         }
         vrmaPlayer?.start()
         loadedDance = url.deletingPathExtension().lastPathComponent

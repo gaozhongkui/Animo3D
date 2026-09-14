@@ -152,8 +152,7 @@ final class ThumbRenderer {
 
     private func makePlayer(clip: VRMAnimationClip, root: SCNNode) -> VRMAnimationPlayer? {
         VRMAnimationPlayer(clip: clip, root: root, bone: { [weak self] name in
-            guard let self else { return nil }
-            return MixamoBoneMap.humanoid[name].flatMap { self.controller.boneNodes[$0] }
+            self?.controller.humanoidNode(name)
         })
     }
 
@@ -201,7 +200,7 @@ final class ThumbRenderer {
 
         // Limbs thrown clear of the body: the difference between a silhouette and a person
         // standing there.
-        let hands = ["mixamorig_LeftHand", "mixamorig_RightHand"].compactMap(at)
+        let hands = [scheme.leftHand, scheme.rightHand].compactMap(at)
         let limbs = hands + [scheme.leftFoot, scheme.rightFoot].compactMap(at)
         let openness = limbs.isEmpty ? 0
             : limbs.reduce(Float(0)) { $0 + simd_length($1 - hips) } / Float(limbs.count) / height

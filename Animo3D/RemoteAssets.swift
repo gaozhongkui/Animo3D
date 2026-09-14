@@ -44,14 +44,14 @@ extension String {
     var assetName: String { (self as NSString).lastPathComponent }
 }
 
-struct CharacterItem: Identifiable, Decodable, Hashable {
+struct CharacterItem: Identifiable, Codable, Hashable {
     let id: String
     let name: String
     let model: AssetPath
     let thumb: AssetPath?
 }
 
-struct DanceItem: Identifiable, Decodable, Hashable {
+struct DanceItem: Identifiable, Codable, Hashable {
     let id: String
     let name: String
     let clip: AssetPath
@@ -112,6 +112,7 @@ final class RemoteAssets: ObservableObject {
 
     @Published private(set) var characters: [CharacterItem] = []
     @Published private(set) var dances: [DanceItem] = []
+    @Published private(set) var userCharacters: [CharacterItem] = []
     @Published private(set) var catalogSource: Source = .none
     @Published private(set) var state: State = .loading
     @Published private(set) var notice: String?
@@ -153,9 +154,16 @@ final class RemoteAssets: ObservableObject {
             .appendingPathComponent("RemoteAssets")
     }
     private var catalogCacheURL: URL { cacheDir.appendingPathComponent("_index.json") }
+    private var userIndexURL: URL { cacheDir.appendingPathComponent("_user_index.json") }
 
     private init() {
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        // Load user-imported characters first
+        if let data = try? Data(contentsOf: userIndexURL),
+           let items = try? JSONDecoder().decode([CharacterItem].self, from: data) {
+            userCharacters = items
+        }
+
         // The last index answers instantly, so a returning user is never blocked on the network. The
         // launch fetch still runs and replaces it when the revision is newer.
         if let cat = decodeCatalog(try? Data(contentsOf: catalogCacheURL), from: "cache") {
@@ -256,16 +264,18 @@ final class RemoteAssets: ObservableObject {
         catalog = cat
         builtIn = cat.builtin
         charById = Dictionary(cat.characters.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        // Add user characters to the lookup table
+        for c in userCharacters { charById[c.id] = c }
         danceById = Dictionary(cat.dances.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         lock.unlock()
 
         let publish = { [weak self] in
             guard let self else { return }
-            self.characters = cat.characters
+            self.characters = self.userCharacters + cat.characters
             self.dances = cat.dances
             self.notice = cat.notice
             self.catalogSource = source
-            self.state = cat.characters.isEmpty || cat.dances.isEmpty ? .unavailable : .ready
+            self.state = (cat.characters.isEmpty && self.userCharacters.isEmpty) || cat.dances.isEmpty ? .unavailable : .ready
         }
         if Thread.isMainThread { publish() } else { DispatchQueue.main.async(execute: publish) }
 
@@ -405,6 +415,112 @@ final class RemoteAssets: ObservableObject {
     private func snapshotBaseUrl() -> String? {
         lock.lock(); defer { lock.unlock() }
         return catalog?.baseUrl
+    }
+
+    // MARK: - Local Import
+
+    enum ImportError: LocalizedError {
+        case notVRM
+        case unreadable
+        case copyFailed
+        case notAHumanoid
+
+        var errorDescription: String? {
+            switch self {
+            case .notVRM:      return "That is not a .vrm file."
+            case .unreadable:  return "This file could not be opened."
+            case .copyFailed:  return "This file could not be saved to the app."
+            case .notAHumanoid:
+                // The common case by far: a .vrm that is a prop, a stage or a scene rather than a
+                // character. Saying which is missing would mean nothing to the person importing it.
+                return "This model has no dance-ready skeleton."
+            }
+        }
+    }
+
+    /// Add a `.vrm` the user picked out of Files to their characters.
+    ///
+    /// The model is parsed before it is kept. An unreadable file, or one with no usable humanoid -
+    /// a prop, a stage, a scene - would otherwise become a card that sits in the grid and does
+    /// nothing when tapped, which is exactly the failure the user cannot diagnose. Better to refuse
+    /// at import, while they still have the file picker in mind.
+    @discardableResult
+    func importLocalVRM(at url: URL) async throws -> CharacterItem {
+        guard VRMCharacter.isVRM(url) else { throw ImportError.notVRM }
+
+        // A name of its own, not the source file's: two models called `avatar.vrm` from different
+        // folders would otherwise overwrite each other, and the second import would silently
+        // replace the first one's model while keeping both cards.
+        let id = "user_\(UUID().uuidString.prefix(8))"
+        let stored = "\(id).vrm"
+        let dest = localCacheURL(for: stored)
+
+        guard url.startAccessingSecurityScopedResource() else { throw ImportError.unreadable }
+        defer { url.stopAccessingSecurityScopedResource() }
+        do {
+            try? FileManager.default.removeItem(at: dest)
+            try FileManager.default.copyItem(at: url, to: dest)
+        } catch {
+            NSLog("[RemoteAssets] could not copy %@: %@", url.lastPathComponent, String(describing: error))
+            throw ImportError.copyFailed
+        }
+
+        // Parsing is tens of megabytes of glTF; not on the main thread.
+        let usable = await Task.detached(priority: .userInitiated) { () -> Bool in
+            guard let scene = VRMCharacter.loadScene(at: dest),
+                  let node = VRMCharacter.node(in: scene) else { return false }
+            return VRMCharacter.scheme(for: node) != nil
+        }.value
+        guard usable else {
+            try? FileManager.default.removeItem(at: dest)
+            throw ImportError.notAHumanoid
+        }
+
+        let item = CharacterItem(id: id,
+                                 name: url.deletingPathExtension().lastPathComponent,
+                                 model: stored,
+                                 thumb: nil)
+        await MainActor.run {
+            userCharacters.insert(item, at: 0)
+            saveUserIndex()
+            republish()
+        }
+        return item
+    }
+
+    /// Remove one imported character, and the file behind it.
+    @MainActor
+    func deleteUserCharacter(_ id: String) {
+        guard let i = userCharacters.firstIndex(where: { $0.id == id }) else { return }
+        let item = userCharacters.remove(at: i)
+        try? FileManager.default.removeItem(at: localCacheURL(for: item.model.assetName))
+        lock.lock(); charById[id] = nil; lock.unlock()
+        saveUserIndex()
+        republish()
+    }
+
+    /// Push the imported characters back into the published lists.
+    ///
+    /// Goes through `apply` when there is a catalog so the merge with the remote characters stays
+    /// in one place; without one - offline, first launch - the imported models are all there is,
+    /// and they are still worth showing.
+    @MainActor
+    private func republish() {
+        if let cat = catalog {
+            apply(cat, source: catalogSource)
+        } else {
+            characters = userCharacters
+            state = userCharacters.isEmpty ? .unavailable : .ready
+            lock.lock()
+            for c in userCharacters { charById[c.id] = c }
+            lock.unlock()
+        }
+    }
+
+    private func saveUserIndex() {
+        if let data = try? JSONEncoder().encode(userCharacters) {
+            try? data.write(to: userIndexURL, options: [.atomic])
+        }
     }
 
     enum AssetError: LocalizedError {
