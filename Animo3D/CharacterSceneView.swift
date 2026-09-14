@@ -525,6 +525,13 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// the move starts exactly where the shot already is and never snaps.
     private var orbitBaseAzimuth: Float?
     private var orbitBaseRadius: Float = 0
+    /// Smoothed orbit target and distance - see `stepCameraMove()`.
+    private var orbitLook: simd_float3?
+    private var orbitRadius: Float = 0
+    /// Width / height of the view the stage is drawn into, so a pose can be tested against the real
+    /// frame rather than an assumed one. Written by the view each frame; the default is a phone
+    /// held upright.
+    var viewportAspect: Float = 0.46
 
     /// How far either side of the original framing the camera swings, in radians (about 14 deg).
     private let orbitSwing: Float = 0.25
@@ -544,22 +551,53 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             guard r > 1e-4 else { return }
             orbitBaseAzimuth = atan2(dx, dz)
             orbitBaseRadius = r
+            orbitRadius = r
         }
         guard let base = orbitBaseAzimuth else { return }
 
         orbitClock += 1.0 / 30.0                     // the display link runs at 30
         let azimuth = base + sin(orbitClock * 0.20) * orbitSwing
+
+        // Where the performance actually is this frame.
+        //
+        // The orbit used to circle `stageCenter` and stare at a fixed waist height, both fixed at
+        // install time off a standing character. A take that travels, spins or drops then walks the
+        // dancer out of a shot that never noticed - on this stage Belly Dance put half of her past
+        // the right edge of the screen.
+        let standing = simd_float3(stageCenter.x, feetY + modelHeight * 0.48, stageCenter.z)
+        var targetLook = standing
+        var targetRadius = orbitBaseRadius
+        if let b = posedBounds() {
+            let c = (b.min + b.max) * 0.5
+            // Horizontally the camera follows all the way: a dancer who travels stays centred.
+            // Vertically only partly - riding a jump all the way up takes the floor out of frame
+            // with it, and the floor is most of what says this is a stage.
+            targetLook = simd_float3(c.x, standing.y + (c.y - standing.y) * 0.45, c.z)
+            // Never closer than the framing the stage was composed at; only further out, and only
+            // when a pose would otherwise spill past an edge.
+            targetRadius = max(orbitBaseRadius,
+                               distance(forHalfExtent: (b.max - b.min) * 0.5,
+                                        aspect: viewportAspect, margin: 1.25, fieldOfView: 55))
+        }
+
+        // Eased, and lopsided the same way the card's follow is: back off quickly, close in slowly.
+        var look = orbitLook ?? targetLook
+        look += (targetLook - look) * 0.10
+        orbitLook = look
+        orbitRadius += (targetRadius - orbitRadius) * (targetRadius > orbitRadius ? 0.20 : 0.03)
+
         // Distance breathes on a longer period than the swing, so the two never line up into an
         // obvious loop.
-        let radius = orbitBaseRadius * (1 + sin(orbitClock * 0.13) * 0.05)
+        let radius = orbitRadius * (1 + sin(orbitClock * 0.13) * 0.05)
 
         SCNTransaction.begin()
         SCNTransaction.animationDuration = 0
-        cam.simdPosition.x = stageCenter.x + sin(azimuth) * radius
-        cam.simdPosition.z = stageCenter.z + cos(azimuth) * radius
-        cam.look(at: SCNVector3(stageCenter.x,
-                                feetY + modelHeight * 0.48,
-                                stageCenter.z))
+        cam.simdPosition.x = look.x + sin(azimuth) * radius
+        cam.simdPosition.z = look.z + cos(azimuth) * radius
+        // Keep the same height above the subject the composed shot had, so following a jump does
+        // not flatten the camera into a level stare.
+        cam.simdPosition.y = look.y + modelHeight * 0.57
+        cam.look(at: SCNVector3(look))
         SCNTransaction.commit()
     }
 
@@ -1784,6 +1822,9 @@ struct CharacterSceneView: UIViewRepresentable {
         }
 
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
+            if let view = renderer as? SCNView, view.bounds.height > 1 {
+                controller.viewportAspect = Float(view.bounds.width / view.bounds.height)
+            }
             controller.updatePhysics()
             controller.driveStage()
             controller.stepCameraMove()
