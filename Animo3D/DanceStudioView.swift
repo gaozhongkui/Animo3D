@@ -66,6 +66,7 @@ struct DanceStudioView: View {
     /// rather than an index: a stage added or removed between versions would silently shift an
     /// index onto a different scene.
     @AppStorage("stage.id") private var stageID = CharacterSceneController.Stage.plaza.id
+    @State private var showStagePicker = false
 
     private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
 
@@ -108,6 +109,11 @@ struct DanceStudioView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)   // It ships its own unified back/close button
         .sheet(isPresented: $showShare) { if let url = shareURL { ShareSheet(items: [url]) } }
+        .fullScreenCover(isPresented: $showStagePicker) {
+            StagePickerView(selection: $stageID,
+                            onPick: { id in applyStage(id); showStagePicker = false },
+                            onClose: { showStagePicker = false })
+        }
         // Recording used to end on a bare share sheet, with nothing saying the clip had been kept.
         .fullScreenCover(item: $finished) { work in
             WorkDetailView(url: work.url, justSaved: true) { finished = nil }
@@ -516,8 +522,9 @@ struct DanceStudioView: View {
                     // is standing in, so a scene to put the dancer in is the one thing this cannot
                     // offer there.
                     if !arMode {
-                        stageBar
+                        stageButton
                             .opacity(recorder.isRecording ? 0 : 1)
+                            .allowsHitTesting(!recorder.isRecording)
                     }
                     if DeviceTier.allowsStageVFX {
                         vfxBar
@@ -538,21 +545,55 @@ struct DanceStudioView: View {
         }
     }
 
-    private var stageBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(CharacterSceneController.Stage.all, id: \.id) { spec in
-                    vfxChip(title: LocalizedStringKey(spec.name), icon: spec.icon,
-                            on: stageID == spec.id) {
-                        guard stageID != spec.id else { return }
-                        stageID = spec.id
-                        stage.controller.stage = spec
-                        Track.log(.stageSelected, ["stage": spec.id])
-                    }
+    /// One button, naming the stage in use, that opens the page of them.
+    ///
+    /// This was a row of chips while there were two stages to choose between. The catalogue can
+    /// serve any number of them now, and a picture of each is most of what tells someone what they
+    /// are picking - neither fits on a pill at the bottom of a screen with a dancer on it.
+    private var stageButton: some View {
+        HStack {
+            Button {
+                HapticManager.light()
+                showStagePicker = true
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "photo.on.rectangle.angled").font(.caption2)
+                    Text(stageName).font(.footnote.weight(.medium)).lineLimit(1)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold)).opacity(0.7)
                 }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .background { Color.clear.background(.ultraThinMaterial) }
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 0.5))
+                .contentShape(Capsule())
             }
-            .padding(.horizontal, 16)
+            .buttonStyle(.plain)
+            Spacer()
         }
+        .padding(.horizontal, 16)
+    }
+
+    /// What to call the stage in use. A downloaded one is named by the catalogue and an imported one
+    /// by whoever imported it, so this is not a lookup into anything the app ships.
+    private var stageName: LocalizedStringKey {
+        if let built = CharacterSceneController.Stage.all.first(where: { $0.id == stageID }) {
+            return LocalizedStringKey(built.name)
+        }
+        if let mine = StageLibrary.shared.userStages.first(where: { $0.id == stageID }) {
+            return LocalizedStringKey(mine.name)
+        }
+        if let item = RemoteAssets.shared.stage(stageID) { return LocalizedStringKey(item.name) }
+        return LocalizedStringKey(CharacterSceneController.Stage.plaza.name)
+    }
+
+    /// Building a stage may have to fetch and decode a sky, so the scene changes when it is ready
+    /// rather than when the tap happened. The picker closes either way.
+    private func applyStage(_ id: String) {
+        stageID = id
+        Track.log(.stageSelected, ["stage": id])
+        Task { stage.controller.stage = await StageLibrary.shared.spec(for: id) }
     }
 
     private var vfxBar: some View {
@@ -757,9 +798,9 @@ struct DanceStudioView: View {
         let ch = character, dc = dance
         Task {
             guard await stage.load(character: ch, dance: dc) else { loading = false; return }
-            // Before .perform, so the scene is built once in the stage the user last chose
-            // rather than built as the daylight one and then rebuilt.
-            stage.controller.stage = CharacterSceneController.Stage.named(stageID)
+            // Before .perform, so the scene is built once in the stage the user last chose rather
+            // than built as the daylight one and then rebuilt.
+            stage.controller.stage = await StageLibrary.shared.spec(for: stageID)
             if let m = selectedMusic { music.play(m) } else { music.stop() }
             Track.log(.performanceStarted, ["character": ch, "dance": dc,
                                             "music": selectedMusic?.name ?? "none",

@@ -15,6 +15,22 @@ Everything the index covers lives under assets_src/, and everything under assets
     assets_src/characters/<Id>.scn      the model
     assets_src/dances/<Id>.vrma         the take (VRMC_vrm_animation)
     assets_src/thumbs/thumb_<Id>.png    pre-rendered character card art
+    assets_src/stages/<Id>.jpg          a stage: one 2:1 equirectangular sky, and nothing else
+
+Stages are one image each, on purpose. Everything else a stage needs - the fog colour, where the
+sun stands, how warm the key light is, how far the camera's white point has to go to hold the
+highlights - is measured off that image when it loads, and the sky doubles as the lighting
+environment, so a new sky lights the dancer in its own colour without anyone tuning anything. Where
+a measurement comes out wrong, `assets_src/stages/<Id>.json` overrides just those fields; it is
+optional and usually absent.
+
+The two stages the app ships with (Daylight and Sunset) are NOT here. Their numbers were measured on
+device and hand-corrected, they must work with no network, and they are pinned to the top of the
+picker - so they live in the app, and this list is only what comes after them.
+
+The sky has to be a 2:1 equirectangular panorama with the sun low in it; a photograph straight off a
+camera is none of those things. tools/make_sky.py is what turns one into the other, and the reasons
+each of its parameters matters are in tools/README.md.
 
 Music is not in the index. All four tracks ship in Animo3D/Res/music, where the bundled copy wins
 the lookup anyway, so listing them only added 14MB of upload nobody would ever download.
@@ -147,6 +163,39 @@ def main():
 
         dances.append(item)
 
+    # ---- stages -------------------------------------------------------------
+    stages = []
+    sdir = os.path.join(src, "stages")
+    for fn in sorted(os.listdir(sdir)) if os.path.isdir(sdir) else []:
+        if not fn.endswith(".jpg") or fn.startswith(".") or fn.startswith("thumb_"):
+            continue
+        stem = fn[:-4]
+        p = os.path.join(sdir, fn)
+        remote = f"stages/sky_{stem}.jpg"
+        item = {"id": stem, "name": display_name(stem), "sky": remote}
+        uploads.append((p, remote))
+
+        # A card image is optional: the app crops one out of the sky itself. Ship one only when the
+        # crop does not sell the scene.
+        thumb = os.path.join(sdir, f"thumb_{stem}.jpg")
+        if os.path.exists(thumb):
+            item["thumb"] = f"stages/thumb_{stem}.jpg"
+            uploads.append((thumb, item["thumb"]))
+
+        # Overrides, when a measurement comes out wrong. Any field of the stage description may
+        # appear here; what is absent stays measured.
+        over = os.path.join(sdir, f"{stem}.json")
+        if os.path.exists(over):
+            try:
+                item["override"] = json.load(open(over))
+            except Exception as e:                              # noqa: BLE001
+                problems.append(f"could not read overrides for stage {stem}: {e}")
+
+        with open(p, "rb") as f:
+            if f.read(2) != b"\xff\xd8":
+                problems.append(f"stage {stem} is not a JPEG")
+        stages.append(item)
+
     # ---- built-in set -------------------------------------------------------
     # Read off Res/builtin rather than declared by hand: the two ids that used to be Swift constants
     # named a dance that was not the bundled one, so the "offline" default downloaded every time.
@@ -183,6 +232,7 @@ def main():
         "builtin": builtin,
         "characters": characters,
         "dances": dances,
+        "stages": stages,
     }
 
     out = os.path.abspath(args.out)
@@ -191,7 +241,7 @@ def main():
 
     total = sum(os.path.getsize(p) for p, _ in uploads)
     print(f"wrote {out}  (schema {SCHEMA}, revision {revision})")
-    print(f"characters={len(characters)} dances={len(dances)}")
+    print(f"characters={len(characters)} dances={len(dances)} stages={len(stages)}")
     print(f"built-in: {builtin}")
     print(f"upload {len(uploads)} files, {total/1e6:.1f} MB")
     for p in problems:

@@ -1,0 +1,362 @@
+//
+//  StageLibrary.swift
+//  Animo3D
+//
+//  Every stage the picker can offer, from three places, behind one id.
+//
+//  - The two that ship in the app. Hand-tuned, always available, pinned to the top of the list.
+//  - The ones the catalogue serves. One image each; everything else is measured (StageDerivation).
+//  - The ones the user makes out of their own photographs, which are measured the same way once
+//    the photograph has been turned into something a dome can be.
+//
+//  That last step is the only part that is not shared. A photograph is not a panorama: it covers a
+//  few tens of degrees, not a full turn, and it has no horizon line anyone told us about. Wrapping
+//  one straight around the sky stretches it into a smear. So it is laid across one sector at its
+//  own proportions and the rest of the turn is continued from the colours at its edges - the same
+//  shape of answer as `tools/make_sky.py --span`, which is where this was worked out against real
+//  photographs, minus the seam feathering that only matters when there is cloud structure to line
+//  up.
+//
+
+import Combine
+import SwiftUI
+import UIKit
+
+/// A stage the user made from a picture of their own.
+struct UserStage: Identifiable, Codable, Hashable {
+    let id: String
+    let name: String
+    /// File name inside the caches directory, not a path: the container moves between launches.
+    let file: String
+}
+
+@MainActor
+final class StageLibrary: ObservableObject {
+    static let shared = StageLibrary()
+
+    @Published private(set) var userStages: [UserStage] = []
+
+    private var cacheDir: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("stages", isDirectory: true)
+    }
+    private var indexURL: URL { cacheDir.appendingPathComponent("_user_stages.json") }
+
+    /// Specs are kept once built: measuring is cheap but decoding a 2048x1024 JPEG is not, and the
+    /// picker asks for the same handful of stages every time it opens.
+    private var specs: [String: CharacterSceneController.StageSpec] = [:]
+    private var thumbs: [String: UIImage] = [:]
+
+    private init() {
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        if let data = try? Data(contentsOf: indexURL),
+           let list = try? JSONDecoder().decode([UserStage].self, from: data) {
+            // A file the user deleted from under us, or a cache the system reclaimed, is not a
+            // stage any more. Dropping it here keeps a dead card out of the picker.
+            userStages = list.filter { FileManager.default.fileExists(atPath: fileURL($0).path) }
+            if userStages.count != list.count { save() }
+        }
+    }
+
+    private func fileURL(_ stage: UserStage) -> URL { cacheDir.appendingPathComponent(stage.file) }
+
+    // MARK: - Resolving
+
+    /// The stage this id names, whatever kind it is.
+    ///
+    /// Built-ins win: the catalogue is a remote document, and a stage called "plaza" arriving in it
+    /// should not be able to replace the one the app falls back to when there is no network.
+    func spec(for id: String) async -> CharacterSceneController.StageSpec {
+        if let built = CharacterSceneController.Stage.all.first(where: { $0.id == id }) { return built }
+        if let cached = specs[id] { return cached }
+
+        if let mine = userStages.first(where: { $0.id == id }),
+           let image = UIImage(contentsOfFile: fileURL(mine).path),
+           let spec = derive(id: mine.id, name: mine.name, icon: "photo.fill", image: image) {
+            specs[id] = spec
+            return spec
+        }
+
+        if let item = RemoteAssets.shared.stage(id),
+           let url = try? await RemoteAssets.shared.ensureDownloaded(item.sky),
+           let image = UIImage(contentsOfFile: url.path),
+           var spec = derive(id: item.id, name: item.name, icon: "mountain.2.fill", image: image) {
+            if let over = item.override { spec = spec.applying(over) }
+            specs[id] = spec
+            return spec
+        }
+
+        return CharacterSceneController.Stage.plaza
+    }
+
+    /// One picture, two jobs.
+    ///
+    /// A 2:1 panorama is a sky and nothing else: it wraps the dome and that is the whole scene. Any
+    /// other picture is a photograph of a place, so it stands behind the dancer at its own
+    /// resolution, and a dome is built from it as well - not to be looked at, but so that whatever
+    /// the camera catches past the edges of the picture is the colour of that place rather than
+    /// grey, and so there is something for the light to be measured from.
+    private func derive(id: String, name: String, icon: String,
+                        image: UIImage) -> CharacterSceneController.StageSpec? {
+        let aspect = image.size.width / max(image.size.height, 1)
+        let isPanorama = abs(aspect - 2) < 0.08
+        let sky = isPanorama ? image : (StageImage.dome(from: image) ?? image)
+        guard let measured = SkyReader.measure(sky) else { return nil }
+        return .derived(id: id, name: name, icon: icon,
+                        sky: { sky },
+                        backdrop: isPanorama ? nil : { image },
+                        measured: measured)
+    }
+
+    // MARK: - Cards
+
+    /// The picture on a stage's card: a slice of the sky itself, around where the camera will be
+    /// looking. Cropping the dome rather than shipping a second image means a stage stays one file.
+    func thumbnail(for id: String) -> UIImage? {
+        if let t = thumbs[id] { return t }
+        let sky: UIImage?
+        if let built = CharacterSceneController.Stage.all.first(where: { $0.id == id }) {
+            sky = built.sky()
+        } else if let mine = userStages.first(where: { $0.id == id }) {
+            sky = UIImage(contentsOfFile: fileURL(mine).path)
+        } else if let item = RemoteAssets.shared.stage(id),
+                  let url = RemoteAssets.shared.localURL(for: item.sky.assetName) {
+            sky = UIImage(contentsOfFile: url.path)
+        } else {
+            sky = nil
+        }
+        guard let sky, let cg = sky.cgImage else { return nil }
+
+        // The band the stage camera actually sees: a sixth of the turn centred on its heading, from
+        // the horizon up. A card cropped anywhere else shows a piece of sky the user will not
+        // recognise when they get there.
+        let w = CGFloat(cg.width), h = CGFloat(cg.height)
+        let width = w / 5
+        let x = (SkyReader.cameraAzimuth * w - width / 2).truncatingRemainder(dividingBy: w)
+        let rect = CGRect(x: max(0, min(w - width, x)), y: h * 0.22, width: width, height: h * 0.3)
+        guard let cropped = cg.cropping(to: rect) else { return nil }
+        let image = UIImage(cgImage: cropped)
+        thumbs[id] = image
+        return image
+    }
+
+    // MARK: - Importing a photograph
+
+    enum ImportError: LocalizedError {
+        case unreadable, tooSmall, writeFailed
+
+        var errorDescription: String? {
+            switch self {
+            case .unreadable:  return "This picture could not be opened."
+            case .tooSmall:    return "This picture is too small to stand in for a sky."
+            case .writeFailed: return "This picture could not be saved to the app."
+            }
+        }
+    }
+
+    /// What is kept is the picture itself, not the sky built from it.
+    ///
+    /// The sky is derived, and how it is derived has already changed twice; the photograph is the
+    /// thing the user chose, and it is what the backdrop shows. Bounded at 2048 on the long edge,
+    /// which is more than the screen can show and about as much as an older phone wants to hold in
+    /// a texture.
+    @discardableResult
+    func importPhoto(_ photo: UIImage, name: String) throws -> UserStage {
+        guard photo.cgImage != nil else { throw ImportError.unreadable }
+        guard photo.size.width >= 480, photo.size.height >= 320 else { throw ImportError.tooSmall }
+        guard let data = StageImage.bounded(photo, longEdge: 2048).jpegData(compressionQuality: 0.9)
+        else { throw ImportError.writeFailed }
+
+        let id = "user_\(Int(Date().timeIntervalSince1970))"
+        let stage = UserStage(id: id, name: name, file: "\(id).jpg")
+        do { try data.write(to: fileURL(stage), options: .atomic) }
+        catch { throw ImportError.writeFailed }
+
+        userStages.insert(stage, at: 0)
+        save()
+        return stage
+    }
+
+    func delete(_ stage: UserStage) {
+        try? FileManager.default.removeItem(at: fileURL(stage))
+        userStages.removeAll { $0.id == stage.id }
+        specs[stage.id] = nil
+        thumbs[stage.id] = nil
+        save()
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(userStages) {
+            try? data.write(to: indexURL, options: .atomic)
+        }
+    }
+}
+
+// MARK: - Overrides
+
+extension CharacterSceneController.StageSpec {
+    /// The catalogue's corrections applied over what was measured. Absent fields stay measured.
+    func applying(_ o: StageOverride) -> Self {
+        var light = self.light
+        var grade = self.grade
+        if let ibl = o.ibl { light = light.with(ibl: CGFloat(ibl)) }
+        if let key = o.key.flatMap(UIColor.init(hex:)) { light = light.with(keyColor: key) }
+        if let wp = o.whitePoint { grade = grade.with(whitePoint: CGFloat(wp)) }
+        if let bloom = o.bloom { grade = grade.with(bloom: CGFloat(bloom)) }
+
+        var sun = self.sunEuler
+        if let az = o.sunAzimuth {
+            sun.y = Float(.pi - (Double(az) * .pi / 180))
+        }
+        if let el = o.sunElevation {
+            sun.x = Float(-(Double(el) * .pi / 180))
+        }
+
+        return .init(id: id, name: name, icon: icon, sky: sky, environment: environment,
+                     horizon: o.horizon.flatMap(UIColor.init(hex:)) ?? horizon,
+                     fogNear: o.fogNear.map(Float.init) ?? fogNear,
+                     fogFar: o.fogFar.map(Float.init) ?? fogFar,
+                     backdrop: backdrop, ground: ground, skyline: skyline,
+                     sunEuler: sun, light: light, grade: grade)
+    }
+}
+
+extension CharacterSceneController.LightLevels {
+    func with(ibl: CGFloat? = nil, keyColor: UIColor? = nil) -> Self {
+        .init(key: key, fill: fill, rim: rim, sun: sun, ibl: ibl ?? self.ibl,
+              shadowAlpha: shadowAlpha, rimShader: rimShader,
+              keyColor: keyColor ?? self.keyColor, rimColor: keyColor ?? rimColor)
+    }
+}
+
+extension CharacterSceneController.CameraGrade {
+    func with(whitePoint: CGFloat? = nil, bloom: CGFloat? = nil) -> Self {
+        .init(exposureOffset: exposureOffset, whitePoint: whitePoint ?? self.whitePoint,
+              contrast: contrast, vignetting: vignetting, bloom: bloom ?? self.bloom,
+              bloomThreshold: bloomThreshold)
+    }
+}
+
+extension UIColor {
+    /// "#RRGGBB" or "RRGGBB", which is how a colour is written in the catalogue.
+    convenience init?(hex: String) {
+        var s = hex.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
+        self.init(red: CGFloat((v >> 16) & 0xFF) / 255,
+                  green: CGFloat((v >> 8) & 0xFF) / 255,
+                  blue: CGFloat(v & 0xFF) / 255, alpha: 1)
+    }
+}
+
+// MARK: - A photograph, made into a sky
+
+enum StageImage {
+    /// A picture, placed where the stage camera is looking.
+    ///
+    /// Two kinds of picture arrive here. One is already a sky: a 2:1 panorama, which is what
+    /// `tools/make_sky.py` produces and what the catalogue serves, and the only right thing to do
+    /// with it is nothing at all. The other is a photograph somebody took, which covers a few tens
+    /// of degrees and has no horizon anyone declared. Wrapped around the sky it becomes a smear, so
+    /// instead it is laid across the part of the dome the camera can see, at its own proportions,
+    /// large enough to still cover the frame while the shot swings through its arc.
+    ///
+    /// The framing numbers are the stage camera's, measured: it sees about 42 degrees from top to
+    /// bottom with the horizon a quarter of the way down, so the middle of the frame is some 11
+    /// degrees below the horizon, and the slow orbit carries it 14 degrees either side.
+    static func dome(from photo: UIImage, width: Int = 2048) -> UIImage? {
+        guard let cg = photo.cgImage else { return nil }
+        let aspect = CGFloat(cg.width) / CGFloat(cg.height)
+
+        // Already a sky: hand it straight back. What was uploaded is what gets shown.
+        if abs(aspect - 2) < 0.08 { return photo }
+
+        let W = width, H = width / 2
+        let degree = CGFloat(W) / 360                       // pixels per degree, both axes
+
+        // Fill the frame, and keep filling it through the orbit: 52 degrees of height is the 42 the
+        // camera sees plus a margin, and the width never goes under 56 so a tall photograph cannot
+        // leave an edge in shot at the end of the swing.
+        let spanPx = max(52 * aspect, 56) * degree
+        let stripH = spanPx / aspect
+        let centreY = CGFloat(H) / 2 + 11 * degree          // the middle of the frame, not of the sky
+        let top = centreY - stripH / 2
+        let x0 = SkyReader.cameraAzimuth * CGFloat(W) - spanPx / 2
+
+        let edges = edgeColours(cg, rows: 64)
+        let backdrop = edges.last ?? .gray
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: CGSize(width: W, height: H), format: format).image { ctx in
+            let c = ctx.cgContext
+            c.setFillColor(backdrop.cgColor)
+            c.fill(CGRect(x: 0, y: 0, width: W, height: H))
+
+            // Behind and above: the picture's own edge colours, row by row, so whatever the camera
+            // finds when it swings past the photograph is at least the right colour rather than a
+            // hard edge. A sky changes far more from top to bottom than it does around.
+            let space = CGColorSpaceCreateDeviceRGB()
+            let rowH = stripH / CGFloat(max(edges.count, 1))
+            for (i, colour) in edges.enumerated() {
+                let y = top + CGFloat(i) * rowH
+                guard y + rowH > 0, y < CGFloat(H) else { continue }
+                c.setFillColor(colour.cgColor)
+                c.fill(CGRect(x: 0, y: y, width: CGFloat(W), height: rowH + 1))
+            }
+            if let sky = edges.first, top > 0 {
+                c.setFillColor(sky.cgColor)
+                c.fill(CGRect(x: 0, y: 0, width: CGFloat(W), height: top))
+            }
+            _ = space
+
+            // And the picture, drawn three times so a sector that crosses the seam still wraps.
+            //
+            // Through UIImage rather than `CGContext.draw(cgImage:)`: this renderer's context is
+            // flipped to UIKit's top-left origin, and a CGImage drawn straight into it comes out
+            // upside down - which is exactly what the first version of this did, and it is not
+            // obvious in a sky until you notice the trees are hanging from the top of the world.
+            // UIImage also honours the orientation flag a phone camera writes.
+            for dx in [CGFloat(0), CGFloat(-W), CGFloat(W)] {
+                photo.draw(in: CGRect(x: x0 + dx, y: top, width: spanPx, height: stripH))
+            }
+        }
+    }
+
+    /// The same picture, no larger than `longEdge` on its longer side.
+    static func bounded(_ image: UIImage, longEdge: CGFloat) -> UIImage {
+        let side = max(image.size.width, image.size.height)
+        guard side > longEdge else { return image }
+        let scale = longEdge / side
+        let size = CGSize(width: (image.size.width * scale).rounded(),
+                          height: (image.size.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
+    /// The colour down each side of the photograph, in bands from top to bottom.
+    private static func edgeColours(_ cg: CGImage, rows: Int) -> [UIColor] {
+        let w = 8, h = rows
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return [] }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return (0..<h).map { y in
+            // Both edges averaged: the two sides of the back arc meet, and a single side would put
+            // a visible step at the seam directly behind the viewer.
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+            for x in [0, w - 1] {
+                let i = (y * w + x) * 4
+                r += CGFloat(px[i]); g += CGFloat(px[i + 1]); b += CGFloat(px[i + 2])
+            }
+            return UIColor(red: r / 510, green: g / 510, blue: b / 510, alpha: 1)
+        }
+    }
+}

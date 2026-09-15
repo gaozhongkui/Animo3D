@@ -189,3 +189,7 @@
 /* Stages */
 "Daylight" = "Luz de día";
 "Sunset" = "Atardecer";
+"Scene" = "Escena";
+"Import" = "Importar";
+"OK" = "OK";
+"My Scene" = "Mi escena";

@@ -189,3 +189,7 @@
 /* Stages */
 "Daylight" = "昼";
 "Sunset" = "夕暮れ";
+"Scene" = "シーン";
+"Import" = "読み込み";
+"OK" = "OK";
+"My Scene" = "マイシーン";

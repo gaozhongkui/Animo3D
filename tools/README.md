@@ -396,6 +396,50 @@ Girl_D.scn
 | `make_icon.swift` | App 图标 |
 | `make_promo.swift` | App Store 截图;产物不进包 |
 
+### 场景(stage)的下发格式
+
+`index.json` 里的 `stages` 段就是服务端下发的场景列表。**内置的 Daylight 和 Sunset 不在里面**——
+它们的参数是在设备上实测调出来的、要在断网时也能用、而且固定排在选择页最前面，所以留在 App 内。
+这个列表是排在它们后面的那些。
+
+一个场景**就是一张图**：
+
+```json
+"stages": [
+  {
+    "id": "Night_City",
+    "name": "Night City",
+    "sky": "stages/sky_Night_City.jpg",
+    "thumb": "stages/thumb_Night_City.jpg",   // 可选，没有就由 App 从天空图裁一块
+    "override": { "fogFar": 14 }              // 可选，几乎都不该有，见下
+  }
+]
+```
+
+**为什么只要一张图**：雾色、太阳的方位与仰角、key/rim 的颜色、四盏灯的强度、相机白点与 bloom，
+全部是加载时从这张图上量出来的（地平线行的平均色、全图最亮点的位置与颜色、上半球平均亮度、
+亮度 p99）；同时这张图会挂成 `lightingEnvironment`，角色直接被这片天空照亮。所以换一张天空，
+冷暖和明暗自动就对了。
+
+**`override` 是兜底，不是常规配置**。某张图自动量出来偏了（比如天上有一大片高亮云被当成太阳），
+就在这里只写那几个字段覆盖掉，不用发版。没写的字段继续用量出来的值。
+
+**加一个场景的完整流程**：
+
+```bash
+# 1. 原图 → 2:1 等距柱面 dome（参数含义见上一节，这一步不能省）
+python3 tools/make_sky.py <原图> -o assets_src/stages/Night_City.jpg \
+    --horizon <行号> --ground <行号> --span 110 --sun-azimuth 0.758 --sun-elevation 6.5
+
+# 2. 重新生成 index.json 并铺出上传目录
+python3 tools/make_catalog.py --base-url <桶地址> --stage dist/upload
+
+# 3. 把 dist/upload 的内容传进桶
+```
+
+**别跳过第 1 步**：手机相机拍的照片既不是 2:1 也不是全景，直接下发的话太阳会被扯成椭圆、方位角
+对不上相机、太阳还多半在画面外——这几条算法救不了，必须在上传前处理掉。
+
 ### 舞台天空 dome 的生成命令
 
 两个 dome 都在 `Animo3D/Res/`，源图在 `data/source/`。参数不是随便填的，重生成请照抄：

@@ -1,7 +1,7 @@
 {
  "schema": 2,
- "revision": 5,
- "generated": "2026-09-14",
+ "revision": 6,
+ "generated": "2026-09-15",
  "minAppVersion": null,
  "baseUrl": "https://dekbcnbakegjgbjxflxe.supabase.co/storage/v1/object/public/vrm-models/",
  "notice": null,
@@ -504,5 +504,6 @@
    "clip": "dances/Victory_Idle_2.vrma",
    "duration": 1.83
   }
- ]
+ ],
+ "stages": []
 }

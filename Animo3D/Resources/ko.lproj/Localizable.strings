@@ -189,3 +189,7 @@
 /* Stages */
 "Daylight" = "낮";
 "Sunset" = "노을";
+"Scene" = "장면";
+"Import" = "가져오기";
+"OK" = "확인";
+"My Scene" = "내 장면";

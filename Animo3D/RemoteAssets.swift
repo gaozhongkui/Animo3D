@@ -58,6 +58,37 @@ struct DanceItem: Identifiable, Codable, Hashable {
     let duration: Double?
 }
 
+/// A stage the catalogue serves: one sky, and nothing that has to be kept in step with the app.
+///
+/// Everything else a stage needs is measured off that image when it loads - see
+/// `StageDerivation.swift`. `override` exists for the sky where a measurement comes out wrong; it
+/// is expected to be absent, and every field in it is optional so it can correct one number without
+/// restating the rest.
+struct StageItem: Identifiable, Codable, Hashable {
+    let id: String
+    let name: String
+    let sky: AssetPath
+    let thumb: AssetPath?
+    let override: StageOverride?
+}
+
+struct StageOverride: Codable, Hashable {
+    /// Where the ground starts and finishes fading into the sky, in body heights.
+    let fogNear: Double?
+    let fogFar: Double?
+    /// Image-based light: how much of the sky falls on the dancer.
+    let ibl: Double?
+    /// Tone mapping, for a sky whose highlights the measurement judged wrongly.
+    let whitePoint: Double?
+    let bloom: Double?
+    /// "#RRGGBB". The fog colour, and the colour of the key and rim lights.
+    let horizon: String?
+    let key: String?
+    /// Degrees. Where the sun stands, when the brightest pixel is not it.
+    let sunAzimuth: Double?
+    let sunElevation: Double?
+}
+
 /// Which character and dance are expected to ship inside the app. Declared by the index and checked
 /// against the bundle on load, rather than hand-written in Swift: the two constants that used to
 /// live here had drifted from the files on disk, so the "built-in" default downloaded every time.
@@ -80,6 +111,9 @@ struct RemoteCatalog: Decodable {
     let builtin: BuiltInSet?
     let characters: [CharacterItem]
     let dances: [DanceItem]
+    /// Absent in every catalogue written before stages existed, and absent again if they are ever
+    /// withdrawn - so the app must be able to show its own two and nothing else.
+    let stages: [StageItem]?
 }
 
 // MARK: - RemoteAssets
@@ -112,6 +146,7 @@ final class RemoteAssets: ObservableObject {
 
     @Published private(set) var characters: [CharacterItem] = []
     @Published private(set) var dances: [DanceItem] = []
+    @Published private(set) var stages: [StageItem] = []
     @Published private(set) var userCharacters: [CharacterItem] = []
     @Published private(set) var catalogSource: Source = .none
     @Published private(set) var state: State = .loading
@@ -139,6 +174,7 @@ final class RemoteAssets: ObservableObject {
     private var catalog: RemoteCatalog?
     private var charById: [String: CharacterItem] = [:]
     private var danceById: [String: DanceItem] = [:]
+    private var stageById: [String: StageItem] = [:]
 
     private lazy var session: URLSession = {
         let c = URLSessionConfiguration.default
@@ -267,12 +303,14 @@ final class RemoteAssets: ObservableObject {
         // Add user characters to the lookup table
         for c in userCharacters { charById[c.id] = c }
         danceById = Dictionary(cat.dances.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        stageById = Dictionary((cat.stages ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         lock.unlock()
 
         let publish = { [weak self] in
             guard let self else { return }
             self.characters = self.userCharacters + cat.characters
             self.dances = cat.dances
+            self.stages = cat.stages ?? []
             self.notice = cat.notice
             self.catalogSource = source
             self.state = (cat.characters.isEmpty && self.userCharacters.isEmpty) || cat.dances.isEmpty ? .unavailable : .ready
@@ -296,6 +334,7 @@ final class RemoteAssets: ObservableObject {
 
     func character(_ id: String) -> CharacterItem? { lock.lock(); defer { lock.unlock() }; return charById[id] }
     func dance(_ id: String) -> DanceItem? { lock.lock(); defer { lock.unlock() }; return danceById[id] }
+    func stage(_ id: String) -> StageItem? { lock.lock(); defer { lock.unlock() }; return stageById[id] }
 
     // MARK: - Files
 

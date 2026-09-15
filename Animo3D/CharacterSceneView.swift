@@ -378,10 +378,26 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         let name: String
         let icon: String                    // SF Symbol for its chip
         let sky: () -> UIImage              // 2:1 equirectangular dome
+        /// The image that lights the scene, when it is not the generic studio one.
+        ///
+        /// A stage that was measured rather than authored has no tuned rig behind it, so its own
+        /// sky does the work: hand it to `lightingEnvironment` and the dancer is lit in the colours
+        /// of the place they are standing in, which is the whole reason a downloaded stage can be
+        /// one image and still look like somewhere.
+        let environment: (() -> UIImage?)?
         let horizon: UIColor                // what the dome fades to at eye level; the fog takes it
         let fogNear: Float                  // where the fade starts, from the camera
         let fogFar: Float                   // and where it is complete
-        let ground: Ground
+        /// A picture shown flat behind the dancer, at its own resolution.
+        ///
+        /// A sky wrapped around the dome has about six pixels per degree at 2048 wide, and the
+        /// stage camera sees sixty - which is invisible on a sky, because a sky is smooth, and
+        /// unmissable on a photograph of anywhere. So a photograph is not wrapped: it stands behind
+        /// the performer as a plane facing the camera, one texel to one pixel, exactly the picture
+        /// that was chosen.
+        let backdrop: (() -> UIImage?)?
+        /// Nil when the performance happens in front of the picture rather than on a floor.
+        let ground: Ground?
         let skyline: Skyline?
         /// Where the sun stands, as euler angles on the directional light. Its elevation is the
         /// single strongest cue for the time of day, because it sets the length and direction of
@@ -415,6 +431,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             // photo itself here - 704x1503, portrait, plaza included - is what wrapped a picture of
             // the ground across the sky.
             sky: { CharacterSceneView.domeImage("sky_dome") ?? CharacterSceneView.skyBackdrop() },
+            environment: nil,
             horizon: UIColor(red: CGFloat(CharacterSceneView.skyHorizon.0),
                              green: CGFloat(CharacterSceneView.skyHorizon.1),
                              blue: CGFloat(CharacterSceneView.skyHorizon.2), alpha: 1),
@@ -426,6 +443,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             // away to read as distant was also erased. The plaza is 30 to its edge, so it still
             // ends inside the fog and its far edge never shows.
             fogFar: 22.0,
+            backdrop: nil,
             ground: StageSpec.Ground(
                 texture: { CharacterSceneController.plazaTexture },
                 // 55 repeats of a 4x4 block: a ~0.45m slab, sixteen of them per tile.
@@ -457,12 +475,14 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         static let sunset = StageSpec(
             id: "sunset", name: "Sunset", icon: "sunset.fill",
             sky: { CharacterSceneView.domeImage("sky_dome_sunset") ?? CharacterSceneView.skyBackdrop() },
+            environment: nil,
             horizon: UIColor(red: 0.23, green: 0.14, blue: 0.14, alpha: 1),
             fogNear: 3.0,
             // Closer than the plaza's. Evening air over water is thick, and the haze in the
             // photograph's own distance has to be met by the ground fading at the same rate or the
             // two read as different days.
             fogFar: 16.0,
+            backdrop: nil,
             ground: StageSpec.Ground(
                 texture: { CharacterSceneController.plazaTexture },
                 repeats: 55, extent: 60,
@@ -583,7 +603,10 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         rimLight?.intensity = l.rim
         sunLight?.intensity = l.sun
         sunLight?.shadowColor = UIColor(white: 0, alpha: l.shadowAlpha)
-        scene.lightingEnvironment.contents = l.ibl > 0 ? CharacterSceneView.studioEnvironment : nil
+        // A measured stage lights the character with its own sky; the two authored ones keep the
+        // neutral studio probe they were balanced against.
+        scene.lightingEnvironment.contents =
+            l.ibl > 0 ? (stage.environment?() ?? CharacterSceneView.studioEnvironment) : nil
         scene.lightingEnvironment.intensity = l.ibl
     }
 
@@ -606,11 +629,13 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         if let root = characterRoot {
             setupGround(root)
         }
+        setupBackdrop()
         // Last, so the levels match the stage setupGround just built or tore down.
         applyLightLevels()
         applyCameraGrade()
     }
 
+    private var backdropNode: SCNNode?
     private var floorNode: SCNNode?
     private var contactShadow: SCNNode?
     private var footShadows: [SCNNode] = []
@@ -801,9 +826,52 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     }
 
     /// Ground: Visible floor (with slight reflection) + a soft contact shadow always visible under feet to eliminate "floating" sensation.
+    /// The picture behind the performer, when the stage is one.
+    ///
+    /// A plane rather than a sky: see `StageSpec.backdrop`. It is placed behind the character along
+    /// the way the camera is looking and turned to face it, and it is made half again as wide as
+    /// the frame needs, because the shot swings fourteen degrees either side and an edge coming
+    /// into view would give the whole thing away as a flat card.
+    private func setupBackdrop() {
+        backdropNode?.removeFromParentNode(); backdropNode = nil
+        guard groundEnabled, let make = stage.backdrop, let picture = make(),
+              let camera = cameraNode else { return }
+
+        let h = max(modelHeight, 0.1)
+        let centre = simd_float3(stageCenter.x, feetY + h * 0.55, stageCenter.z)
+        let eye = camera.simdWorldPosition
+        let forward = simd_length(centre - eye) > 0.001
+            ? simd_normalize(centre - eye)
+            : simd_float3(0, 0, -1)
+        let behind = centre + forward * (h * 4)
+        let distance = simd_length(behind - eye)
+
+        // What the camera can see at that distance: 42 degrees from top to bottom, and the
+        // viewport's own shape across. Then whichever of the two the picture has to grow to cover.
+        let frameH = 2 * distance * tan(21 * .pi / 180) * 1.35
+        let frameW = frameH * max(viewportAspect, 0.3) * 1.5
+        let pictureAspect = Float(picture.size.width / max(picture.size.height, 1))
+        let height = max(frameH, frameW / pictureAspect)
+
+        let plane = SCNPlane(width: CGFloat(height * pictureAspect), height: CGFloat(height))
+        let m = plane.firstMaterial!
+        m.diffuse.contents = picture
+        m.lightingModel = .constant     // it is a photograph; lighting it twice is what makes a
+        m.isDoubleSided = true          // backdrop look like a painted flat
+        m.diffuse.mipFilter = .linear
+
+        let node = SCNNode(geometry: plane)
+        node.simdPosition = behind
+        node.castsShadow = false
+        node.constraints = [SCNBillboardConstraint()]
+        scene.rootNode.addChildNode(node)
+        backdropNode = node
+    }
+
     private func setupGround(_ root: SCNNode) {
         guard groundEnabled || contactShadowOnly else {
             floorNode?.removeFromParentNode(); floorNode = nil
+            backdropNode?.removeFromParentNode(); backdropNode = nil
             contactShadow?.removeFromParentNode(); contactShadow = nil
             footShadows.forEach { $0.removeFromParentNode() }; footShadows = []
             skylineNode?.removeFromParentNode(); skylineNode = nil
@@ -856,48 +924,52 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         // across its extent, so the repeat count is exactly what is asked for. The fog hides
         // the far edge, and there is no reflection to flatten the paving into a sheet of sky.
         let h = max(modelHeight, 0.1)
-        let spec = stage.ground
-        let ground = SCNPlane(width: CGFloat(h * spec.extent), height: CGFloat(h * spec.extent))
-        let gm = ground.firstMaterial!
-        gm.diffuse.contents = spec.texture()
-        gm.diffuse.wrapS = .repeat
-        gm.diffuse.wrapT = .repeat
-        gm.diffuse.contentsTransform = SCNMatrix4MakeScale(spec.repeats, spec.repeats, 1)
-        // Anisotropic filtering, which a ground plane cannot do without. Seen almost edge-on,
-        // isotropic mips have to blur along the short axis as hard as along the long one, so
-        // the mid-distance turned to grey mush while the near slabs shimmered as the camera
-        // moved. This is the single cheapest thing that made the paving look like paving.
-        gm.diffuse.mipFilter = .linear
-        gm.diffuse.maxAnisotropy = 8
-        gm.lightingModel = .lambert
-        gm.isDoubleSided = false
-        gm.multiply.contents = spec.tint
+        // A stage without a ground is a photograph the dancer stands in front of: a
+        // downloaded sky or one of the user's own pictures, shown as it is. Building a
+        // plaza under it would be the app disagreeing with the picture.
+        if let spec = stage.ground {
+            let ground = SCNPlane(width: CGFloat(h * spec.extent), height: CGFloat(h * spec.extent))
+            let gm = ground.firstMaterial!
+            gm.diffuse.contents = spec.texture()
+            gm.diffuse.wrapS = .repeat
+            gm.diffuse.wrapT = .repeat
+            gm.diffuse.contentsTransform = SCNMatrix4MakeScale(spec.repeats, spec.repeats, 1)
+            // Anisotropic filtering, which a ground plane cannot do without. Seen almost edge-on,
+            // isotropic mips have to blur along the short axis as hard as along the long one, so
+            // the mid-distance turned to grey mush while the near slabs shimmered as the camera
+            // moved. This is the single cheapest thing that made the paving look like paving.
+            gm.diffuse.mipFilter = .linear
+            gm.diffuse.maxAnisotropy = 8
+            gm.lightingModel = .lambert
+            gm.isDoubleSided = false
+            gm.multiply.contents = spec.tint
 
-        let gnode = SCNNode(geometry: ground)
-        gnode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
-        gnode.simdPosition = simd_float3(0, minY, 0)
-        scene.rootNode.addChildNode(gnode)
-        floorNode = gnode
+            let gnode = SCNNode(geometry: ground)
+            gnode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
+            gnode.simdPosition = simd_float3(0, minY, 0)
+            scene.rootNode.addChildNode(gnode)
+            floorNode = gnode
 
-        // The medallion, centred on the performer rather than on the origin. Its own node so it
-        // is torn down with the floor and rebuilt at the right place when the character changes.
-        if let inlayTexture = spec.inlay {
-            let inlay = SCNPlane(width: CGFloat(h * spec.inlayExtent), height: CGFloat(h * spec.inlayExtent))
-            let im = inlay.firstMaterial!
-            im.diffuse.contents = inlayTexture()
-            im.lightingModel = .lambert          // lit with the paving, so it takes the same sun
-            im.multiply.contents = spec.tint
-            im.isDoubleSided = false
-            im.writesToDepthBuffer = false       // it is a decal on a plane 2mm below it
-            let inode = SCNNode(geometry: inlay)
-            inode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
-            inode.simdPosition = simd_float3(cx, minY + 0.002, cz)
-            inode.renderingOrder = 1             // after the paving, before the contact shadow
-            inode.castsShadow = false
-            // Parented to the root, not to the floor: the floor node is rotated flat, so a child
-            // of it would be rotated twice and positioned in that rotated frame.
-            scene.rootNode.addChildNode(inode)
-            inlayNode = inode
+            // The medallion, centred on the performer rather than on the origin. Its own node so it
+            // is torn down with the floor and rebuilt at the right place when the character changes.
+            if let inlayTexture = spec.inlay {
+                let inlay = SCNPlane(width: CGFloat(h * spec.inlayExtent), height: CGFloat(h * spec.inlayExtent))
+                let im = inlay.firstMaterial!
+                im.diffuse.contents = inlayTexture()
+                im.lightingModel = .lambert          // lit with the paving, so it takes the same sun
+                im.multiply.contents = spec.tint
+                im.isDoubleSided = false
+                im.writesToDepthBuffer = false       // it is a decal on a plane 2mm below it
+                let inode = SCNNode(geometry: inlay)
+                inode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
+                inode.simdPosition = simd_float3(cx, minY + 0.002, cz)
+                inode.renderingOrder = 1             // after the paving, before the contact shadow
+                inode.castsShadow = false
+                // Parented to the root, not to the floor: the floor node is rotated flat, so a child
+                // of it would be rotated twice and positioned in that rotated frame.
+                scene.rootNode.addChildNode(inode)
+                inlayNode = inode
+            }
         }
 
         // Soft contact shadow under feet.
@@ -959,7 +1031,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// Joints are drawn by filling the whole texture with the joint colour and insetting the slabs
     /// on top, which gives them a real width. The inset is per-slab, so the joint at the texture
     /// border is half from each side and tiles seamlessly.
-    private static let plazaTexture: UIImage = {
+    static let plazaTexture: UIImage = {
         let side: CGFloat = 512
         let n = 4                                     // slabs per axis
         let cell = side / CGFloat(n)
@@ -1027,7 +1099,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     ///
     /// Stone-toned rather than lit: sky mode is daylight, and a glowing ring here would look like a
     /// prop from the club stage that got left outdoors.
-    private static let plazaInlayTexture: UIImage = {
+    static let plazaInlayTexture: UIImage = {
         let side: CGFloat = 512
         let s = CGSize(width: side, height: side)
         let mid = CGPoint(x: side / 2, y: side / 2)
