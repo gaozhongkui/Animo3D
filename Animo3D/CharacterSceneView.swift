@@ -13,17 +13,6 @@ import Combine
 
 final class CharacterSceneController: ObservableObject, BoneRig {
 
-    /// Which scene the performance happens in.
-    ///
-    /// Only `.sky` is reachable: the club-stage set was taken out of the product. Everything that
-    /// builds it - the LED wall, the truss and its beams, the crowd, the follow spot, the floor
-    /// pool, the confetti - is still in this file but now dormant behind `backgroundType`, because
-    /// the visual direction moved more than once and a procedural set is expensive to rebuild from
-    /// scratch. It should be deleted as its own change once the direction has settled.
-    enum BackgroundType: String, CaseIterable {
-        case studio, sky
-    }
-
     let scene = SCNScene()
     internal(set) var boneNodes: [String: SCNNode] = [:]
     private(set) var characterRoot: SCNNode?
@@ -71,10 +60,6 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// `install()` rebuilds the chains on the main thread while `updatePhysics()` walks them on
     /// SceneKit's render thread - switching character mid-frame used to be a crash window.
     private let springLock = NSLock()
-
-    @Published var backgroundType: BackgroundType = .sky {
-        didSet { updateBackgroundAndGround() }
-    }
 
     @Published var userScale: Float = 1.0 {
         didSet { characterRoot?.simdScale = simd_float3(repeating: userScale) }
@@ -223,9 +208,8 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         if modelHeight <= 0.01 { modelHeight = worldBoundingHeight(root) }
 
         if !lightsAdded { addLights(); lightsAdded = true }
-        // Light levels depend on the model type *and* on whether the stage rig is up, so they are
-        // applied at the end of updateBackgroundAndGround() - after setupStageRig has decided which
-        // of the two rigs is on screen. Setting them here instead would be overwritten immediately.
+        // Light levels are applied at the end of updateBackgroundAndGround(), after setupGround
+        // has built the stage. Setting them here instead would be overwritten immediately.
         updateBackgroundAndGround()   // calls setupGround internally; do not call that separately
         captureBindPose()
         isLoaded = true
@@ -353,10 +337,9 @@ final class CharacterSceneController: ObservableObject, BoneRig {
 
     /// Intensities for the four rig lights plus the image-based light.
     ///
-    /// These used to be written from three different places - install(), setupStageRig() and
-    /// addLights() - each with its own numbers, and the later writer silently won. On the studio
-    /// stage that meant the per-model adjustment never took effect at all. Everything reads this
-    /// one description now.
+    /// These used to be written from three different places - install(), the stage setup and
+    /// addLights() - each with its own numbers, and the later writer silently won, so the earlier
+    /// adjustments never took effect at all. Everything reads this one description now.
     private struct LightLevels {
         let key: CGFloat          // Front-left spot
         let fill: CGFloat         // Front-right omni
@@ -364,41 +347,26 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         let sun: CGFloat          // Directional, casts the ground shadow
         let ibl: CGFloat          // lightingEnvironment.intensity, 0 disables it
         let shadowAlpha: CGFloat
-        let stageSpot: CGFloat    // Scale on the three club-stage spots that light the performer
-        let followSpot: CGFloat   // Overhead follow spot
         let rimShader: Float      // Strength of the additive fresnel rim in the fragment modifier
     }
 
-    /// The studio stage brings its own spots, an LED wall and a follow spot, so the generic rig
-    /// only fills shadows there - all four lights drop, not just two.
+    /// The numbers below were not guessed: every source was rendered on its own offline and
+    /// measured against the neutral three-point rig `tools/render_thumbs.swift` uses, which is the
+    /// reference for "what does this character actually look like" (mean luma 0.22, median 0.17).
+    /// Anything brighter and Erika's dark olive tunic renders as pale grey - which is what made
+    /// every character look washed out and flat no matter how far the exposure was pulled down.
     private var lightLevels: LightLevels {
-        let onStudioStage = groundEnabled && backgroundType == .studio
-        // The numbers below were not guessed: each source was rendered on its own
-        // offline and measured, and the stage rig
-        // turned out to be upside down. The three club spots alone were producing a mean luma of
-        // 0.42 and peaking at pure white - four times the key light - with the 90-degree back rim
-        // also reaching 1.0 and wrapping right around the arms and face. The key, the light that is
-        // supposed to shape the body, was the fifth-largest contributor.
-        //
-        // So the spots and the back rim are accents now and the key carries the image. The target
-        // is the neutral rig the thumbnails are rendered with (mean 0.22, median 0.17): anything
-        // above that and Erika's dark olive tunic starts rendering as pale grey, which is what made
-        // every character look washed out and flat no matter how far the exposure was pulled down.
-        return onStudioStage
-            ? LightLevels(key: 170, fill: 10, rim: 16, sun: 30, ibl: 0.04, shadowAlpha: 0.45,
-                          stageSpot: 0.07, followSpot: 25, rimShader: 0.04)
-            : LightLevels(key: 380, fill: 150, rim: 300, sun: 180, ibl: 0.25, shadowAlpha: 0.45,
-                          stageSpot: 0.07, followSpot: 25, rimShader: 0.04)
+        LightLevels(key: 380, fill: 150, rim: 300, sun: 180, ibl: 0.25, shadowAlpha: 0.45,
+                    rimShader: 0.04)
     }
 
-    /// The camera's tone mapping. Split by background, because the two backgrounds are two
-    /// different lighting conditions and one grade cannot serve both.
+    /// The camera's tone mapping.
     ///
-    /// The dark club stage needs `whitePoint` well above 1 to pull light skin and pale cloth back
-    /// off the clip point. Applied to the daylight scene that same curve maps a luminance of 1.0 to
-    /// about 0.43 - so the white cumulus in the sky dome came out the same grey as the sky behind
-    /// them, and the clouds simply disappeared. It read as "the sky texture is wrong"; the texture
-    /// was fine, the grade was crushing it.
+    /// Daylight: neutral exposure, white stays white, a touch of contrast and bloom. A dark-stage
+    /// grade was tried here - `whitePoint` well above 1, to pull light skin and pale cloth back off
+    /// the clip point - and on this scene that curve maps a luminance of 1.0 to about 0.43, so the
+    /// white cumulus in the sky dome came out the same grey as the sky behind them and the clouds
+    /// simply disappeared. It read as "the sky texture is wrong"; the texture was fine.
     private struct CameraGrade {
         let exposureOffset: CGFloat
         let whitePoint: CGFloat
@@ -409,13 +377,8 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     }
 
     private var cameraGrade: CameraGrade {
-        if groundEnabled && backgroundType == .studio {
-            return CameraGrade(exposureOffset: -0.4, whitePoint: 2.3, contrast: 0.30,
-                               vignetting: 0.40, bloom: 0.12, bloomThreshold: 1.6)
-        }
-        // Daylight: neutral exposure, white stays white, only a touch of contrast and bloom.
-        return CameraGrade(exposureOffset: 0.0, whitePoint: 1.0, contrast: 0.08,
-                           vignetting: 0.22, bloom: 0.05, bloomThreshold: 1.1)
+        CameraGrade(exposureOffset: 0.0, whitePoint: 1.0, contrast: 0.08,
+                    vignetting: 0.22, bloom: 0.05, bloomThreshold: 1.1)
     }
 
     private func applyCameraGrade() {
@@ -450,48 +413,31 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     }
 
     func updateBackgroundAndGround() {
-        var fog: UIColor
-        switch backgroundType {
-        case .studio:
-            // Not pure black: a very dark blue-grey keeps the falloff soft.
-            fog = UIColor(red: 0.04, green: 0.04, blue: 0.06, alpha: 1)
-        case .sky:
-            let hz = CharacterSceneView.skyHorizon
-            fog = UIColor(red: CGFloat(hz.0), green: CGFloat(hz.1), blue: CGFloat(hz.2), alpha: 1)
-        }
-
         // Only the full stage paints a background. Thumbnails and the live dance cards draw over a
         // SwiftUI backdrop, so a scene background here covers that card with a flat slab of colour.
-        if groundEnabled {
-            switch backgroundType {
-            case .studio:
-                scene.background.contents = fog
-            case .sky:
-                // A proper 2:1 equirectangular dome, built from the source photograph by
-                // tools/make_sky.py: its sky and treeline only, with the paving discarded. Setting
-                // the photo itself here - 704x1503, portrait, plaza included - is what wrapped a
-                // picture of the ground across the sky.
-                scene.background.contents = UIImage(named: "sky_dome") ?? CharacterSceneView.skyBackdrop()
-            }
-        } else {
-            scene.background.contents = nil
-        }
-        // Fog: Ground fades into background in the distance -> Seamless fusion of ground and background, creating depth and grounding (only for large performance view)
+        //
+        // A proper 2:1 equirectangular dome, built from the source photograph by
+        // tools/make_sky.py: its sky and treeline only, with the paving discarded. Setting the
+        // photo itself here - 704x1503, portrait, plaza included - is what wrapped a picture of
+        // the ground across the sky.
+        scene.background.contents = groundEnabled
+            ? (UIImage(named: "sky_dome") ?? CharacterSceneView.skyBackdrop())
+            : nil
+
+        // Fog: the ground fades into the sky in the distance, which is what fuses the two and
+        // gives the scene its depth (large performance view only).
         if groundEnabled {
             let h = max(modelHeight, 1)
-            scene.fogColor = fog
-            // The sky stage needs the fog much closer: without it the ground plane runs to a hard
-            // horizon line against the sky image. The studio keeps the longer, subtler falloff.
-            // Must start beyond the performer (roughly 2.3 body heights from the camera) or the
-            // fog washes the character out along with the ground.
-            let near: Float = backgroundType == .sky ? 3.0 : 2.2
-            // Sky mode fades over a much longer run than the studio. At `h * 9` everything past
-            // the performer was already horizon-coloured, which left nowhere to put a distant
-            // skyline - anything far enough away to read as distant was also erased. The plaza is
-            // `h * 30` to its edge, so it still ends inside the fog and its far edge never shows.
-            let far: Float = backgroundType == .sky ? 22.0 : 6.5
-            scene.fogStartDistance = CGFloat(h * near)
-            scene.fogEndDistance = CGFloat(h * far)
+            let hz = CharacterSceneView.skyHorizon
+            scene.fogColor = UIColor(red: CGFloat(hz.0), green: CGFloat(hz.1), blue: CGFloat(hz.2), alpha: 1)
+            // Starts beyond the performer (roughly 2.3 body heights from the camera); nearer than
+            // that and the fog washes the character out along with the ground.
+            scene.fogStartDistance = CGFloat(h * 3.0)
+            // And ends a long way out. At `h * 9` everything past the performer was already
+            // horizon-coloured, which left nowhere to put a distant skyline - anything far enough
+            // away to read as distant was also erased. The plaza is `h * 30` to its edge, so it
+            // still ends inside the fog and its far edge never shows.
+            scene.fogEndDistance = CGFloat(h * 22.0)
             scene.fogDensityExponent = 1.5
         } else {
             scene.fogEndDistance = 0
@@ -499,9 +445,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         if let root = characterRoot {
             setupGround(root)
         }
-        // Last, so the rig matches the stage that setupGround just built or tore down. Switching
-        // background type goes through here too, which is why the levels and the grade follow the
-        // switch rather than staying on whatever the model was mounted with.
+        // Last, so the levels match the stage setupGround just built or tore down.
         applyLightLevels()
         applyCameraGrade()
     }
@@ -509,40 +453,12 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     private var floorNode: SCNNode?
     private var contactShadow: SCNNode?
     private var footShadows: [SCNNode] = []
-    private var stageRig: SCNNode?              // Spotlight beams + floor light pool (studio stage only)
-    private var skylineNode: SCNNode?           // Distant buildings and trees (sky background only)
-    private var inlayNode: SCNNode?             // Stone medallion under the performer (sky only)
+    private var skylineNode: SCNNode?           // Distant buildings and trees on the horizon
+    private var inlayNode: SCNNode?             // Stone medallion under the performer
 
-    /// Music energy for the stage rig, supplied by the player. Same source the particle VFX use.
-    var levelProvider: (() -> Float)?
-    private var beamBodies: [SCNNode] = []          // Pulsed with the music
-    private var beamMaterials: [[SCNMaterial]] = [] // Per beam, recoloured on a beat
-    private var poolBody: SCNNode?
-    private var crowdGlow: [SCNNode] = []
-    private var crowdRows: [(node: SCNNode, baseY: Float, phase: Float)] = []
-    private var wallMaterial: SCNMaterial?
-    private var beatEnv: Float = 0                  // Smoothed level, the baseline a beat rises above
-    private var crowdPhase: Float = 0
-    private var confetti: SCNParticleSystem?
-    private var fireworks: [SCNParticleSystem] = []
-    private var burstFrames = 0            // Frames left in the current burst
-    private var chorusEnv: Float = 0       // Very slow envelope - a chorus is sustained, not a single hit
-    private var chorusCooldown = 0
-    private var stageHeight: Float = 1              // Character height, the unit the rig is built in
-    private var beatCooldown = 0
-    private var paletteShift = 0
-
-    /// Beam colours, rotated by one position on every detected beat.
-    private static let beamPalette: [UIColor] = [
-        UIColor(red: 1.00, green: 0.25, blue: 0.65, alpha: 1),
-        UIColor(red: 0.45, green: 0.35, blue: 1.00, alpha: 1),
-        UIColor(red: 0.25, green: 0.80, blue: 1.00, alpha: 1),
-        UIColor(red: 1.00, green: 0.72, blue: 0.30, alpha: 1),
-        UIColor(red: 0.40, green: 1.00, blue: 0.75, alpha: 1),
-    ]
     // All four rig lights are held here. Two of them used to be unreachable - `ambientLight` was
     // declared but never assigned (every write to it did nothing) and the fill/rim lights were
-    // never stored - so setupStageRig could only dim half the rig and the rest kept blasting.
+    // never stored - so the stage could only dim half the rig and the rest kept blasting.
     private weak var keyLight: SCNLight?
     private weak var fillLight: SCNLight?
     private weak var rimLight: SCNLight?
@@ -574,8 +490,8 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// choosing is what the recording will look like.
     ///
     /// It used to be an unbounded `angle += 0.008`, a full turn every 26 seconds - which carried the
-    /// camera round to the performer's back, and on the club stage straight through the LED wall and
-    /// the crowd. It is a bounded swing now: a slow arc either side of wherever the shot was framed,
+    /// camera round to the performer's back and out through the scenery. It is a bounded swing
+    /// now: a slow arc either side of wherever the shot was framed,
     /// with the distance breathing on a longer period so it does not feel like a turntable.
     var isAutoOrbiting = true
     private var orbitClock: Float = 0
@@ -729,7 +645,6 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             floorNode?.removeFromParentNode(); floorNode = nil
             contactShadow?.removeFromParentNode(); contactShadow = nil
             footShadows.forEach { $0.removeFromParentNode() }; footShadows = []
-            stageRig?.removeFromParentNode(); stageRig = nil
             skylineNode?.removeFromParentNode(); skylineNode = nil
             inlayNode?.removeFromParentNode(); inlayNode = nil
             return
@@ -775,70 +690,51 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         floorNode?.removeFromParentNode()
         inlayNode?.removeFromParentNode(); inlayNode = nil
 
-        if backgroundType == .sky {
-            // A big finite plane rather than SCNFloor. SCNFloor's texture coordinates are its own
-            // business - paving on it came out as one smeared slab - while a plane's UVs run 0...1
-            // across its extent, so the repeat count is exactly what is asked for. The fog hides
-            // the far edge, and there is no reflection to flatten the paving into a sheet of sky.
-            let h = max(modelHeight, 0.1)
-            let ground = SCNPlane(width: CGFloat(h * 60), height: CGFloat(h * 60))
-            let gm = ground.firstMaterial!
-            gm.diffuse.contents = Self.plazaTexture
-            gm.diffuse.wrapS = .repeat
-            gm.diffuse.wrapT = .repeat
-            // 55 repeats of a 4x4 block: the same ~0.45m slab as before, now with sixteen of
-            // them per tile instead of four.
-            gm.diffuse.contentsTransform = SCNMatrix4MakeScale(55, 55, 1)
-            // Anisotropic filtering, which a ground plane cannot do without. Seen almost edge-on,
-            // isotropic mips have to blur along the short axis as hard as along the long one, so
-            // the mid-distance turned to grey mush while the near slabs shimmered as the camera
-            // moved. This is the single cheapest thing that made the paving look like paving.
-            gm.diffuse.mipFilter = .linear
-            gm.diffuse.maxAnisotropy = 8
-            gm.lightingModel = .lambert
-            gm.isDoubleSided = false
+        // A big finite plane rather than SCNFloor. SCNFloor's texture coordinates are its own
+        // business - paving on it came out as one smeared slab - while a plane's UVs run 0...1
+        // across its extent, so the repeat count is exactly what is asked for. The fog hides
+        // the far edge, and there is no reflection to flatten the paving into a sheet of sky.
+        let h = max(modelHeight, 0.1)
+        let ground = SCNPlane(width: CGFloat(h * 60), height: CGFloat(h * 60))
+        let gm = ground.firstMaterial!
+        gm.diffuse.contents = Self.plazaTexture
+        gm.diffuse.wrapS = .repeat
+        gm.diffuse.wrapT = .repeat
+        // 55 repeats of a 4x4 block: the same ~0.45m slab as before, now with sixteen of
+        // them per tile instead of four.
+        gm.diffuse.contentsTransform = SCNMatrix4MakeScale(55, 55, 1)
+        // Anisotropic filtering, which a ground plane cannot do without. Seen almost edge-on,
+        // isotropic mips have to blur along the short axis as hard as along the long one, so
+        // the mid-distance turned to grey mush while the near slabs shimmered as the camera
+        // moved. This is the single cheapest thing that made the paving look like paving.
+        gm.diffuse.mipFilter = .linear
+        gm.diffuse.maxAnisotropy = 8
+        gm.lightingModel = .lambert
+        gm.isDoubleSided = false
 
-            let gnode = SCNNode(geometry: ground)
-            gnode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
-            gnode.simdPosition = simd_float3(0, minY, 0)
-            scene.rootNode.addChildNode(gnode)
-            floorNode = gnode
+        let gnode = SCNNode(geometry: ground)
+        gnode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
+        gnode.simdPosition = simd_float3(0, minY, 0)
+        scene.rootNode.addChildNode(gnode)
+        floorNode = gnode
 
-            // The medallion, centred on the performer rather than on the origin. Its own node so it
-            // is torn down with the floor and rebuilt at the right place when the character changes.
-            let inlay = SCNPlane(width: CGFloat(h * 5), height: CGFloat(h * 5))
-            let im = inlay.firstMaterial!
-            im.diffuse.contents = Self.plazaInlayTexture
-            im.lightingModel = .lambert          // lit with the paving, so it takes the same sun
-            im.isDoubleSided = false
-            im.writesToDepthBuffer = false       // it is a decal on a plane 2mm below it
-            let inode = SCNNode(geometry: inlay)
-            inode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
-            inode.simdPosition = simd_float3(cx, minY + 0.002, cz)
-            inode.renderingOrder = 1             // after the paving, before the contact shadow
-            inode.castsShadow = false
-            // Parented to the root, not to the floor: the floor node is rotated flat, so a child
-            // of it would be rotated twice and positioned in that rotated frame.
-            scene.rootNode.addChildNode(inode)
-            inlayNode = inode
-        } else {
-
-        // Floor: Slightly brighter than background color + slight reflection, forming a clear "ground" reference
-        let floor = SCNFloor()
-        // Glossy near-black dance floor. Unlit on purpose: SCNFloor is infinite, so letting the
-        // stage spots hit it turns the whole frame into a wash; the visible light is the additive
-        // pool instead. The reflection is what sells the club stage, so it stays - gated by
-        // DeviceTier, since a reflection re-renders the entire scene.
-        floor.reflectivity = DeviceTier.floorReflectivity > 0 ? 0.35 : 0
-        floor.reflectionFalloffEnd = CGFloat(max(modelHeight, 0.1) * 1.4)
-        floor.firstMaterial?.diffuse.contents = UIColor(red: 0.030, green: 0.030, blue: 0.040, alpha: 1)
-        floor.firstMaterial?.lightingModel = .constant
-        floor.firstMaterial?.roughness.contents = 0.82
-        let node = SCNNode(geometry: floor)
-        node.simdPosition = simd_float3(0, minY, 0)
-        scene.rootNode.addChildNode(node)
-        floorNode = node
-        }
+        // The medallion, centred on the performer rather than on the origin. Its own node so it
+        // is torn down with the floor and rebuilt at the right place when the character changes.
+        let inlay = SCNPlane(width: CGFloat(h * 5), height: CGFloat(h * 5))
+        let im = inlay.firstMaterial!
+        im.diffuse.contents = Self.plazaInlayTexture
+        im.lightingModel = .lambert          // lit with the paving, so it takes the same sun
+        im.isDoubleSided = false
+        im.writesToDepthBuffer = false       // it is a decal on a plane 2mm below it
+        let inode = SCNNode(geometry: inlay)
+        inode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
+        inode.simdPosition = simd_float3(cx, minY + 0.002, cz)
+        inode.renderingOrder = 1             // after the paving, before the contact shadow
+        inode.castsShadow = false
+        // Parented to the root, not to the floor: the floor node is rotated flat, so a child
+        // of it would be rotated twice and positioned in that rotated frame.
+        scene.rootNode.addChildNode(inode)
+        inlayNode = inode
 
         // Soft contact shadow under feet.
         //
@@ -853,14 +749,13 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         if !groundEnabled {
             // Sized from the character's height, not from the bounding box: with the arms out, the box
             // is wider than the character is tall and the "contact" shadow covered the whole foreground.
-            let shadowScale: Float = backgroundType == .sky ? 1.15 : 1.0
-            let blobW = min(footSpan * 2.4, max(modelHeight, 0.1) * 0.75) * shadowScale
+            let blobW = min(footSpan * 2.4, max(modelHeight, 0.1) * 0.75) * 1.15
             let blob = SCNPlane(width: CGFloat(blobW), height: CGFloat(blobW * 0.62))
             let bm = blob.firstMaterial!
-            bm.diffuse.contents = backgroundType == .sky ? Self.contactShadowTextureStrong : Self.contactShadowTexture
+            bm.diffuse.contents = Self.contactShadowTextureStrong
             // The body pool the per-foot ones sit inside; at full strength the two doubled up
             // into a single dark smear.
-            bm.transparency = backgroundType == .sky ? 0.8 : 0.65
+            bm.transparency = 0.8
             bm.lightingModel = .constant
             bm.isDoubleSided = true
             bm.writesToDepthBuffer = false
@@ -878,389 +773,8 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         // After stageCenter: the ring is centred on where the performer stands, not on the origin,
         // and the camera move orbits the same point - so the two stay concentric and the skyline
         // does not drift across the frame as the shot swings.
-        if backgroundType == .sky {
-            addSkyline(feetY: minY, height: max(modelHeight, 0.1))
-        } else {
-            skylineNode?.removeFromParentNode(); skylineNode = nil
-        }
-        setupStageRig(feetY: minY, center: stageCenter)
+        addSkyline(feetY: minY, height: max(modelHeight, 0.1))
     }
-
-    /// Club-stage set, built procedurally: an LED back wall, a lighting truss with fixtures,
-    /// the sweeping beams those fixtures throw, a follow spot and a glossy floor. Studio
-    /// background only - the sky stage is meant to read as daylight.
-    private func setupStageRig(feetY: Float, center: simd_float3) {
-        stageRig?.removeFromParentNode(); stageRig = nil
-        beamBodies.removeAll(); beamMaterials.removeAll(); crowdGlow.removeAll(); crowdRows.removeAll()
-        confetti = nil; fireworks.removeAll(); burstFrames = 0
-        poolBody = nil; wallMaterial = nil
-
-        guard groundEnabled, backgroundType == .studio else { return }
-        let h = max(modelHeight, 0.1)
-        stageHeight = h
-        let rig = SCNNode()
-
-        // MARK: LED back wall
-        // Wide enough that its edges stay out of frame, and tall enough that its lower edge
-        // passes below the floor - otherwise the wall ends in a hard dark band across the shot.
-        let wall = SCNPlane(width: CGFloat(h * 5.2), height: CGFloat(h * 3.4))
-        let wm = SCNMaterial()
-        wm.lightingModel = .constant                       // A screen emits; it is not lit
-        wm.diffuse.contents = CharacterSceneView.ledContentTexture
-        wm.diffuse.wrapS = .repeat
-        wm.diffuse.wrapT = .repeat
-        wm.isDoubleSided = false
-        // The content scrolls by translating the texture matrix exactly one full repeat, which is
-        // why the pattern has to tile seamlessly top-to-bottom - anything else flashes a seam once
-        // per loop. Cheap: no geometry moves and no texture is re-uploaded.
-        let tile = SCNMatrix4MakeScale(1, 1.6, 1)
-        wm.diffuse.contentsTransform = tile
-        let scroll = CABasicAnimation(keyPath: "contentsTransform")
-        scroll.fromValue = tile
-        scroll.toValue = SCNMatrix4Mult(tile, SCNMatrix4MakeTranslation(0, 1, 0))
-        scroll.duration = 9
-        scroll.repeatCount = .infinity
-        wm.diffuse.addAnimation(scroll, forKey: "ledScroll")
-        wall.materials = [wm]
-        wallMaterial = wm
-        let wallNode = SCNNode(geometry: wall)
-        wallNode.simdPosition = simd_float3(center.x, feetY + h * 1.25, center.z - h * 2.0)
-        rig.addChildNode(wallNode)
-
-        // Framing sits on its own plane in front of the screen: the fade into the floor and the
-        // vignette have to stay put. Baking them into the scrolling texture would send a black
-        // band travelling up the wall.
-        let mask = SCNPlane(width: CGFloat(h * 5.2), height: CGFloat(h * 3.4))
-        let mm = SCNMaterial()
-        mm.lightingModel = .constant
-        mm.diffuse.contents = CharacterSceneView.ledMaskTexture
-        mm.writesToDepthBuffer = false
-        mm.isDoubleSided = false
-        mask.materials = [mm]
-        let maskNode = SCNNode(geometry: mask)
-        maskNode.simdPosition = simd_float3(center.x, feetY + h * 1.25, center.z - h * 1.99)
-        rig.addChildNode(maskNode)
-
-        // MARK: Truss
-        let truss = SCNBox(width: CGFloat(h * 4.0), height: CGFloat(h * 0.07),
-                           length: CGFloat(h * 0.07), chamferRadius: 0)
-        let tm = SCNMaterial(); tm.lightingModel = .lambert
-        tm.diffuse.contents = UIColor(white: 0.16, alpha: 1)
-        truss.materials = [tm]
-        let trussNode = SCNNode(geometry: truss)
-        trussNode.simdPosition = simd_float3(center.x, feetY + h * 2.25, center.z - h * 1.25)
-        rig.addChildNode(trussNode)
-
-        // MARK: Beams, hanging off the fixtures on that truss
-        let beams: [(x: Float, color: UIColor, period: Double)] = [
-            (-1.50, UIColor(red: 1.00, green: 0.25, blue: 0.65, alpha: 1), 6.8),
-            (-0.95, UIColor(red: 0.45, green: 0.35, blue: 1.00, alpha: 1), 5.3),
-            (-0.50, UIColor(red: 0.25, green: 0.80, blue: 1.00, alpha: 1), 7.6),
-            ( 0.50, UIColor(red: 0.25, green: 0.80, blue: 1.00, alpha: 1), 6.1),
-            ( 0.95, UIColor(red: 0.45, green: 0.35, blue: 1.00, alpha: 1), 7.1),
-            ( 1.50, UIColor(red: 1.00, green: 0.25, blue: 0.65, alpha: 1), 5.7),
-        ]
-        let len = h * 2.6
-        for b in beams {
-            let can = SCNCylinder(radius: CGFloat(h * 0.05), height: CGFloat(h * 0.09))
-            let cm = SCNMaterial(); cm.lightingModel = .lambert
-            cm.diffuse.contents = UIColor(white: 0.1, alpha: 1)
-            can.materials = [cm]
-            let canNode = SCNNode(geometry: can)
-            canNode.simdPosition = simd_float3(center.x + b.x * h, feetY + h * 2.19, center.z - h * 1.25)
-            rig.addChildNode(canNode)
-
-            let pivot = SCNNode()
-            pivot.simdPosition = simd_float3(center.x + b.x * h, feetY + h * 2.15, center.z - h * 1.25)
-            pivot.eulerAngles = SCNVector3(0, 0, -b.x * 0.30)   // Leaning in on the performer
-
-            // Crossed quads rather than a cone: a cone always shows a hard silhouette edge and
-            // reads as geometry. No billboard constraint - it overrides the node's orientation
-            // and would cancel the lean. Greyscale-on-black texture, additive, so black adds nothing.
-            let beamNode = SCNNode()
-            beamNode.simdPosition = simd_float3(0, -Float(len) / 2, 0)
-            for turn in [Float(0), Float.pi / 2] {
-                let quad = SCNPlane(width: CGFloat(h * 0.95), height: CGFloat(len))
-                let m = SCNMaterial()
-                m.lightingModel = .constant
-                m.diffuse.contents = Self.beamTexture
-                m.multiply.contents = b.color
-                m.blendMode = .add
-                m.writesToDepthBuffer = false
-                m.isDoubleSided = true
-                quad.materials = [m]
-                let card = SCNNode(geometry: quad)
-                card.eulerAngles = SCNVector3(0, turn, 0)
-                beamNode.addChildNode(card)
-            }
-            // Additive and unlit, like the wall: opacity here changes how much light the beam
-            // appears to carry, not how exposed the performer is.
-            beamNode.opacity = 0.95
-            pivot.addChildNode(beamNode)
-            beamBodies.append(beamNode)
-            beamMaterials.append(beamNode.childNodes.compactMap { $0.geometry?.firstMaterial })
-
-            // Sweep and breathe, each fixture on its own period so they never move as one block.
-            let out = SCNAction.rotateBy(x: 0.04, y: 0.18, z: CGFloat(b.x > 0 ? -0.15 : 0.15), duration: b.period)
-            let back = SCNAction.rotateBy(x: -0.04, y: -0.18, z: CGFloat(b.x > 0 ? 0.15 : -0.15), duration: b.period)
-            out.timingMode = .easeInEaseOut; back.timingMode = .easeInEaseOut
-            pivot.runAction(.repeatForever(.sequence([out, back])))
-
-            // No scripted fade here: brightness is driven by the music every frame instead, and a
-            // running action would keep overwriting it.
-
-            rig.addChildNode(pivot)
-        }
-
-        // MARK: Follow spot straight overhead
-        let follow = SCNNode()
-        let l = SCNLight()
-        l.type = .spot
-        l.spotInnerAngle = 15
-        l.spotOuterAngle = 60
-        l.color = UIColor(white: 1.0, alpha: 1.0)
-        l.intensity = lightLevels.followSpot
-        l.attenuationStartDistance = CGFloat(h * 1.5)
-        l.attenuationEndDistance = CGFloat(h * 5.0)
-        follow.light = l
-
-        // No beam geometry on this one: a crossed-plane cone drew a visible seam straight down the
-        // middle of the shot. It contributes light and the pool on the floor, nothing more.
-        follow.simdPosition = simd_float3(center.x, feetY + h * 4.0, center.z)
-        follow.look(at: SCNVector3(center.x, feetY, center.z))
-        rig.addChildNode(follow)
-
-        // MARK: Lights that actually shade the performer
-        func spot(_ x: Float, _ y: Float, _ z: Float, _ color: UIColor, _ intensity: CGFloat,
-                  _ inner: CGFloat, _ outer: CGFloat, shadow: Bool = false) -> SCNNode {
-            let n = SCNNode()
-            let l = SCNLight()
-            l.type = .spot
-            l.color = color
-            l.intensity = intensity
-            l.spotInnerAngle = inner
-            l.spotOuterAngle = outer
-            l.attenuationStartDistance = CGFloat(h * 1.2)
-            l.attenuationEndDistance = CGFloat(h * 4.4)     // Dies out before it can wash the floor
-            l.castsShadow = shadow && DeviceTier.dynamicShadows
-            l.shadowMode = .forward
-            l.shadowColor = UIColor(white: 0, alpha: 0.45)
-            l.shadowRadius = 8
-            l.shadowSampleCount = DeviceTier.shadowSampleCount
-            n.light = l
-            n.simdPosition = simd_float3(center.x + x * h, feetY + y * h, center.z + z * h)
-            n.look(at: SCNVector3(center.x, feetY + h * 0.65, center.z))
-            return n
-        }
-        let k = lightLevels.stageSpot
-        rig.addChildNode(spot(-0.9, 2.2, 0.9, UIColor(red: 1.0, green: 0.80, blue: 0.93, alpha: 1), 720 * k, 20, 55, shadow: true))
-        rig.addChildNode(spot( 0.9, 2.2, 0.9, UIColor(red: 0.76, green: 0.90, blue: 1.0, alpha: 1), 430 * k, 20, 55))
-        // Front fill: without it the face falls into shadow against a bright LED wall.
-        rig.addChildNode(spot( 0.0, 1.35, 1.9, UIColor(red: 1.0, green: 0.98, blue: 0.96, alpha: 1), 540 * k, 26, 62))
-
-        // The image-based light is set by applyLightLevels(), which runs after this.
-
-        // MARK: Crowd
-        // Silhouettes give the stage a depth cue nothing else provides: something sits in front of
-        // the wall and behind the performer, so the space reads as a venue rather than a backdrop.
-        // Three strips - one across the back, two angled in from the sides - each a flat card, so
-        // the whole crowd costs six draw calls.
-        func crowdRow(width: Float, at pos: simd_float3, yaw: Float) {
-            let bodies = SCNPlane(width: CGFloat(width), height: CGFloat(width * 0.25))
-            let bmat = SCNMaterial()
-            bmat.lightingModel = .constant
-            bmat.diffuse.contents = CharacterSceneView.crowdTextures.bodies
-            bmat.isDoubleSided = true
-            bmat.writesToDepthBuffer = false          // Never punch a hole in the wall behind them
-            bodies.materials = [bmat]
-            let bnode = SCNNode(geometry: bodies)
-            bnode.simdPosition = pos
-            bnode.eulerAngles = SCNVector3(0, yaw, 0)
-            rig.addChildNode(bnode)
-
-            // Glow sticks on their own additive card, a hair in front, so they can pulse alone.
-            let glow = SCNPlane(width: CGFloat(width), height: CGFloat(width * 0.25))
-            let gmat = SCNMaterial()
-            gmat.lightingModel = .constant
-            gmat.diffuse.contents = CharacterSceneView.crowdTextures.glow
-            gmat.blendMode = .add
-            gmat.isDoubleSided = true
-            gmat.writesToDepthBuffer = false
-            glow.materials = [gmat]
-            let gnode = SCNNode(geometry: glow)
-            gnode.simdPosition = pos + simd_float3(sin(yaw), 0, cos(yaw)) * (h * 0.02)
-            gnode.eulerAngles = SCNVector3(0, yaw, 0)
-            gnode.opacity = 0.7
-            rig.addChildNode(gnode)
-            crowdGlow.append(gnode)
-
-            // Rows bob with the music, each on its own phase so the crowd never moves as one slab.
-            let phase = Float(crowdRows.count) * 1.9
-            crowdRows.append((bnode, pos.y, phase))
-            crowdRows.append((gnode, gnode.simdPosition.y, phase))
-        }
-
-        crowdRow(width: h * 5.0, at: simd_float3(center.x, feetY + h * 0.52, center.z - h * 1.55), yaw: 0)
-        crowdRow(width: h * 3.4, at: simd_float3(center.x - h * 2.0, feetY + h * 0.46, center.z - h * 0.2), yaw: 0.9)
-        crowdRow(width: h * 3.4, at: simd_float3(center.x + h * 2.0, feetY + h * 0.46, center.z - h * 0.2), yaw: -0.9)
-
-        // MARK: Chorus burst - confetti from the rig, fireworks off the wings
-        // Both sit idle at birthRate 0 and are opened up for a few frames when a chorus is
-        // detected. Creating the systems up front keeps the burst instant; building them on the
-        // beat would drop frames exactly when the stage is busiest.
-        let conf = SCNParticleSystem()
-        conf.particleImage = CharacterSceneView.confettiTexture
-        conf.birthRate = 0
-        conf.particleLifeSpan = 4.5
-        conf.particleLifeSpanVariation = 1.5
-        conf.particleSize = CGFloat(h * 0.016)
-        conf.particleSizeVariation = CGFloat(h * 0.007)
-        conf.particleVelocity = CGFloat(h * 0.35)
-        conf.particleVelocityVariation = CGFloat(h * 0.4)
-        conf.spreadingAngle = 55
-        conf.emittingDirection = SCNVector3(0, -1, 0)
-        conf.acceleration = SCNVector3(0, -h * 0.65, 0)          // Flutter down, not plummet
-        conf.particleAngularVelocity = 260
-        conf.particleAngularVelocityVariation = 320
-        conf.particleColorVariation = SCNVector4(0.9, 0.5, 0.4, 0)   // Wide hue spread
-        conf.particleColor = UIColor(red: 1.0, green: 0.55, blue: 0.75, alpha: 1)
-        conf.isLightingEnabled = false
-        conf.emitterShape = SCNBox(width: CGFloat(h * 3.4), height: 0.01, length: CGFloat(h * 1.2), chamferRadius: 0)
-        conf.birthLocation = .volume
-        let confNode = SCNNode()
-        confNode.simdPosition = simd_float3(center.x, feetY + h * 2.35, center.z - h * 0.2)
-        confNode.addParticleSystem(conf)
-        rig.addChildNode(confNode)
-        confetti = conf
-
-        for side in [Float(-1), Float(1)] {
-            let fw = SCNParticleSystem()
-            fw.particleImage = CharacterSceneView.sparkTexture
-            fw.birthRate = 0
-            fw.particleLifeSpan = 1.1
-            fw.particleLifeSpanVariation = 0.5
-            fw.particleSize = CGFloat(h * 0.045)
-            fw.particleVelocity = CGFloat(h * 2.6)
-            fw.particleVelocityVariation = CGFloat(h * 1.1)
-            fw.spreadingAngle = 180                                // A sphere of sparks
-            fw.acceleration = SCNVector3(0, -h * 1.1, 0)
-            fw.blendMode = .additive
-            fw.isLightingEnabled = false
-            fw.stretchFactor = 0.02                                // Slight streak along the travel
-            fw.particleColorVariation = SCNVector4(0.6, 0.4, 0.5, 0)
-            fw.particleColor = UIColor(red: 1.0, green: 0.8, blue: 0.5, alpha: 1)
-            let node = SCNNode()
-            node.simdPosition = simd_float3(center.x + side * h * 1.9, feetY + h * 1.9, center.z - h * 0.9)
-            node.addParticleSystem(fw)
-            rig.addChildNode(node)
-            fireworks.append(fw)
-        }
-
-        // MARK: Pool of light on the floor
-        let pool = SCNPlane(width: CGFloat(h * 2.4), height: CGFloat(h * 1.3))
-        let pm = pool.firstMaterial!
-        pm.diffuse.contents = Self.lightPoolTexture
-        pm.lightingModel = .constant
-        pm.blendMode = .add
-        pm.writesToDepthBuffer = false
-        pm.isDoubleSided = true
-        let poolNode = SCNNode(geometry: pool)
-        poolNode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
-        poolNode.simdPosition = simd_float3(center.x, feetY + 0.002, center.z)
-        rig.addChildNode(poolNode)
-        poolBody = poolNode
-
-        scene.rootNode.addChildNode(rig)
-        stageRig = rig
-    }
-
-    /// Beam texture: a shaft that widens and fades as it falls, soft at both sides. Painted as
-    /// greyscale on black - under additive blending black adds nothing, so no alpha handling is
-    /// involved and the beam can never darken what is behind it.
-    /// Drives the stage rig from the music, once per rendered frame. SceneKit already calls its
-    /// renderer delegate on every frame it draws, so there is no second display link to own or
-    /// invalidate - it stops on its own when the view goes away.
-    func driveStage() {
-        guard !beamBodies.isEmpty, let level = levelProvider?() else { return }
-        beatEnv = beatEnv * 0.82 + level * 0.18
-
-        // Beams brighten with the music but never go fully dark, or the stage reads as broken.
-        let glow = CGFloat(min(1.0, 0.42 + level * 1.15))
-        for (i, body) in beamBodies.enumerated() {
-            // Alternate fixtures sit slightly lower, so the row pulses as a wave, not a block.
-            let bias: CGFloat = (i % 2 == 0) ? 0 : -0.12
-            body.opacity = max(0.28, glow + bias)
-        }
-
-        if let pool = poolBody {
-            let sc = 1.0 + level * 0.28
-            pool.simdScale = simd_float3(sc, sc, 1)
-            pool.opacity = CGFloat(0.45 + level * 0.55)
-        }
-        for g in crowdGlow { g.opacity = CGFloat(0.45 + level * 0.75) }
-        // Crowd bob: driven by the smoothed level rather than the raw one, so they ride the track
-        // instead of twitching on every transient.
-        crowdPhase += 0.09 + beatEnv * 0.16
-        for row in crowdRows {
-            row.node.simdPosition.y = row.baseY + sin(crowdPhase + row.phase) * (0.012 + beatEnv * 0.05) * stageHeight
-        }
-        // The wall breathes with the track too, but gently - it has to stay behind the performer.
-        wallMaterial?.multiply.contents = UIColor(white: CGFloat(0.85 + level * 0.30), alpha: 1)
-
-        // A chorus is energy that stays up, so it is tested against a very slow envelope - a
-        // single loud hit moves beatEnv but barely moves this one.
-        chorusEnv = chorusEnv * 0.985 + level * 0.015
-        if chorusCooldown > 0 { chorusCooldown -= 1 }
-        if burstFrames > 0 {
-            burstFrames -= 1
-            if burstFrames == 0 {                       // Close the emitters again
-                confetti?.birthRate = 0
-                for fw in fireworks { fw.birthRate = 0 }
-            }
-        } else if chorusEnv > 0.20, level > 0.28, chorusCooldown == 0 {
-            confetti?.birthRate = 900
-            for fw in fireworks { fw.birthRate = 900 }
-            burstFrames = 20                            // Roughly a third of a second of emission
-            chorusCooldown = 60 * 12                    // At most one burst every ~12s
-        }
-
-        if beatCooldown > 0 { beatCooldown -= 1 }
-        // A beat is a level that jumps clear of its own running average - the same test the
-        // particle VFX use, so the lights and the particles hit together.
-        if level > beatEnv * 1.28, level > 0.18, beatCooldown == 0 {
-            beatCooldown = 14
-            paletteShift += 1
-            for (i, mats) in beamMaterials.enumerated() {
-                let colour = Self.beamPalette[(i + paletteShift) % Self.beamPalette.count]
-                for m in mats { m.multiply.contents = colour }
-            }
-        }
-    }
-
-    private static let beamTexture: UIImage = {
-        let side: CGFloat = 256
-        let s = CGSize(width: side, height: side)
-        return UIGraphicsImageRenderer(size: s).image { ctx in
-            let c = ctx.cgContext
-            let rgb = CGColorSpaceCreateDeviceRGB()
-            c.setFillColor(UIColor.black.cgColor)
-            c.fill(CGRect(origin: .zero, size: s))
-            for row in 0..<Int(side) {
-                let t = CGFloat(row) / (side - 1)                 // 1 at the lamp, 0 at the far end
-                let halfW = (0.42 - 0.34 * t) * side              // Narrow at the lamp, wide where it lands
-                let level = pow(t, 1.25) * 0.9 + 0.03
-                let cols = [UIColor.black.cgColor,
-                            UIColor(red: level, green: level, blue: level, alpha: 1).cgColor,
-                            UIColor.black.cgColor]
-                let g = CGGradient(colorsSpace: rgb, colors: cols as CFArray, locations: [0, 0.5, 1])!
-                c.saveGState()
-                c.clip(to: CGRect(x: side / 2 - halfW, y: CGFloat(row), width: halfW * 2, height: 1))
-                c.drawLinearGradient(g, start: CGPoint(x: side / 2 - halfW, y: 0),
-                                     end: CGPoint(x: side / 2 + halfW, y: 0), options: [])
-                c.restoreGState()
-            }
-        }
-    }()
 
     /// Outdoor paving, one tile of a 4x4 block of slabs.
     ///
@@ -1392,24 +906,6 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         }
     }()
 
-    /// Floor light pool: cool centre fading to black (additive, so black is invisible).
-    private static let lightPoolTexture: UIImage = {
-        let s = CGSize(width: 256, height: 256)
-        return UIGraphicsImageRenderer(size: s).image { ctx in
-            ctx.cgContext.setFillColor(UIColor.black.cgColor)
-            ctx.cgContext.fill(CGRect(origin: .zero, size: s))
-            let colors = [UIColor(red: 0.46, green: 0.36, blue: 0.62, alpha: 1).cgColor,
-                          UIColor(red: 0.16, green: 0.12, blue: 0.22, alpha: 1).cgColor,
-                          UIColor.black.cgColor]
-            let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray,
-                               locations: [0, 0.5, 1])!
-            ctx.cgContext.drawRadialGradient(g, startCenter: CGPoint(x: 128, y: 128), startRadius: 0,
-                                             endCenter: CGPoint(x: 128, y: 128), endRadius: 128, options: [])
-        }
-    }()
-
-    /// Soft circular contact shadow map: black center, transparent edges. Fixed content -> generated only once.
-    private static let contactShadowTexture: UIImage = makeContactShadowImage(0.55)
     /// Outdoors the ground is bright and there is no pool of stage light, so the shadow has to
     /// carry the grounding on its own.
     private static let contactShadowTextureStrong: UIImage = makeContactShadowImage(0.8)
@@ -1881,7 +1377,6 @@ struct CharacterSceneView: UIViewRepresentable {
                 controller.viewportAspect = Float(view.bounds.width / view.bounds.height)
             }
             controller.updatePhysics()
-            controller.driveStage()
             controller.stepCameraMove()
 
             // Hair physics used to be stepped here, on a `VRMNode` mounted straight from a `.vrm`
@@ -1975,153 +1470,6 @@ struct CharacterSceneView: UIViewRepresentable {
 
     static func skyBackdrop() -> UIImage { skyImage }
 
-    /// The LED back wall: colour bands behind a panel grid, knocked back and vignetted so it
-    /// frames the performer instead of flooding the frame.
-    /// LED content. Every row is drawn from a function whose period is exactly the texture
-    /// height, so the top edge matches the bottom edge and the scroll loops invisibly.
-    static let ledContentTexture: UIImage = {
-        let size = CGSize(width: 512, height: 288)
-        return UIGraphicsImageRenderer(size: size).image { ctx in
-            let c = ctx.cgContext
-            // A closed loop of stops - ending where it starts is what makes the tile seamless.
-            let stops: [(CGFloat, CGFloat, CGFloat)] = [
-                (0.95, 0.15, 0.55),   // magenta
-                (0.45, 0.20, 0.95),   // violet
-                (0.10, 0.65, 0.98),   // cyan
-                (0.45, 0.20, 0.95),   // violet again, closing the ring
-            ]
-            let rows = Int(size.height)
-            for y in 0..<rows {
-                let t = CGFloat(y) / CGFloat(rows)
-                let p = t * CGFloat(stops.count)
-                let i = Int(p) % stops.count
-                let j = (i + 1) % stops.count
-                let f = p - floor(p)
-                let a = stops[i], b = stops[j]
-
-                // The travelling bright band. Wide and soft rather than a thin line, which read
-                // as a stray highlight rather than as content on a screen.
-                let bar = pow(0.5 + 0.5 * sin(t * .pi * 2), 4)
-                let level = 0.38 + 0.55 * bar
-                c.setFillColor(UIColor(red: (a.0 + (b.0 - a.0) * f) * level,
-                                       green: (a.1 + (b.1 - a.1) * f) * level,
-                                       blue: (a.2 + (b.2 - a.2) * f) * level, alpha: 1).cgColor)
-                c.fill(CGRect(x: 0, y: CGFloat(y), width: size.width, height: 1))
-            }
-
-            // Panel seams. 288 / 32 = 9 rows exactly, so the grid tiles along with the colour.
-            c.setStrokeColor(UIColor(white: 0, alpha: 0.32).cgColor)
-            c.setLineWidth(1)
-            for i in stride(from: 0, through: Int(size.width), by: 32) {
-                c.move(to: CGPoint(x: CGFloat(i), y: 0)); c.addLine(to: CGPoint(x: CGFloat(i), y: size.height))
-            }
-            for j in stride(from: 0, through: Int(size.height), by: 32) {
-                c.move(to: CGPoint(x: 0, y: CGFloat(j))); c.addLine(to: CGPoint(x: size.width, y: CGFloat(j)))
-            }
-            c.strokePath()
-
-            // Knock-down, so the wall never out-shines the performer. It used to be 0.52, which
-            // together with `level` capping at 0.55 and the mask's vignette left the wall peaking
-            // around 0.20 - the single strongest "this is a venue" cue in the frame, invisible.
-            //
-            // Raising it is free: this material is `.constant`, so the wall emits and lights
-            // nothing. The over-exposure that the levels were originally pulled down to fix was
-            // measured on the *performer*, and no emissive set piece contributes to that.
-            c.setFillColor(UIColor(white: 0, alpha: 0.18).cgColor)
-            c.fill(CGRect(origin: .zero, size: size))
-        }
-    }()
-
-    /// One confetti flake: a small rounded rectangle, tinted per particle by colour variation.
-    static let confettiTexture: UIImage = {
-        let s = CGSize(width: 64, height: 64)
-        return UIGraphicsImageRenderer(size: s).image { ctx in
-            ctx.cgContext.setFillColor(UIColor.white.cgColor)
-            // Thin strip inside a transparent square: particles are always drawn square, so the
-            // ribbon shape has to live in the texture.
-            ctx.cgContext.addPath(UIBezierPath(roundedRect: CGRect(x: 23, y: 8, width: 18, height: 48),
-                                               cornerRadius: 5).cgPath)
-            ctx.cgContext.fillPath()
-        }
-    }()
-
-    /// Firework spark: a soft dot, bright core fading out, for additive blending.
-    static let sparkTexture: UIImage = {
-        let s = CGSize(width: 64, height: 64)
-        return UIGraphicsImageRenderer(size: s).image { ctx in
-            let cols = [UIColor.white.cgColor,
-                        UIColor.white.withAlphaComponent(0.5).cgColor,
-                        UIColor.white.withAlphaComponent(0).cgColor]
-            ctx.cgContext.drawRadialGradient(
-                CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: cols as CFArray,
-                           locations: [0, 0.35, 1])!,
-                startCenter: CGPoint(x: 32, y: 32), startRadius: 0,
-                endCenter: CGPoint(x: 32, y: 32), endRadius: 32, options: [])
-        }
-    }()
-
-    /// A crowd, generated once. Heads, shoulders and a few raised arms along a strip; the random
-    /// numbers come from a fixed seed so the same crowd is drawn every launch (an unstable crowd
-    /// would pop every time the stage is rebuilt). The glow sticks live in a separate texture -
-    /// that layer is additive and pulses with the beat, while the bodies stay flat black.
-    private static func makeCrowd() -> (bodies: UIImage, glow: UIImage) {
-        let size = CGSize(width: 1024, height: 256)
-        var seed: UInt64 = 0x5EED
-        func rnd() -> CGFloat {                       // Small deterministic LCG
-            seed = seed &* 6364136223846793005 &+ 1442695040888963407
-            return CGFloat((seed >> 33) % 10000) / 10000
-        }
-        var arms: [(CGPoint, CGFloat)] = []           // Tip positions for the glow pass
-
-        let bodies = UIGraphicsImageRenderer(size: size).image { ctx in
-            let c = ctx.cgContext
-            c.setFillColor(UIColor(white: 0.02, alpha: 1).cgColor)
-            var x: CGFloat = 10
-            while x < size.width + 40 {
-                let scale = 0.8 + rnd() * 0.5
-                let headR = 15 * scale
-                let baseY = size.height - 6 - rnd() * 14      // Slight variation in how tall they stand
-                let headY = baseY - 96 * scale
-                c.fillEllipse(in: CGRect(x: x - headR, y: headY - headR, width: headR * 2, height: headR * 2))
-                // Shoulders: a wide rounded body under the head
-                let bw = headR * 3.1, bh = 110 * scale
-                let body = UIBezierPath(roundedRect: CGRect(x: x - bw / 2, y: headY + headR * 0.4,
-                                                            width: bw, height: bh),
-                                        cornerRadius: bw * 0.42)
-                c.addPath(body.cgPath); c.fillPath()
-                // Roughly a third of them have an arm up
-                if rnd() < 0.34 {
-                    let side: CGFloat = rnd() < 0.5 ? -1 : 1
-                    let tipX = x + side * headR * 1.5
-                    let tipY = headY - 52 * scale - rnd() * 26
-                    c.setLineWidth(7 * scale)
-                    c.setStrokeColor(UIColor(white: 0.02, alpha: 1).cgColor)
-                    c.setLineCap(.round)
-                    c.move(to: CGPoint(x: x + side * headR * 0.9, y: headY + headR * 1.1))
-                    c.addLine(to: CGPoint(x: tipX, y: tipY))
-                    c.strokePath()
-                    arms.append((CGPoint(x: tipX, y: tipY), scale))
-                }
-                x += 34 + rnd() * 22
-            }
-        }
-
-        let glow = UIGraphicsImageRenderer(size: size).image { ctx in
-            let c = ctx.cgContext
-            let rgb = CGColorSpaceCreateDeviceRGB()
-            for (p, scale) in arms {
-                let r = 16 * scale
-                let tint = UIColor(red: 0.55 + rnd() * 0.45, green: 0.45 + rnd() * 0.4, blue: 0.95, alpha: 1)
-                let cols = [tint.cgColor, UIColor.black.cgColor]
-                c.drawRadialGradient(CGGradient(colorsSpace: rgb, colors: cols as CFArray, locations: [0, 1])!,
-                                     startCenter: p, startRadius: 0, endCenter: p, endRadius: r, options: [])
-            }
-        }
-        return (bodies, glow)
-    }
-
-    static let crowdTextures: (bodies: UIImage, glow: UIImage) = makeCrowd()
-
     /// Studio environment map: soft boxes on a dark ground, which is what puts a readable
     /// specular streak on armour and eyes rather than a single blown highlight.
     static let studioEnvironment: UIImage = {
@@ -2150,26 +1498,6 @@ struct CharacterSceneView: UIViewRepresentable {
                                        colors: [UIColor(red: 0.2, green: 0.15, blue: 0.3, alpha: 1).cgColor, UIColor.clear.cgColor] as CFArray,
                                        locations: [0, 1])!
             c.drawLinearGradient(bottomGrad, start: CGPoint(x: 0, y: size.height), end: CGPoint(x: 0, y: size.height * 0.7), options: [])
-        }
-    }()
-
-    /// Static framing laid over the screen: sinks the bottom into the floor and vignettes the
-    /// edges. Black with a varying alpha, so the scrolling content shows through the middle.
-    static let ledMaskTexture: UIImage = {
-        let size = CGSize(width: 512, height: 288)
-        return UIGraphicsImageRenderer(size: size).image { ctx in
-            let c = ctx.cgContext
-            let rgb = CGColorSpaceCreateDeviceRGB()
-            // 0.85 from 30% out left the wall's edges at about 3% brightness. The vignette is
-            // here to frame the performer, not to erase the set.
-            let vig = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.62).cgColor]
-            c.drawRadialGradient(CGGradient(colorsSpace: rgb, colors: vig as CFArray, locations: [0.42, 1])!,
-                                 startCenter: CGPoint(x: size.width / 2, y: size.height * 0.55), startRadius: 0,
-                                 endCenter: CGPoint(x: size.width / 2, y: size.height * 0.55),
-                                 endRadius: size.width * 0.62, options: [])
-            let fade = [UIColor.clear.cgColor, UIColor.black.cgColor]
-            c.drawLinearGradient(CGGradient(colorsSpace: rgb, colors: fade as CFArray, locations: [0, 0.55])!,
-                                 start: CGPoint(x: 0, y: size.height * 0.45), end: .zero, options: [])
         }
     }()
 

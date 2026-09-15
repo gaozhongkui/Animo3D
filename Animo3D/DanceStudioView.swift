@@ -767,9 +767,6 @@ struct DanceStudioView: View {
 
     /// Install/refresh stage VFX (attach to character screen scene, read music energy pulses).
     private func installVFX() {
-        // The stage lights read the same energy as the particles, so beams, floor pool and
-        // confetti all hit on the same beat. Set here because this runs on every VFX change.
-        stage.controller.levelProvider = { [weak music] in music?.currentLevel() ?? 0 }
         vfx.remove()
         // No chips on low-end, so nothing to install - and nothing should sneak in through a
         // restored selection either.
