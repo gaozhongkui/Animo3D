@@ -19,6 +19,7 @@
 //
 
 import Combine
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -45,7 +46,6 @@ final class StageLibrary: ObservableObject {
     /// Specs are kept once built: measuring is cheap but decoding a 2048x1024 JPEG is not, and the
     /// picker asks for the same handful of stages every time it opens.
     private var specs: [String: CharacterSceneController.StageSpec] = [:]
-    private var thumbs: [String: UIImage] = [:]
 
     private init() {
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
@@ -113,34 +113,68 @@ final class StageLibrary: ObservableObject {
 
     // MARK: - Cards
 
-    /// The picture on a stage's card: a slice of the sky itself, around where the camera will be
-    /// looking. Cropping the dome rather than shipping a second image means a stage stays one file.
-    func thumbnail(for id: String) -> UIImage? {
-        if let t = thumbs[id] { return t }
-        let sky: UIImage?
+    /// Card art, once it is ready. Reading it never blocks and never decodes.
+    @Published private(set) var thumbs: [String: UIImage] = [:]
+
+    /// Produce the card art for a stage, off the main thread, once.
+    ///
+    /// This used to decode a full 2048x1024 JPEG per card, on the main actor, while the grid was
+    /// laying itself out - which is tens of milliseconds each and which the catalogue is free to
+    /// make worse by serving more stages. ImageIO decodes straight to the size a card needs instead,
+    /// and it happens on a background task; the grid redraws as each one lands.
+    func loadThumbnail(for id: String) async {
+        guard thumbs[id] == nil else { return }
+
+        // Where the picture is, resolved here because it needs this actor's state, and read there.
+        let source: @Sendable () -> UIImage?
         if let built = CharacterSceneController.Stage.all.first(where: { $0.id == id }) {
-            sky = built.sky()
+            let sky = built.sky
+            source = { Self.card(from: sky()) }
         } else if let mine = userStages.first(where: { $0.id == id }) {
-            sky = UIImage(contentsOfFile: fileURL(mine).path)
+            let url = fileURL(mine)
+            source = { Self.card(fromFileAt: url) }
         } else if let item = RemoteAssets.shared.stage(id),
                   let url = RemoteAssets.shared.localURL(for: item.sky.assetName) {
-            sky = UIImage(contentsOfFile: url.path)
+            source = { Self.card(fromFileAt: url) }
         } else {
-            sky = nil
+            return
         }
-        guard let sky, let cg = sky.cgImage else { return nil }
 
-        // The band the stage camera actually sees: a sixth of the turn centred on its heading, from
-        // the horizon up. A card cropped anywhere else shows a piece of sky the user will not
-        // recognise when they get there.
+        if let art = await Task.detached(priority: .utility, operation: source).value {
+            thumbs[id] = art
+        }
+    }
+
+    /// Decode no larger than a card needs. 1400 across leaves the slice of a panorama about 280
+    /// wide, which is what a card is on a phone, and it never decodes a user's 12-megapixel
+    /// photograph in full to show it two centimetres across.
+    private nonisolated static func card(fromFileAt url: URL) -> UIImage? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,   // honour the camera's orientation
+            kCGImageSourceThumbnailMaxPixelSize: 1400,
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary)
+        else { return nil }
+        return card(from: UIImage(cgImage: cg))
+    }
+
+    /// What to show of a picture depends on what kind of picture it is.
+    ///
+    /// A panorama is 360 degrees of sky, and nearly all of it is somewhere the camera will never
+    /// point; the card shows the slice it will, so what the user picked is what they get. A
+    /// photograph is already framed - by the person who took it - and the whole of it is what will
+    /// stand behind the dancer, so the card shows the whole of it.
+    private nonisolated static func card(from image: UIImage?) -> UIImage? {
+        guard let cg = image?.cgImage else { return nil }
         let w = CGFloat(cg.width), h = CGFloat(cg.height)
+        guard abs(w / max(h, 1) - 2) < 0.08 else { return image }
+
         let width = w / 5
         let x = (SkyReader.cameraAzimuth * w - width / 2).truncatingRemainder(dividingBy: w)
         let rect = CGRect(x: max(0, min(w - width, x)), y: h * 0.22, width: width, height: h * 0.3)
-        guard let cropped = cg.cropping(to: rect) else { return nil }
-        let image = UIImage(cgImage: cropped)
-        thumbs[id] = image
-        return image
+        return cg.cropping(to: rect).map(UIImage.init(cgImage:))
     }
 
     // MARK: - Importing a photograph

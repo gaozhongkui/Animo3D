@@ -33,8 +33,6 @@ struct StagePickerView: View {
     @State private var showPaywall = false
     @State private var renaming: UserStage?
     @State private var draftName = ""
-    /// Bumped when a sky finishes downloading, so the cards that were waiting on one redraw.
-    @State private var downloads = 0
 
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
@@ -113,7 +111,7 @@ struct StagePickerView: View {
         .task(id: assets.stages.count) {
             for item in assets.stages where RemoteAssets.shared.localURL(for: item.sky.assetName) == nil {
                 _ = try? await RemoteAssets.shared.ensureDownloaded(item.sky)
-                downloads += 1
+                await library.loadThumbnail(for: item.id)
             }
         }
         .onChange(of: photo) { item in
@@ -159,8 +157,7 @@ struct StagePickerView: View {
     /// photograph is not something to look up in a strings file.
     private func card(id: String, name: Text, badge: String?) -> some View {
         let picked = selection == id
-        // `downloads` is read so the card rebuilds when a sky it was waiting for lands.
-        let art = { _ = downloads; return library.thumbnail(for: id) }()
+        let art = library.thumbs[id]
 
         return Button {
             HapticManager.light()
@@ -178,6 +175,7 @@ struct StagePickerView: View {
                 }
                 .frame(height: 104)
                 .frame(maxWidth: .infinity)
+                .task { await library.loadThumbnail(for: id) }
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 // The ring goes outside the clip, and draws inwards: drawn inside it, half its
                 // width was cut away and what was left read as a frayed edge rather than a border.
