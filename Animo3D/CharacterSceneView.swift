@@ -846,16 +846,26 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         let behind = centre + forward * (h * 4)
         let distance = simd_length(behind - eye)
 
-        // What the camera can see at that distance: 42 degrees from top to bottom, and the
-        // viewport's own shape across. Then whichever of the two the picture has to grow to cover.
-        let frameH = 2 * distance * tan(21 * .pi / 180) * 1.35
-        let frameW = frameH * max(viewportAspect, 0.3) * 1.5
-        let pictureAspect = Float(picture.size.width / max(picture.size.height, 1))
-        let height = max(frameH, frameW / pictureAspect)
+        // What the camera can see at that distance.
+        //
+        // The camera's `fieldOfView` is 42 degrees, but on a portrait viewport SceneKit applies it
+        // across the *width*, so the vertical angle is more than half as much again - which is why
+        // the first version of this left a band of dome above and below the picture with a visible
+        // seam at each edge. Derived rather than assumed, and the larger of the two readings is
+        // taken so neither convention can leave a gap.
+        let aspect = max(viewportAspect, 0.3)
+        let vertical = max(42 * Float.pi / 180, 2 * atan(tan(21 * .pi / 180) / aspect))
+        let frameH = 2 * distance * tan(vertical / 2) * 1.15   // margin for the camera's slow arc
+        let frameW = frameH * aspect * 1.15
 
-        let plane = SCNPlane(width: CGFloat(height * pictureAspect), height: CGFloat(height))
+        // The picture, widened to the shape of the frame by continuing its own top and bottom rows.
+        // Cropping it to fit instead would throw away most of a landscape photograph on a screen
+        // this tall, and leaving it short is what the seam was.
+        let filled = StageImage.filling(picture, aspect: CGFloat(frameW / frameH))
+
+        let plane = SCNPlane(width: CGFloat(frameW), height: CGFloat(frameH))
         let m = plane.firstMaterial!
-        m.diffuse.contents = picture
+        m.diffuse.contents = filled
         m.lightingModel = .constant     // it is a photograph; lighting it twice is what makes a
         m.isDoubleSided = true          // backdrop look like a painted flat
         m.diffuse.mipFilter = .linear

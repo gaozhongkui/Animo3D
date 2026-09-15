@@ -382,6 +382,41 @@ enum StageImage {
         }
     }
 
+    /// The picture at the shape of the screen, without cropping it.
+    ///
+    /// A landscape photograph on a phone held upright leaves most of the frame empty. Cropping to
+    /// fill would keep a narrow vertical strip of it - not what the user chose - so instead the
+    /// picture keeps its width and its topmost and bottommost rows are continued outwards to meet
+    /// the edges. On a photograph of anywhere outdoors those rows are sky and ground, which is
+    /// exactly what carries on past the frame of a picture in the real world.
+    static func filling(_ picture: UIImage, aspect: CGFloat) -> UIImage {
+        let w = picture.size.width
+        let h = max(picture.size.height, 1)
+        let target = max(h, w / max(aspect, 0.05))
+        guard target > h + 1 else { return picture }
+
+        let size = CGSize(width: w, height: target)
+        let top = ((target - h) / 2).rounded()
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            // The edge rows first, stretched to fill above and below, then the picture over them.
+            if let cg = picture.cgImage {
+                let edge = max(1, Int(CGFloat(cg.height) * 0.01))
+                if let upper = cg.cropping(to: CGRect(x: 0, y: 0, width: cg.width, height: edge)) {
+                    UIImage(cgImage: upper).draw(in: CGRect(x: 0, y: 0, width: w, height: top + 1))
+                }
+                if let lower = cg.cropping(to: CGRect(x: 0, y: cg.height - edge,
+                                                      width: cg.width, height: edge)) {
+                    UIImage(cgImage: lower).draw(in: CGRect(x: 0, y: top + h - 1, width: w,
+                                                            height: target - top - h + 1))
+                }
+            }
+            picture.draw(in: CGRect(x: 0, y: top, width: w, height: h))
+        }
+    }
+
     /// The same picture, no larger than `longEdge` on its longer side.
     static func bounded(_ image: UIImage, longEdge: CGFloat) -> UIImage {
         let side = max(image.size.width, image.size.height)

@@ -1,6 +1,6 @@
 {
  "schema": 2,
- "revision": 6,
+ "revision": 7,
  "generated": "2026-09-15",
  "minAppVersion": null,
  "baseUrl": "https://dekbcnbakegjgbjxflxe.supabase.co/storage/v1/object/public/vrm-models/",
@@ -505,5 +505,16 @@
    "duration": 1.83
   }
  ],
- "stages": []
+ "stages": [
+  {
+   "id": "Snow_Cabin",
+   "name": "Snow Cabin",
+   "sky": "stages/sky_Snow_Cabin.jpg"
+  },
+  {
+   "id": "Snow_Moon",
+   "name": "Snow Moon",
+   "sky": "stages/sky_Snow_Moon.jpg"
+  }
+ ]
 }
