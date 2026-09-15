@@ -392,6 +392,28 @@ Girl_D.scn
 | `render_thumbs.swift` | 离线卡图(`characters` 模式进管线;`dances` 模式只是预览辅助) |
 | `inspect_model.swift` | 用 App 的方式加载模型并报告是否可用 |
 | `make_catalog.py` | 按磁盘现状生成 `index.json` 和上传目录树 |
-| `make_sky.py` | 从一张照片生成户外天空全景图(2:1 等距柱状) |
+| `make_sky.py` | 从一张照片生成户外天空全景图(2:1 等距柱状);普通天空平铺三次,带主体(太阳)的照片用 `--span` 只占一段方位角,见下 |
 | `make_icon.swift` | App 图标 |
 | `make_promo.swift` | App Store 截图;产物不进包 |
+
+### 舞台天空 dome 的生成命令
+
+两个 dome 都在 `Animo3D/Res/`，源图在 `data/source/`。参数不是随便填的，重生成请照抄：
+
+```bash
+# 白天(Daylight)：普通蓝天照片，沿方位角平铺三次
+python3 tools/make_sky.py data/source/sky_source.jpg -o Animo3D/Res/sky_dome.jpg
+
+# 夕阳(Sunset)：长焦日落照片，只占 110° 方位角，背面用它自己的边缘色续上
+python3 tools/make_sky.py data/source/sky_sunset.jpg -o Animo3D/Res/sky_dome_sunset.jpg \
+    --horizon 2080 --ground 2560 --span 110 --sun-azimuth 0.758 --sun-elevation 6.5
+```
+
+几个参数为什么是这些值（实测，别凭感觉改）：
+
+- `--horizon/--ground`：自动分带靠"天是蓝的"判断，日落图不蓝，必须手填行号。
+- `--span 110`：整张拉满 360° 会把太阳扯成椭圆。只占一段方位角、保持原图长宽比，太阳才是正圆。
+- `--sun-azimuth 0.758`：**SceneKit 把等距柱面背景钉在世界坐标上，舞台相机正对贴图的 u≈0.736**（四色象限测试图实测）。水平视场只有 ±10°，太阳放在中心右侧约 8° 处，既在画面里又不被角色挡住。
+- `--sun-elevation 6.5`：相机是按跳舞的人取景的，**地平线以上只看得到约 10° 天空**。照实摆太阳在 22.5°，整个在画面上沿之外。这个参数自动找最亮点再整体下移，照片里的城市和水面沉到地平线以下，被舞台地面挡住。
+
+改完 dome 记得同步 `CharacterSceneController.Stage` 里那个场景的 `horizon`（脚本会打印 `horizon colour`），它就是雾色——不同步的话地面远端会淡入一个和天空不同的颜色，地平线上出现一条硬边。

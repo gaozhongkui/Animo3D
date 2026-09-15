@@ -62,6 +62,10 @@ struct DanceStudioView: View {
     /// installVFX() refuses, so this staying true there would be a selection nothing can act on.
     @State private var vfxOn = DeviceTier.allowsStageVFX
     @State private var vfxPreset = 0
+    /// Which stage the performance happens on, remembered between sessions. Stored as the id
+    /// rather than an index: a stage added or removed between versions would silently shift an
+    /// index onto a different scene.
+    @AppStorage("stage.id") private var stageID = CharacterSceneController.Stage.plaza.id
 
     private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
 
@@ -508,8 +512,13 @@ struct DanceStudioView: View {
                 Spacer()
 
                 VStack(spacing: 14) {
-                    // No scene picker: the club stage was removed from the product, so there is one
-                    // scene and nothing to choose between.
+                    // Only on the screen stage. In AR the sky and the ground are the room the user
+                    // is standing in, so a scene to put the dancer in is the one thing this cannot
+                    // offer there.
+                    if !arMode {
+                        stageBar
+                            .opacity(recorder.isRecording ? 0 : 1)
+                    }
                     if DeviceTier.allowsStageVFX {
                         vfxBar
                             .opacity(recorder.isRecording ? 0 : 1) // hidden while recording
@@ -526,6 +535,23 @@ struct DanceStudioView: View {
                         .ignoresSafeArea(edges: .bottom)
                 )
             }
+        }
+    }
+
+    private var stageBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(CharacterSceneController.Stage.all, id: \.id) { spec in
+                    vfxChip(title: LocalizedStringKey(spec.name), icon: spec.icon,
+                            on: stageID == spec.id) {
+                        guard stageID != spec.id else { return }
+                        stageID = spec.id
+                        stage.controller.stage = spec
+                        Track.log(.stageSelected, ["stage": spec.id])
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
         }
     }
 
@@ -731,6 +757,9 @@ struct DanceStudioView: View {
         let ch = character, dc = dance
         Task {
             guard await stage.load(character: ch, dance: dc) else { loading = false; return }
+            // Before .perform, so the scene is built once in the stage the user last chose
+            // rather than built as the daylight one and then rebuilt.
+            stage.controller.stage = CharacterSceneController.Stage.named(stageID)
             if let m = selectedMusic { music.play(m) } else { music.stop() }
             Track.log(.performanceStarted, ["character": ch, "dance": dc,
                                             "music": selectedMusic?.name ?? "none",

@@ -67,6 +67,7 @@ enum TrackEvent: String {
     case characterSelected = "character_selected"
     case danceSelected = "dance_selected"
     case musicSelected = "music_selected"
+    case stageSelected = "stage_selected"
 
     // MARK: Recording and output
     case recordStarted = "record_started"

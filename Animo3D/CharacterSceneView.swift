@@ -358,6 +358,10 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             let extent: Float               // the plane's side
             let inlay: (() -> UIImage)?     // decal centred under the performer, nil for none
             let inlayExtent: Float          // its side
+            /// Multiplied over the surface. One paving texture serves every outdoor stage - stone
+            /// is stone - but stone at sunset is not the colour stone is at noon, and tinting the
+            /// one texture is cheaper in every sense than shipping a second.
+            let tint: UIColor?
         }
 
         /// A ring of distant silhouette standing on the ground, which is what fills the gap
@@ -370,12 +374,19 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         }
 
         let id: String
+        /// What the picker calls it. English, and a key into `Localizable.strings`.
+        let name: String
+        let icon: String                    // SF Symbol for its chip
         let sky: () -> UIImage              // 2:1 equirectangular dome
         let horizon: UIColor                // what the dome fades to at eye level; the fog takes it
         let fogNear: Float                  // where the fade starts, from the camera
         let fogFar: Float                   // and where it is complete
         let ground: Ground
         let skyline: Skyline?
+        /// Where the sun stands, as euler angles on the directional light. Its elevation is the
+        /// single strongest cue for the time of day, because it sets the length and direction of
+        /// every shadow on the ground.
+        let sunEuler: SIMD3<Float>
 
         /// One rig, not one per kind of character.
         ///
@@ -398,7 +409,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         /// Every number here was measured rather than chosen - see `LightLevels` and the fog
         /// distances below for what each one was fixing.
         static let plaza = StageSpec(
-            id: "plaza",
+            id: "plaza", name: "Daylight", icon: "sun.max.fill",
             // A proper 2:1 equirectangular dome, built from the source photograph by
             // tools/make_sky.py: its sky and treeline only, with the paving discarded. Setting the
             // photo itself here - 704x1503, portrait, plaza included - is what wrapped a picture of
@@ -419,16 +430,66 @@ final class CharacterSceneController: ObservableObject, BoneRig {
                 texture: { CharacterSceneController.plazaTexture },
                 // 55 repeats of a 4x4 block: a ~0.45m slab, sixteen of them per tile.
                 repeats: 55, extent: 60,
-                inlay: { CharacterSceneController.plazaInlayTexture }, inlayExtent: 5),
+                inlay: { CharacterSceneController.plazaInlayTexture }, inlayExtent: 5,
+                tint: nil),
             skyline: StageSpec.Skyline(
                 texture: { CharacterSceneView.skylineTexture },
                 radius: 13, band: 3.2, repeats: 4),
+            sunEuler: SIMD3(-Float.pi / 3, Float.pi / 10, 0),
             light: LightLevels(key: 380, fill: 150, rim: 300, sun: 180, ibl: 0.25,
-                               shadowAlpha: 0.45, rimShader: 0.04),
+                               shadowAlpha: 0.45, rimShader: 0.04,
+                               // Slightly warm, so skin reads as skin.
+                               keyColor: UIColor(red: 1.0, green: 0.95, blue: 0.88, alpha: 1),
+                               rimColor: .white),
             grade: CameraGrade(exposureOffset: 0.0, whitePoint: 1.0, contrast: 0.08,
                                vignetting: 0.22, bloom: 0.05, bloomThreshold: 1.1))
 
-        static let all: [StageSpec] = [plaza]
+        /// Sunset over water, with the city on the far shore.
+        ///
+        /// The dome is a photograph (`tools/make_sky.py --span`), not a regrade of the daylight one:
+        /// a sunset drawn from a gradient reads as a gradient the moment the camera pans, because
+        /// what makes an evening sky is the layering of cloud in front of the light, and that is
+        /// photographic. It covers 110 degrees of the turn with the sky continued behind the
+        /// viewer, so the sun is round and appears once.
+        ///
+        /// No skyline ring: the photograph brings its own city, standing exactly where the ring
+        /// would, and two skylines at one horizon is one too many.
+        static let sunset = StageSpec(
+            id: "sunset", name: "Sunset", icon: "sunset.fill",
+            sky: { CharacterSceneView.domeImage("sky_dome_sunset") ?? CharacterSceneView.skyBackdrop() },
+            horizon: UIColor(red: 0.23, green: 0.14, blue: 0.14, alpha: 1),
+            fogNear: 3.0,
+            // Closer than the plaza's. Evening air over water is thick, and the haze in the
+            // photograph's own distance has to be met by the ground fading at the same rate or the
+            // two read as different days.
+            fogFar: 16.0,
+            ground: StageSpec.Ground(
+                texture: { CharacterSceneController.plazaTexture },
+                repeats: 55, extent: 60,
+                inlay: { CharacterSceneController.plazaInlayTexture }, inlayExtent: 5,
+                tint: UIColor(red: 0.82, green: 0.52, blue: 0.38, alpha: 1)),
+            skyline: nil,
+            // Low, and from where the photograph's sun is.
+            //
+            // The dome's azimuth is not free: SceneKit lays an equirectangular background out
+            // against the world axes, and the stage camera looks at u = 0.74 of it (measured, with
+            // a four-quadrant test image). The sun is placed a little to the right of that so the
+            // performer does not stand in front of it, and this light comes from the same side and
+            // just above the horizon - which puts it behind the dancer, rakes the shadows towards
+            // the camera, and is what makes an evening read as an evening.
+            sunEuler: SIMD3(-0.20, Float.pi - 0.28, 0),
+            light: LightLevels(key: 450, fill: 135, rim: 400, sun: 180, ibl: 0.24,
+                               shadowAlpha: 0.32, rimShader: 0.07,
+                               keyColor: UIColor(red: 1.0, green: 0.72, blue: 0.45, alpha: 1),
+                               rimColor: UIColor(red: 1.0, green: 0.78, blue: 0.52, alpha: 1)),
+            grade: CameraGrade(exposureOffset: 0.0, whitePoint: 1.05, contrast: 0.10,
+                               vignetting: 0.28, bloom: 0.09, bloomThreshold: 1.0))
+
+        static let all: [StageSpec] = [plaza, sunset]
+
+        /// The stage with this id, or the default one. The id is what gets persisted, so it has to
+        /// survive a stage being renamed or removed between versions.
+        static func named(_ id: String?) -> StageSpec { all.first { $0.id == id } ?? plaza }
     }
 
     /// The stage on screen. Setting it rebuilds the sky, the ground and the rig together.
@@ -461,6 +522,10 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         let ibl: CGFloat          // lightingEnvironment.intensity, 0 disables it
         let shadowAlpha: CGFloat
         let rimShader: Float      // Strength of the additive fresnel rim in the fragment modifier
+        /// The key's colour, which is the hour of the day more than any intensity is: the same rig
+        /// at the same strength reads as noon in white and as evening in amber.
+        let keyColor: UIColor
+        let rimColor: UIColor
     }
 
     /// A stage's numbers were not guessed: every source was rendered on its own offline and
@@ -510,6 +575,9 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         characterRoot?.enumerateHierarchy { node, _ in
             node.geometry?.materials.forEach { $0.setValue(l.rimShader, forKey: "rimStrength") }
         }
+        keyLight?.color = l.keyColor
+        rimLight?.color = l.rimColor
+        sunNode?.simdEulerAngles = stage.sunEuler
         keyLight?.intensity = l.key
         fillLight?.intensity = l.fill
         rimLight?.intensity = l.rim
@@ -803,6 +871,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         gm.diffuse.maxAnisotropy = 8
         gm.lightingModel = .lambert
         gm.isDoubleSided = false
+        gm.multiply.contents = spec.tint
 
         let gnode = SCNNode(geometry: ground)
         gnode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
@@ -817,6 +886,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             let im = inlay.firstMaterial!
             im.diffuse.contents = inlayTexture()
             im.lightingModel = .lambert          // lit with the paving, so it takes the same sun
+            im.multiply.contents = spec.tint
             im.isDoubleSided = false
             im.writesToDepthBuffer = false       // it is a decal on a plane 2mm below it
             let inode = SCNNode(geometry: inlay)
