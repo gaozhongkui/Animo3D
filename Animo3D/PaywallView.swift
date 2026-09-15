@@ -48,25 +48,25 @@ struct PaywallView: View {
                 }.padding(20)
 
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 40) {
+                    VStack(spacing: 30) {
                         // Icon & Title
-                        VStack(spacing: 20) {
+                        VStack(spacing: 14) {
                             ZStack {
-                                RoundedRectangle(cornerRadius: 32, style: .continuous)
+                                RoundedRectangle(cornerRadius: 24, style: .continuous)
                                     .fill(LinearGradient(colors: [Color(rgb: 0x6366F1), Color(rgb: 0xA855F7)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                                    .frame(width: 100, height: 100)
-                                    .shadow(color: Color(rgb: 0x6366F1).opacity(0.3), radius: 20, y: 10)
-                                Image(systemName: "crown.fill").font(.system(size: 48)).foregroundStyle(.white)
+                                    .frame(width: 72, height: 72)
+                                    .shadow(color: Color(rgb: 0x6366F1).opacity(0.3), radius: 16, y: 8)
+                                Image(systemName: "crown.fill").font(.system(size: 34)).foregroundStyle(.white)
                             }
 
-                            VStack(spacing: 8) {
-                                Text("Livo 3D Pro").font(.system(size: 36, weight: .black, design: .rounded))
-                                Text("Lifetime Access").font(.title3.bold()).foregroundStyle(Color(rgb: 0x6366F1))
+                            VStack(spacing: 6) {
+                                Text("Livo 3D Pro").font(.system(size: 30, weight: .black, design: .rounded))
+                                Text("Lifetime Access").font(.headline).foregroundStyle(Color(rgb: 0x6366F1))
                             }
                         }
 
                         // Benefits
-                        VStack(spacing: 16) {
+                        VStack(spacing: 12) {
                             ForEach(0..<benefits.count, id: \.self) { i in
                                 let b = benefits[i]
                                 benefitRow(icon: b.0, title: b.1, subtitle: b.2)
@@ -75,28 +75,8 @@ struct PaywallView: View {
                             }
                         }.padding(.horizontal, 24)
 
-                        // Price, but only for someone who could still buy. An owner was being
-                        // shown a price - or, when StoreKit had nothing to offer, an "App Store
-                        // unavailable" error - for a thing they already own; and with the price
-                        // block gone the line landed under the bottom bar's translucent scrim and
-                        // showed through the button.
-                        if !store.isPro {
-                            if let product = lifetimeProduct {
-                                VStack(spacing: 4) {
-                                    Text(product.displayPrice)
-                                        .font(.system(size: 28, weight: .black, design: .rounded))
-                                    Text("One-time payment · Forever yours")
-                                        .font(.subheadline).foregroundStyle(.secondary)
-                                }
-                                .padding(.top, 10)
-                            } else if store.loadFailed {
-                                Text("App Store unavailable").foregroundStyle(.secondary)
-                            } else {
-                                ProgressView()
-                            }
-                        }
                     }
-                    .padding(.bottom, 160)
+                    .padding(.bottom, 210)
                 }
             }
 
@@ -120,7 +100,27 @@ struct PaywallView: View {
     }
 
     private var purchaseArea: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
+            // The price sits in the pinned bar rather than at the end of the scroll. It used to be
+            // the last thing in the list, below four benefit cards and a 100pt crown, which on a
+            // small phone put it under the bar's own scrim - the one number the screen exists to
+            // show was the one thing the user had to scroll for. Shown only to someone who could
+            // still buy: an owner has no price, and no "App Store unavailable" error, to read.
+            if !store.isPro {
+                if let product = lifetimeProduct {
+                    VStack(spacing: 2) {
+                        Text(product.displayPrice)
+                            .font(.system(size: 30, weight: .black, design: .rounded))
+                        Text("One-time payment · Forever yours")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                } else if store.loadFailed {
+                    Text("App Store unavailable").font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    ProgressView()
+                }
+            }
+
             // One button in both states rather than a button swapped for a label. An owner who
             // opens this screen should see the thing they would have tapped, greyed out and inert -
             // that reads as "already yours". Replacing it with a differently shaped badge left
@@ -169,15 +169,15 @@ struct PaywallView: View {
     }
 
     private func benefitRow(icon: String, title: LocalizedStringKey, subtitle: LocalizedStringKey) -> some View {
-        HStack(spacing: 16) {
-            Image(systemName: icon).font(.headline).foregroundStyle(.white)
-                .frame(width: 40, height: 40).background(Color(rgb: 0x6366F1), in: RoundedRectangle(cornerRadius: 12))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 16, weight: .bold))
-                Text(subtitle).font(.system(size: 13)).foregroundStyle(.secondary)
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 32, height: 32).background(Color(rgb: 0x6366F1), in: RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 15, weight: .bold))
+                Text(subtitle).font(.system(size: 12)).foregroundStyle(.secondary)
             }
             Spacer()
         }
-        .padding(12).background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+        .padding(10).background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
     }
 }
