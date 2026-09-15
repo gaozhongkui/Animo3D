@@ -550,6 +550,13 @@ struct DanceStudioView: View {
     /// This was a row of chips while there were two stages to choose between. The catalogue can
     /// serve any number of them now, and a picture of each is most of what tells someone what they
     /// are picking - neither fits on a pill at the bottom of a screen with a dancer on it.
+    private var stageLabel: Text {
+        let name = stageName
+        return CharacterSceneController.Stage.all.contains { $0.name == name }
+            ? Text(LocalizedStringKey(name))
+            : Text(name)
+    }
+
     private var stageButton: some View {
         HStack {
             Button {
@@ -558,7 +565,9 @@ struct DanceStudioView: View {
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "photo.on.rectangle.angled").font(.caption2)
-                    Text(stageName).font(.footnote.weight(.medium)).lineLimit(1)
+                    // A built-in stage is named in the app's own words and a user's picture is
+                    // named in theirs, so only the former is looked up.
+                    stageLabel.font(.footnote.weight(.medium)).lineLimit(1)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .bold)).opacity(0.7)
                 }
@@ -575,17 +584,26 @@ struct DanceStudioView: View {
         .padding(.horizontal, 16)
     }
 
+    /// The stage actually used, which is the chosen one only while the user is entitled to it.
+    ///
+    /// A subscription can end while a choice made under it is still saved, and the saved id would
+    /// otherwise keep serving a Pro stage to someone who no longer has Pro. Checked here rather
+    /// than cleared at the moment the entitlement drops: the choice is worth keeping, so it comes
+    /// back by itself if they subscribe again.
+    private var effectiveStageID: String {
+        ProStore.shared.isPro ? stageID : CharacterSceneController.Stage.plaza.id
+    }
+
     /// What to call the stage in use. A downloaded one is named by the catalogue and an imported one
     /// by whoever imported it, so this is not a lookup into anything the app ships.
-    private var stageName: LocalizedStringKey {
-        if let built = CharacterSceneController.Stage.all.first(where: { $0.id == stageID }) {
-            return LocalizedStringKey(built.name)
+    private var stageName: String {
+        let id = effectiveStageID
+        if let built = CharacterSceneController.Stage.all.first(where: { $0.id == id }) {
+            return built.name
         }
-        if let mine = StageLibrary.shared.userStages.first(where: { $0.id == stageID }) {
-            return LocalizedStringKey(mine.name)
-        }
-        if let item = RemoteAssets.shared.stage(stageID) { return LocalizedStringKey(item.name) }
-        return LocalizedStringKey(CharacterSceneController.Stage.plaza.name)
+        if let mine = StageLibrary.shared.userStages.first(where: { $0.id == id }) { return mine.name }
+        if let item = RemoteAssets.shared.stage(id) { return item.name }
+        return CharacterSceneController.Stage.plaza.name
     }
 
     /// Building a stage may have to fetch and decode a sky, so the scene changes when it is ready
@@ -593,7 +611,7 @@ struct DanceStudioView: View {
     private func applyStage(_ id: String) {
         stageID = id
         Track.log(.stageSelected, ["stage": id])
-        Task { stage.controller.stage = await StageLibrary.shared.spec(for: id) }
+        Task { stage.controller.stage = await StageLibrary.shared.spec(for: effectiveStageID) }
     }
 
     private var vfxBar: some View {
@@ -800,7 +818,7 @@ struct DanceStudioView: View {
             guard await stage.load(character: ch, dance: dc) else { loading = false; return }
             // Before .perform, so the scene is built once in the stage the user last chose rather
             // than built as the daylight one and then rebuilt.
-            stage.controller.stage = await StageLibrary.shared.spec(for: stageID)
+            stage.controller.stage = await StageLibrary.shared.spec(for: effectiveStageID)
             if let m = selectedMusic { music.play(m) } else { music.stop() }
             Track.log(.performanceStarted, ["character": ch, "dance": dc,
                                             "music": selectedMusic?.name ?? "none",

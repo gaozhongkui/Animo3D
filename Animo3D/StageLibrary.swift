@@ -66,46 +66,49 @@ final class StageLibrary: ObservableObject {
     ///
     /// Built-ins win: the catalogue is a remote document, and a stage called "plaza" arriving in it
     /// should not be able to replace the one the app falls back to when there is no network.
+    /// Nothing here happens on the main thread except the lookups.
+    ///
+    /// Building a stage means decoding a 2048x1024 JPEG, and for a photograph laying out a dome of
+    /// the same size and measuring it. Done where this class lives - the main actor - that is a few
+    /// hundred milliseconds of frozen interface, which is exactly what it looked like: the picker
+    /// hung open for a beat after the tap before it would close. So the pieces are gathered here
+    /// and the work is handed to a detached task.
     func spec(for id: String) async -> CharacterSceneController.StageSpec {
         if let built = CharacterSceneController.Stage.all.first(where: { $0.id == id }) { return built }
         if let cached = specs[id] { return cached }
 
-        if let mine = userStages.first(where: { $0.id == id }),
-           let image = UIImage(contentsOfFile: fileURL(mine).path),
-           let spec = derive(id: mine.id, name: mine.name, icon: "photo.fill", image: image) {
-            specs[id] = spec
-            return spec
+        var source: (url: URL, name: String, icon: String, override: StageOverride?)?
+        if let mine = userStages.first(where: { $0.id == id }) {
+            source = (fileURL(mine), mine.name, "photo.fill", nil)
+        } else if let item = RemoteAssets.shared.stage(id),
+                  let url = try? await RemoteAssets.shared.ensureDownloaded(item.sky) {
+            source = (url, item.name, "mountain.2.fill", item.override)
         }
+        guard let source else { return CharacterSceneController.Stage.plaza }
 
-        if let item = RemoteAssets.shared.stage(id),
-           let url = try? await RemoteAssets.shared.ensureDownloaded(item.sky),
-           let image = UIImage(contentsOfFile: url.path),
-           var spec = derive(id: item.id, name: item.name, icon: "mountain.2.fill", image: image) {
-            if let over = item.override { spec = spec.applying(over) }
-            specs[id] = spec
-            return spec
-        }
-
-        return CharacterSceneController.Stage.plaza
+        guard var spec = await Self.build(id: id, name: source.name, icon: source.icon,
+                                          url: source.url)
+        else { return CharacterSceneController.Stage.plaza }
+        if let over = source.override { spec = spec.applying(over) }
+        specs[id] = spec
+        return spec
     }
 
-    /// One picture, two jobs.
-    ///
-    /// A 2:1 panorama is a sky and nothing else: it wraps the dome and that is the whole scene. Any
-    /// other picture is a photograph of a place, so it stands behind the dancer at its own
-    /// resolution, and a dome is built from it as well - not to be looked at, but so that whatever
-    /// the camera catches past the edges of the picture is the colour of that place rather than
-    /// grey, and so there is something for the light to be measured from.
-    private func derive(id: String, name: String, icon: String,
-                        image: UIImage) -> CharacterSceneController.StageSpec? {
-        let aspect = image.size.width / max(image.size.height, 1)
-        let isPanorama = abs(aspect - 2) < 0.08
-        let sky = isPanorama ? image : (StageImage.dome(from: image) ?? image)
-        guard let measured = SkyReader.measure(sky) else { return nil }
-        return .derived(id: id, name: name, icon: icon,
-                        sky: { sky },
-                        backdrop: isPanorama ? nil : { image },
-                        measured: measured)
+    /// The expensive half: decode, lay out, measure. Off the main actor.
+    private nonisolated static func build(id: String, name: String, icon: String,
+                                          url: URL) async -> CharacterSceneController.StageSpec? {
+        await Task.detached(priority: .userInitiated) {
+            guard let image = UIImage(contentsOfFile: url.path) else { return nil }
+            let aspect = image.size.width / max(image.size.height, 1)
+            let isPanorama = abs(aspect - 2) < 0.08
+            let sky = isPanorama ? image : (StageImage.dome(from: image) ?? image)
+            guard let measured = SkyReader.measure(sky) else { return nil }
+            return CharacterSceneController.StageSpec.derived(
+                id: id, name: name, icon: icon,
+                sky: { sky },
+                backdrop: isPanorama ? nil : { image },
+                measured: measured)
+        }.value
     }
 
     // MARK: - Cards
@@ -168,7 +171,7 @@ final class StageLibrary: ObservableObject {
         else { throw ImportError.writeFailed }
 
         let id = "user_\(Int(Date().timeIntervalSince1970))"
-        let stage = UserStage(id: id, name: name, file: "\(id).jpg")
+        let stage = UserStage(id: id, name: unique(name), file: "\(id).jpg")
         do { try data.write(to: fileURL(stage), options: .atomic) }
         catch { throw ImportError.writeFailed }
 
@@ -177,12 +180,33 @@ final class StageLibrary: ObservableObject {
         return stage
     }
 
+    /// Give an imported scene a name of the user's own.
+    ///
+    /// The picture is not touched, only what it is called: the file name is the stage's id, which
+    /// nothing outside this file ever sees, so a rename cannot break a reference.
+    func rename(_ stage: UserStage, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let i = userStages.firstIndex(where: { $0.id == stage.id }) else { return }
+        userStages[i] = UserStage(id: stage.id, name: trimmed, file: stage.file)
+        specs[stage.id] = nil       // the spec carries the name it was built with
+        save()
+    }
+
     func delete(_ stage: UserStage) {
         try? FileManager.default.removeItem(at: fileURL(stage))
         userStages.removeAll { $0.id == stage.id }
         specs[stage.id] = nil
         thumbs[stage.id] = nil
         save()
+    }
+
+    /// "My Scene", then "My Scene 2". A list of cards all called the same thing is a list the
+    /// user cannot choose from, and they should not have to rename one before it is usable.
+    private func unique(_ name: String) -> String {
+        guard userStages.contains(where: { $0.name == name }) else { return name }
+        var n = 2
+        while userStages.contains(where: { $0.name == "\(name) \(n)" }) { n += 1 }
+        return "\(name) \(n)"
     }
 
     private func save() {
