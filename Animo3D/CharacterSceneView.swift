@@ -143,6 +143,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         boundsNodes.removeAll()
         vrmHumanoid.removeAll()
         vrmNode = nil
+        isToonCharacter = false
         scheme = .mixamo
         springLock.lock(); springBones.removeAll(); springLock.unlock()
         isLoaded = false
@@ -167,6 +168,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
                 boneNodes[name] = node
                 if name.hasPrefix("mixamorig") { found.append(name) }
                 if name.hasPrefix(Self.hairBonePrefix) { hairNodes.append(node) }
+                if name.hasPrefix("J_Sec_") { isToonCharacter = true }
                 if name.hasPrefix("mixamorig") || name.hasPrefix("J_Sec_") { boundsNodes.append(node) }
             }
         }
@@ -182,6 +184,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
                 return []
             }
             vrmNode = vrm
+            isToonCharacter = true
             scheme = vrmScheme
             // A VRM has no name prefix to search for, and its humanoid set already spans the whole
             // body - which is exactly what framing needs to measure.
@@ -333,6 +336,116 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         }
     }
 
+    // MARK: - Stage
+
+    /// One stage: the sky the performance happens under, the ground it happens on, and the light
+    /// that falls on both.
+    ///
+    /// These are one value rather than a handful of independent settings because they are not
+    /// independent. The fog has to be the colour the dome fades to at eye level, or the ground ends
+    /// in a hard line against the sky; the skyline ring has to stand inside the fog's range to read
+    /// as distant; and the light levels and the camera grade are calibrated against that particular
+    /// sky, not in general. Pairing the sky of one stage with the ground of another gives none of
+    /// that, which is why a stage is picked whole.
+    ///
+    /// Distances are in body heights, not metres: a character is mounted at whatever scale its
+    /// source file was authored in, and everything here has to hold for all of them.
+    struct StageSpec {
+        /// The surface the performer stands on - a finite plane, tiled.
+        struct Ground {
+            let texture: () -> UIImage
+            let repeats: Float              // times the texture tiles across the plane
+            let extent: Float               // the plane's side
+            let inlay: (() -> UIImage)?     // decal centred under the performer, nil for none
+            let inlayExtent: Float          // its side
+        }
+
+        /// A ring of distant silhouette standing on the ground, which is what fills the gap
+        /// between the two: without it the eye reads sky meeting ground and nothing in between.
+        struct Skyline {
+            let texture: () -> UIImage
+            let radius: Float               // how far out the ring stands
+            let band: Float                 // the strip's height
+            let repeats: Float              // times the strip goes round
+        }
+
+        let id: String
+        let sky: () -> UIImage              // 2:1 equirectangular dome
+        let horizon: UIColor                // what the dome fades to at eye level; the fog takes it
+        let fogNear: Float                  // where the fade starts, from the camera
+        let fogFar: Float                   // and where it is complete
+        let ground: Ground
+        let skyline: Skyline?
+
+        /// One rig, not one per kind of character.
+        ///
+        /// A per-character rig was tried, because a VRoid model blows out under the levels a
+        /// photographed one is calibrated for (measured on VRM 4 against Erika: 33% of the body
+        /// clipped to pure white against 0.07%, the dress a flat white shape with no fabric left
+        /// in it). Dimming the rig for those characters fixed the character and broke the stage:
+        /// the paving dropped 17% while the sky - a background image, which no light touches -
+        /// stayed put, so the same plaza came out two different brightnesses depending on who was
+        /// dancing on it. The light belongs to the stage; the fix belongs on the model, and is
+        /// `toonAlbedoScale` in `sanitizeMaterials`.
+        let light: LightLevels
+        let grade: CameraGrade
+    }
+
+    /// The stages the app ships.
+    enum Stage {
+        /// Daylight plaza: paved ground under an open sky, a city on the horizon.
+        ///
+        /// Every number here was measured rather than chosen - see `LightLevels` and the fog
+        /// distances below for what each one was fixing.
+        static let plaza = StageSpec(
+            id: "plaza",
+            // A proper 2:1 equirectangular dome, built from the source photograph by
+            // tools/make_sky.py: its sky and treeline only, with the paving discarded. Setting the
+            // photo itself here - 704x1503, portrait, plaza included - is what wrapped a picture of
+            // the ground across the sky.
+            sky: { UIImage(named: "sky_dome") ?? CharacterSceneView.skyBackdrop() },
+            horizon: UIColor(red: CGFloat(CharacterSceneView.skyHorizon.0),
+                             green: CGFloat(CharacterSceneView.skyHorizon.1),
+                             blue: CGFloat(CharacterSceneView.skyHorizon.2), alpha: 1),
+            // Starts beyond the performer (roughly 2.3 body heights from the camera); nearer than
+            // that and the fog washes the character out along with the ground.
+            fogNear: 3.0,
+            // And ends a long way out. At 9 everything past the performer was already
+            // horizon-coloured, which left nowhere to put a distant skyline - anything far enough
+            // away to read as distant was also erased. The plaza is 30 to its edge, so it still
+            // ends inside the fog and its far edge never shows.
+            fogFar: 22.0,
+            ground: StageSpec.Ground(
+                texture: { CharacterSceneController.plazaTexture },
+                // 55 repeats of a 4x4 block: a ~0.45m slab, sixteen of them per tile.
+                repeats: 55, extent: 60,
+                inlay: { CharacterSceneController.plazaInlayTexture }, inlayExtent: 5),
+            skyline: StageSpec.Skyline(
+                texture: { CharacterSceneView.skylineTexture },
+                radius: 13, band: 3.2, repeats: 4),
+            light: LightLevels(key: 380, fill: 150, rim: 300, sun: 180, ibl: 0.25,
+                               shadowAlpha: 0.45, rimShader: 0.04),
+            grade: CameraGrade(exposureOffset: 0.0, whitePoint: 1.0, contrast: 0.08,
+                               vignetting: 0.22, bloom: 0.05, bloomThreshold: 1.1))
+
+        static let all: [StageSpec] = [plaza]
+    }
+
+    /// The stage on screen. Setting it rebuilds the sky, the ground and the rig together.
+    @Published var stage: StageSpec = Stage.plaza {
+        didSet { updateBackgroundAndGround() }
+    }
+
+    /// Whether the mounted character is a VRoid-style model rather than a photographed one.
+    ///
+    /// Read off the skeleton rather than off the catalogue: a VRoid rig carries `J_Sec_*` secondary
+    /// bones for hair and cloth that no Mixamo rig has, and an imported `.vrm` is one by definition.
+    /// The catalogue id would work for the seven bundled ones and not at all for an imported file.
+    private(set) var isToonCharacter = false
+
+    /// How far a VRoid model's albedo is pulled back - measured, see `sanitizeMaterials`.
+    private static let toonAlbedoScale: CGFloat = 0.68
+
     // MARK: - Lighting levels
 
     /// Intensities for the four rig lights plus the image-based light.
@@ -340,7 +453,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// These used to be written from three different places - install(), the stage setup and
     /// addLights() - each with its own numbers, and the later writer silently won, so the earlier
     /// adjustments never took effect at all. Everything reads this one description now.
-    private struct LightLevels {
+    struct LightLevels {
         let key: CGFloat          // Front-left spot
         let fill: CGFloat         // Front-right omni
         let rim: CGFloat          // Back spot, draws the silhouette
@@ -350,15 +463,12 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         let rimShader: Float      // Strength of the additive fresnel rim in the fragment modifier
     }
 
-    /// The numbers below were not guessed: every source was rendered on its own offline and
+    /// A stage's numbers were not guessed: every source was rendered on its own offline and
     /// measured against the neutral three-point rig `tools/render_thumbs.swift` uses, which is the
     /// reference for "what does this character actually look like" (mean luma 0.22, median 0.17).
     /// Anything brighter and Erika's dark olive tunic renders as pale grey - which is what made
     /// every character look washed out and flat no matter how far the exposure was pulled down.
-    private var lightLevels: LightLevels {
-        LightLevels(key: 380, fill: 150, rim: 300, sun: 180, ibl: 0.25, shadowAlpha: 0.45,
-                    rimShader: 0.04)
-    }
+    private var lightLevels: LightLevels { stage.light }
 
     /// The camera's tone mapping.
     ///
@@ -367,7 +477,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// the clip point - and on this scene that curve maps a luminance of 1.0 to about 0.43, so the
     /// white cumulus in the sky dome came out the same grey as the sky behind them and the clouds
     /// simply disappeared. It read as "the sky texture is wrong"; the texture was fine.
-    private struct CameraGrade {
+    struct CameraGrade {
         let exposureOffset: CGFloat
         let whitePoint: CGFloat
         let contrast: CGFloat
@@ -376,10 +486,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         let bloomThreshold: CGFloat
     }
 
-    private var cameraGrade: CameraGrade {
-        CameraGrade(exposureOffset: 0.0, whitePoint: 1.0, contrast: 0.08,
-                    vignetting: 0.22, bloom: 0.05, bloomThreshold: 1.1)
-    }
+    private var cameraGrade: CameraGrade { stage.grade }
 
     private func applyCameraGrade() {
         guard let camera = cameraNode?.camera else { return }
@@ -415,29 +522,15 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     func updateBackgroundAndGround() {
         // Only the full stage paints a background. Thumbnails and the live dance cards draw over a
         // SwiftUI backdrop, so a scene background here covers that card with a flat slab of colour.
-        //
-        // A proper 2:1 equirectangular dome, built from the source photograph by
-        // tools/make_sky.py: its sky and treeline only, with the paving discarded. Setting the
-        // photo itself here - 704x1503, portrait, plaza included - is what wrapped a picture of
-        // the ground across the sky.
-        scene.background.contents = groundEnabled
-            ? (UIImage(named: "sky_dome") ?? CharacterSceneView.skyBackdrop())
-            : nil
+        scene.background.contents = groundEnabled ? stage.sky() : nil
 
         // Fog: the ground fades into the sky in the distance, which is what fuses the two and
         // gives the scene its depth (large performance view only).
         if groundEnabled {
             let h = max(modelHeight, 1)
-            let hz = CharacterSceneView.skyHorizon
-            scene.fogColor = UIColor(red: CGFloat(hz.0), green: CGFloat(hz.1), blue: CGFloat(hz.2), alpha: 1)
-            // Starts beyond the performer (roughly 2.3 body heights from the camera); nearer than
-            // that and the fog washes the character out along with the ground.
-            scene.fogStartDistance = CGFloat(h * 3.0)
-            // And ends a long way out. At `h * 9` everything past the performer was already
-            // horizon-coloured, which left nowhere to put a distant skyline - anything far enough
-            // away to read as distant was also erased. The plaza is `h * 30` to its edge, so it
-            // still ends inside the fog and its far edge never shows.
-            scene.fogEndDistance = CGFloat(h * 22.0)
+            scene.fogColor = stage.horizon
+            scene.fogStartDistance = CGFloat(h * stage.fogNear)
+            scene.fogEndDistance = CGFloat(h * stage.fogFar)
             scene.fogDensityExponent = 1.5
         } else {
             scene.fogEndDistance = 0
@@ -592,12 +685,12 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// sky mode fades from `h * 3` to `h * 22`, so at `h * 13` the ring comes out a little under
     /// half washed toward the horizon colour. Past `h * 22` it would be erased outright; much closer
     /// and no amount of haze stops it reading as a wall at the edge of the plaza.
-    private func addSkyline(feetY: Float, height h: Float) {
+    private func addSkyline(_ spec: StageSpec.Skyline, feetY: Float, height h: Float) {
         skylineNode?.removeFromParentNode()
 
-        let radius = h * 13
-        let band = h * 3.2
-        let repeats: Float = 4          // how many times the strip goes round
+        let radius = h * spec.radius
+        let band = h * spec.band
+        let repeats = spec.repeats
         let segments = 96
 
         var verts: [SCNVector3] = [], norms: [SCNVector3] = [], uvs: [CGPoint] = []
@@ -623,7 +716,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
 
         let m = SCNMaterial()
         m.lightingModel = .constant     // it is a silhouette; lighting it would defeat that
-        m.diffuse.contents = CharacterSceneView.skylineTexture
+        m.diffuse.contents = spec.texture()
         m.diffuse.wrapS = .repeat
         m.diffuse.wrapT = .clamp
         m.isDoubleSided = true          // the camera is inside the ring, so winding is moot
@@ -695,14 +788,13 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         // across its extent, so the repeat count is exactly what is asked for. The fog hides
         // the far edge, and there is no reflection to flatten the paving into a sheet of sky.
         let h = max(modelHeight, 0.1)
-        let ground = SCNPlane(width: CGFloat(h * 60), height: CGFloat(h * 60))
+        let spec = stage.ground
+        let ground = SCNPlane(width: CGFloat(h * spec.extent), height: CGFloat(h * spec.extent))
         let gm = ground.firstMaterial!
-        gm.diffuse.contents = Self.plazaTexture
+        gm.diffuse.contents = spec.texture()
         gm.diffuse.wrapS = .repeat
         gm.diffuse.wrapT = .repeat
-        // 55 repeats of a 4x4 block: the same ~0.45m slab as before, now with sixteen of
-        // them per tile instead of four.
-        gm.diffuse.contentsTransform = SCNMatrix4MakeScale(55, 55, 1)
+        gm.diffuse.contentsTransform = SCNMatrix4MakeScale(spec.repeats, spec.repeats, 1)
         // Anisotropic filtering, which a ground plane cannot do without. Seen almost edge-on,
         // isotropic mips have to blur along the short axis as hard as along the long one, so
         // the mid-distance turned to grey mush while the near slabs shimmered as the camera
@@ -720,21 +812,23 @@ final class CharacterSceneController: ObservableObject, BoneRig {
 
         // The medallion, centred on the performer rather than on the origin. Its own node so it
         // is torn down with the floor and rebuilt at the right place when the character changes.
-        let inlay = SCNPlane(width: CGFloat(h * 5), height: CGFloat(h * 5))
-        let im = inlay.firstMaterial!
-        im.diffuse.contents = Self.plazaInlayTexture
-        im.lightingModel = .lambert          // lit with the paving, so it takes the same sun
-        im.isDoubleSided = false
-        im.writesToDepthBuffer = false       // it is a decal on a plane 2mm below it
-        let inode = SCNNode(geometry: inlay)
-        inode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
-        inode.simdPosition = simd_float3(cx, minY + 0.002, cz)
-        inode.renderingOrder = 1             // after the paving, before the contact shadow
-        inode.castsShadow = false
-        // Parented to the root, not to the floor: the floor node is rotated flat, so a child
-        // of it would be rotated twice and positioned in that rotated frame.
-        scene.rootNode.addChildNode(inode)
-        inlayNode = inode
+        if let inlayTexture = spec.inlay {
+            let inlay = SCNPlane(width: CGFloat(h * spec.inlayExtent), height: CGFloat(h * spec.inlayExtent))
+            let im = inlay.firstMaterial!
+            im.diffuse.contents = inlayTexture()
+            im.lightingModel = .lambert          // lit with the paving, so it takes the same sun
+            im.isDoubleSided = false
+            im.writesToDepthBuffer = false       // it is a decal on a plane 2mm below it
+            let inode = SCNNode(geometry: inlay)
+            inode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
+            inode.simdPosition = simd_float3(cx, minY + 0.002, cz)
+            inode.renderingOrder = 1             // after the paving, before the contact shadow
+            inode.castsShadow = false
+            // Parented to the root, not to the floor: the floor node is rotated flat, so a child
+            // of it would be rotated twice and positioned in that rotated frame.
+            scene.rootNode.addChildNode(inode)
+            inlayNode = inode
+        }
 
         // Soft contact shadow under feet.
         //
@@ -773,7 +867,11 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         // After stageCenter: the ring is centred on where the performer stands, not on the origin,
         // and the camera move orbits the same point - so the two stay concentric and the skyline
         // does not drift across the frame as the shot swings.
-        addSkyline(feetY: minY, height: max(modelHeight, 0.1))
+        if let ring = stage.skyline {
+            addSkyline(ring, feetY: minY, height: max(modelHeight, 0.1))
+        } else {
+            skylineNode?.removeFromParentNode(); skylineNode = nil
+        }
     }
 
     /// Outdoor paving, one tile of a 4x4 block of slabs.
@@ -967,6 +1065,16 @@ final class CharacterSceneController: ObservableObject, BoneRig {
                     material.roughness.contents = NSNumber(value: max(authored.doubleValue, 0.45))
                 }
                 material.roughness.intensity = 1
+
+                // VRoid models are authored with an albedo no real surface has: white cloth comes
+                // in at nearly 1.0, where real white cloth sits around 0.7-0.8. Lit by a rig
+                // calibrated on photographed characters it has nowhere left to go and clips - and
+                // clipping is what erases the folds, the hem and the buttons, leaving a flat white
+                // shape. Scaling it here rather than dimming the lights keeps the correction on the
+                // thing that is actually wrong, and leaves the ground and the sky alone.
+                if isToonCharacter {
+                    material.multiply.contents = UIColor(white: Self.toonAlbedoScale, alpha: 1)
+                }
 
                 material.shaderModifiers = [
                     .fragment: Self.rimLightModifier
