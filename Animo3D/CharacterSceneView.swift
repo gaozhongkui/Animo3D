@@ -403,7 +403,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             // tools/make_sky.py: its sky and treeline only, with the paving discarded. Setting the
             // photo itself here - 704x1503, portrait, plaza included - is what wrapped a picture of
             // the ground across the sky.
-            sky: { UIImage(named: "sky_dome") ?? CharacterSceneView.skyBackdrop() },
+            sky: { CharacterSceneView.domeImage("sky_dome") ?? CharacterSceneView.skyBackdrop() },
             horizon: UIColor(red: CGFloat(CharacterSceneView.skyHorizon.0),
                              green: CGFloat(CharacterSceneView.skyHorizon.1),
                              blue: CGFloat(CharacterSceneView.skyHorizon.2), alpha: 1),
@@ -1577,6 +1577,23 @@ struct CharacterSceneView: UIViewRepresentable {
     static let skyImage: UIImage = makeSkyBackdrop()
 
     static func skyBackdrop() -> UIImage { skyImage }
+
+    /// A dome image out of the bundle, by name.
+    ///
+    /// `UIImage(named:)` was what this used, and it answered nil - so every stage silently fell
+    /// back to `skyBackdrop()`, the procedural gradient, and the photographed dome that
+    /// `tools/make_sky.py` builds was never once on screen. It fails quietly, which is why it went
+    /// unnoticed: a plain blue sky behind a dancer looks like a plain blue sky. These files are
+    /// loose in the bundle rather than in the asset catalogue - they are 2:1 equirectangular
+    /// panoramas fed straight to `scene.background.contents`, which an asset catalogue would be
+    /// free to rescale - so they are loaded by URL, which either finds the file or does not.
+    static func domeImage(_ name: String) -> UIImage? {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "jpg") else {
+            NSLog("[Stage] %@.jpg is not in the bundle", name)
+            return nil
+        }
+        return UIImage(contentsOfFile: url.path)
+    }
 
     /// Studio environment map: soft boxes on a dark ground, which is what puts a readable
     /// specular streak on armour and eyes rather than a single blown highlight.

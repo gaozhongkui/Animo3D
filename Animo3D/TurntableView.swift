@@ -39,7 +39,7 @@ struct TurntableView: UIViewRepresentable {
         // asset inspector; on the plaza under the sky it reads as the same product the rest of the
         // app is. It is the stage's own dome, paving and horizon colour rather than a lookalike, so
         // the two cannot drift apart.
-        scene.background.contents = UIImage(named: "sky_dome") ?? CharacterSceneView.skyBackdrop()
+        scene.background.contents = CharacterSceneView.domeImage("sky_dome") ?? CharacterSceneView.skyBackdrop()
         let hz = CharacterSceneView.skyHorizon
         let horizon = UIColor(red: CGFloat(hz.0), green: CGFloat(hz.1), blue: CGFloat(hz.2), alpha: 1)
         view.backgroundColor = horizon
