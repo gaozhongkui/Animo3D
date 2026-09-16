@@ -1,7 +1,22 @@
 {
+ "_readme": [
+  "Animo3D 的资源清单，由 tools/make_catalog.py 从 assets_src/ 的实际内容生成。",
+  "不要手改这个文件：改 assets_src/ 下的东西，然后重新生成。",
+  "",
+  "characters / dances / stages：每条的路径都是相对 baseUrl 的桶内路径。",
+  "  dances[].duration 是秒，读自 .vrma 自己的时间轴。",
+  "  dances[].categories 是这支舞属于的分类 id(可多个)；没有这个字段表示还没归类，",
+  "    App 里它只出现在「全部」下。分类在 assets_src/dances/categories.json 里人工维护。",
+  "  stages[] 是下发的场景，一个场景就是一张 2:1 等距柱面天空图；雾色、太阳方位、灯光、",
+  "    相机白点都是 App 加载时从图上量出来的，override 只在量错时才写。",
+  "",
+  "danceCategories：分类表本身，顺序即 App 里标签的顺序。name 是英文，App 负责本地化。",
+  "",
+  "revision 单调递增；App 只接受比手上这份更新的清单。"
+ ],
  "schema": 2,
- "revision": 7,
- "generated": "2026-09-15",
+ "revision": 8,
+ "generated": "2026-09-16",
  "minAppVersion": null,
  "baseUrl": "https://dekbcnbakegjgbjxflxe.supabase.co/storage/v1/object/public/vrm-models/",
  "notice": null,
@@ -101,60 +116,109 @@
    "thumb": "thumbs/thumb_Y_Bot.png"
   }
  ],
+ "danceCategories": [
+  {
+   "id": "hiphop",
+   "name": "Hip Hop"
+  },
+  {
+   "id": "latin",
+   "name": "Latin & Social"
+  },
+  {
+   "id": "party",
+   "name": "Party & Fun"
+  },
+  {
+   "id": "capoeira",
+   "name": "Capoeira"
+  },
+  {
+   "id": "moves",
+   "name": "Moves & Poses"
+  }
+ ],
  "dances": [
   {
    "id": "Armada",
    "name": "Armada",
    "clip": "dances/Armada.vrma",
-   "duration": 1.67
+   "duration": 1.67,
+   "categories": [
+    "capoeira"
+   ]
   },
   {
    "id": "Au_To_Role",
    "name": "Au To Role",
    "clip": "dances/Au_To_Role.vrma",
-   "duration": 4.03
+   "duration": 4.03,
+   "categories": [
+    "capoeira"
+   ]
   },
   {
    "id": "Belly_Dance",
    "name": "Belly Dance",
    "clip": "dances/Belly_Dance.vrma",
-   "duration": 19.67
+   "duration": 19.67,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Booty_Hip_Hop_Dance",
    "name": "Booty Hip Hop Dance",
    "clip": "dances/Booty_Hip_Hop_Dance.vrma",
-   "duration": 4.93
+   "duration": 4.93,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Breakdance_Swipes",
    "name": "Breakdance Swipes",
    "clip": "dances/Breakdance_Swipes.vrma",
-   "duration": 3.03
+   "duration": 3.03,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Capoeira",
    "name": "Capoeira",
    "clip": "dances/Capoeira.vrma",
-   "duration": 4.83
+   "duration": 4.83,
+   "categories": [
+    "capoeira"
+   ]
   },
   {
    "id": "Capoeira_1",
    "name": "Capoeira 1",
    "clip": "dances/Capoeira_1.vrma",
-   "duration": 4.83
+   "duration": 4.83,
+   "categories": [
+    "capoeira"
+   ]
   },
   {
    "id": "Capoeira_2",
    "name": "Capoeira 2",
    "clip": "dances/Capoeira_2.vrma",
-   "duration": 4.83
+   "duration": 4.83,
+   "categories": [
+    "capoeira"
+   ]
   },
   {
    "id": "Chicken_Dance",
    "name": "Chicken Dance",
    "clip": "dances/Chicken_Dance.vrma",
-   "duration": 4.8
+   "duration": 4.8,
+   "categories": [
+    "party"
+   ]
   },
   {
    "id": "Dancing",
@@ -172,337 +236,505 @@
    "id": "Dancing_Maraschino_Step",
    "name": "Dancing Maraschino Step",
    "clip": "dances/Dancing_Maraschino_Step.vrma",
-   "duration": 3.27
+   "duration": 3.27,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Dancing_Running_Man",
    "name": "Dancing Running Man",
    "clip": "dances/Dancing_Running_Man.vrma",
-   "duration": 10.87
+   "duration": 10.87,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Dancing_Twerk",
    "name": "Dancing Twerk",
    "clip": "dances/Dancing_Twerk.vrma",
-   "duration": 15.23
+   "duration": 15.23,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Dancing_Twerk_1",
    "name": "Dancing Twerk 1",
    "clip": "dances/Dancing_Twerk_1.vrma",
-   "duration": 15.23
+   "duration": 15.23,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Esquiva_2",
    "name": "Esquiva 2",
    "clip": "dances/Esquiva_2.vrma",
-   "duration": 2.27
+   "duration": 2.27,
+   "categories": [
+    "capoeira"
+   ]
   },
   {
    "id": "Excited",
    "name": "Excited",
    "clip": "dances/Excited.vrma",
-   "duration": 6.6
+   "duration": 6.6,
+   "categories": [
+    "moves"
+   ]
   },
   {
    "id": "Flair",
    "name": "Flair",
    "clip": "dances/Flair.vrma",
-   "duration": 1.7
+   "duration": 1.7,
+   "categories": [
+    "capoeira"
+   ]
   },
   {
    "id": "Gangnam_Style",
    "name": "Gangnam Style",
    "clip": "dances/Gangnam_Style.vrma",
-   "duration": 12.4
+   "duration": 12.4,
+   "categories": [
+    "party"
+   ]
   },
   {
    "id": "Ginga_Sideways_To_Au",
    "name": "Ginga Sideways To Au",
    "clip": "dances/Ginga_Sideways_To_Au.vrma",
-   "duration": 3.8
+   "duration": 3.8,
+   "categories": [
+    "capoeira"
+   ]
   },
   {
    "id": "Ginga_Variation_1",
    "name": "Ginga Variation 1",
    "clip": "dances/Ginga_Variation_1.vrma",
-   "duration": 3.57
+   "duration": 3.57,
+   "categories": [
+    "capoeira"
+   ]
   },
   {
    "id": "Golf_Putt_Victory",
    "name": "Golf Putt Victory",
    "clip": "dances/Golf_Putt_Victory.vrma",
-   "duration": 8.37
+   "duration": 8.37,
+   "categories": [
+    "moves"
+   ]
   },
   {
    "id": "Golf_Putt_Victory_1",
    "name": "Golf Putt Victory 1",
    "clip": "dances/Golf_Putt_Victory_1.vrma",
-   "duration": 12.27
+   "duration": 12.27,
+   "categories": [
+    "moves"
+   ]
   },
   {
    "id": "Golf_Putt_Victory_2",
    "name": "Golf Putt Victory 2",
    "clip": "dances/Golf_Putt_Victory_2.vrma",
-   "duration": 12.27
+   "duration": 12.27,
+   "categories": [
+    "moves"
+   ]
   },
   {
    "id": "Golf_Putting_Victory",
    "name": "Golf Putting Victory",
    "clip": "dances/Golf_Putting_Victory.vrma",
-   "duration": 6.9
+   "duration": 6.9,
+   "categories": [
+    "moves"
+   ]
   },
   {
    "id": "Hip_Hop_Dancing",
    "name": "Hip Hop Dancing",
    "clip": "dances/Hip_Hop_Dancing.vrma",
-   "duration": 6.37
+   "duration": 6.37,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Hip_Hop_Dancing_1",
    "name": "Hip Hop Dancing 1",
    "clip": "dances/Hip_Hop_Dancing_1.vrma",
-   "duration": 18.6
+   "duration": 18.6,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Hip_Hop_Dancing_2",
    "name": "Hip Hop Dancing 2",
    "clip": "dances/Hip_Hop_Dancing_2.vrma",
-   "duration": 4.77
+   "duration": 4.77,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Hip_Hop_Dancing_3",
    "name": "Hip Hop Dancing 3",
    "clip": "dances/Hip_Hop_Dancing_3.vrma",
-   "duration": 12.0
+   "duration": 12.0,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Hip_Hop_Dancing_4",
    "name": "Hip Hop Dancing 4",
    "clip": "dances/Hip_Hop_Dancing_4.vrma",
-   "duration": 12.0
+   "duration": 12.0,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Hip_Hop_Dancing_5",
    "name": "Hip Hop Dancing 5",
    "clip": "dances/Hip_Hop_Dancing_5.vrma",
-   "duration": 3.4
+   "duration": 3.4,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Hip_Hop_Dancing_6",
    "name": "Hip Hop Dancing 6",
    "clip": "dances/Hip_Hop_Dancing_6.vrma",
-   "duration": 4.5
+   "duration": 4.5,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Hip_Hop_Dancing_7",
    "name": "Hip Hop Dancing 7",
    "clip": "dances/Hip_Hop_Dancing_7.vrma",
-   "duration": 4.5
+   "duration": 4.5,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Hip_Hop_Dancing_8",
    "name": "Hip Hop Dancing 8",
    "clip": "dances/Hip_Hop_Dancing_8.vrma",
-   "duration": 13.67
+   "duration": 13.67,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Jazz_Dancing",
    "name": "Jazz Dancing",
    "clip": "dances/Jazz_Dancing.vrma",
-   "duration": 5.47
+   "duration": 5.47,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Jazz_Dancing_1",
    "name": "Jazz Dancing 1",
    "clip": "dances/Jazz_Dancing_1.vrma",
-   "duration": 5.47
+   "duration": 5.47,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Jazz_Dancing_2",
    "name": "Jazz Dancing 2",
    "clip": "dances/Jazz_Dancing_2.vrma",
-   "duration": 2.37
+   "duration": 2.37,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Jazz_Dancing_3",
    "name": "Jazz Dancing 3",
    "clip": "dances/Jazz_Dancing_3.vrma",
-   "duration": 2.37
+   "duration": 2.37,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Jazz_Dancing_4",
    "name": "Jazz Dancing 4",
    "clip": "dances/Jazz_Dancing_4.vrma",
-   "duration": 2.77
+   "duration": 2.77,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Macarena_Dance_2",
    "name": "Macarena Dance 2",
    "clip": "dances/Macarena_Dance_2.vrma",
-   "duration": 8.27
+   "duration": 8.27,
+   "categories": [
+    "party"
+   ]
   },
   {
    "id": "Northern_Soul_Floor_Combo",
    "name": "Northern Soul Floor Combo",
    "clip": "dances/Northern_Soul_Floor_Combo.vrma",
-   "duration": 10.63
+   "duration": 10.63,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Rasteira_2",
    "name": "Rasteira 2",
    "clip": "dances/Rasteira_2.vrma",
-   "duration": 2.5
+   "duration": 2.5,
+   "categories": [
+    "capoeira"
+   ]
   },
   {
    "id": "Robot_Hip_Hop_Dance",
    "name": "Robot Hip Hop Dance",
    "clip": "dances/Robot_Hip_Hop_Dance.vrma",
-   "duration": 15.47
+   "duration": 15.47,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Robot_Hip_Hop_Dance_1",
    "name": "Robot Hip Hop Dance 1",
    "clip": "dances/Robot_Hip_Hop_Dance_1.vrma",
-   "duration": 15.47
+   "duration": 15.47,
+   "categories": [
+    "hiphop"
+   ]
   },
   {
    "id": "Salsa_Dancing",
    "name": "Salsa Dancing",
    "clip": "dances/Salsa_Dancing.vrma",
-   "duration": 2.3
+   "duration": 2.3,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Salsa_Dancing_1",
    "name": "Salsa Dancing 1",
    "clip": "dances/Salsa_Dancing_1.vrma",
-   "duration": 2.3
+   "duration": 2.3,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Samba_Dancing",
    "name": "Samba Dancing",
    "clip": "dances/Samba_Dancing.vrma",
-   "duration": 27.9
+   "duration": 27.9,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Samba_Dancing_1",
    "name": "Samba Dancing 1",
    "clip": "dances/Samba_Dancing_1.vrma",
-   "duration": 27.9
+   "duration": 27.9,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Samba_Dancing_2",
    "name": "Samba Dancing 2",
    "clip": "dances/Samba_Dancing_2.vrma",
-   "duration": 21.83
+   "duration": 21.83,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Samba_Dancing_3",
    "name": "Samba Dancing 3",
    "clip": "dances/Samba_Dancing_3.vrma",
-   "duration": 18.67
+   "duration": 18.67,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Samba_Dancing_4",
    "name": "Samba Dancing 4",
    "clip": "dances/Samba_Dancing_4.vrma",
-   "duration": 18.67
+   "duration": 18.67,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Silly_Dancing",
    "name": "Silly Dancing",
    "clip": "dances/Silly_Dancing.vrma",
-   "duration": 5.47
+   "duration": 5.47,
+   "categories": [
+    "party"
+   ]
   },
   {
    "id": "Silly_Dancing_1",
    "name": "Silly Dancing 1",
    "clip": "dances/Silly_Dancing_1.vrma",
-   "duration": 3.87
+   "duration": 3.87,
+   "categories": [
+    "party"
+   ]
   },
   {
    "id": "Sitting_Victory",
    "name": "Sitting Victory",
    "clip": "dances/Sitting_Victory.vrma",
-   "duration": 5.63
+   "duration": 5.63,
+   "categories": [
+    "moves"
+   ]
   },
   {
    "id": "Swing_Dancing",
    "name": "Swing Dancing",
    "clip": "dances/Swing_Dancing.vrma",
-   "duration": 20.93
+   "duration": 20.93,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Thriller_Idle",
    "name": "Thriller Idle",
    "clip": "dances/Thriller_Idle.vrma",
-   "duration": 4.37
+   "duration": 4.37,
+   "categories": [
+    "party"
+   ]
   },
   {
    "id": "Thriller_Part_1",
    "name": "Thriller Part 1",
    "clip": "dances/Thriller_Part_1.vrma",
-   "duration": 29.87
+   "duration": 29.87,
+   "categories": [
+    "party"
+   ]
   },
   {
    "id": "Thriller_Part_2",
    "name": "Thriller Part 2",
    "clip": "dances/Thriller_Part_2.vrma",
-   "duration": 18.87
+   "duration": 18.87,
+   "categories": [
+    "party"
+   ]
   },
   {
    "id": "Thriller_Part_3",
    "name": "Thriller Part 3",
    "clip": "dances/Thriller_Part_3.vrma",
-   "duration": 25.6
+   "duration": 25.6,
+   "categories": [
+    "party"
+   ]
   },
   {
    "id": "Thriller_Part_4",
    "name": "Thriller Part 4",
    "clip": "dances/Thriller_Part_4.vrma",
-   "duration": 37.1
+   "duration": 37.1,
+   "categories": [
+    "party"
+   ]
   },
   {
    "id": "Troca_1",
    "name": "Troca 1",
    "clip": "dances/Troca_1.vrma",
-   "duration": 5.2
+   "duration": 5.2,
+   "categories": [
+    "capoeira"
+   ]
   },
   {
    "id": "Twist_Dance",
    "name": "Twist Dance",
    "clip": "dances/Twist_Dance.vrma",
-   "duration": 9.47
+   "duration": 9.47,
+   "categories": [
+    "latin"
+   ]
   },
   {
    "id": "Victory",
    "name": "Victory",
    "clip": "dances/Victory.vrma",
-   "duration": 4.53
+   "duration": 4.53,
+   "categories": [
+    "moves"
+   ]
   },
   {
    "id": "Victory_1",
    "name": "Victory 1",
    "clip": "dances/Victory_1.vrma",
-   "duration": 8.57
+   "duration": 8.57,
+   "categories": [
+    "moves"
+   ]
   },
   {
    "id": "Victory_Idle",
    "name": "Victory Idle",
    "clip": "dances/Victory_Idle.vrma",
-   "duration": 1.9
+   "duration": 1.9,
+   "categories": [
+    "moves"
+   ]
   },
   {
    "id": "Victory_Idle_1",
    "name": "Victory Idle 1",
    "clip": "dances/Victory_Idle_1.vrma",
-   "duration": 1.9
+   "duration": 1.9,
+   "categories": [
+    "moves"
+   ]
   },
   {
    "id": "Victory_Idle_2",
    "name": "Victory Idle 2",
    "clip": "dances/Victory_Idle_2.vrma",
-   "duration": 1.83
+   "duration": 1.83,
+   "categories": [
+    "moves"
+   ]
   }
  ],
  "stages": [

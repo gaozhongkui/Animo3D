@@ -16,6 +16,7 @@ Everything the index covers lives under assets_src/, and everything under assets
     assets_src/dances/<Id>.vrma         the take (VRMC_vrm_animation)
     assets_src/thumbs/thumb_<Id>.png    pre-rendered character card art
     assets_src/stages/<Id>.jpg          a stage: one 2:1 equirectangular sky, and nothing else
+    assets_src/dances/categories.json   which dance belongs in which shelf (hand-written)
 
 Stages are one image each, on purpose. Everything else a stage needs - the fog colour, where the
 sun stands, how warm the key light is, how far the camera's white point has to go to hold the
@@ -31,6 +32,12 @@ picker - so they live in the app, and this list is only what comes after them.
 The sky has to be a 2:1 equirectangular panorama with the sun low in it; a photograph straight off a
 camera is none of those things. tools/make_sky.py is what turns one into the other, and the reasons
 each of its parameters matters are in tools/README.md.
+
+Dances are categorised by hand, in assets_src/dances/categories.json, because they cannot be
+categorised any other way: the names came from Mixamo and "Dancing 1" says nothing about what it is.
+That file is the only place the shelves are defined; this script copies them into the index and
+reports any dance nobody has filed. A dance in no category is not an error - it simply only appears
+under "All".
 
 Music is not in the index. All four tracks ship in Animo3D/Res/music, where the bundled copy wins
 the lookup anyway, so listing them only added 14MB of upload nobody would ever download.
@@ -163,6 +170,34 @@ def main():
 
         dances.append(item)
 
+    # ---- dance categories ---------------------------------------------------
+    categories, assigned = [], {}
+    catfile = os.path.join(src, "dances", "categories.json")
+    if os.path.exists(catfile):
+        try:
+            doc = json.load(open(catfile))
+            categories = [{"id": c["id"], "name": c["name"]} for c in doc.get("categories", [])]
+            known = {c["id"] for c in categories}
+            for did, cats in (doc.get("dances") or {}).items():
+                bad = [c for c in cats if c not in known]
+                if bad:
+                    problems.append(f"dance {did} is filed under unknown categories: {bad}")
+                assigned[did] = [c for c in cats if c in known]
+        except Exception as e:                                  # noqa: BLE001
+            problems.append(f"could not read {catfile}: {e}")
+    for d in dances:
+        cats = assigned.get(d["id"])
+        if cats:
+            d["categories"] = cats
+    filed = sum(1 for d in dances if d.get("categories"))
+    unfiled = [d["id"] for d in dances if not d.get("categories")]
+    if unfiled:
+        print(f"  ! {len(unfiled)} dances are in no category and will only show under All: "
+              f"{', '.join(unfiled[:8])}{' ...' if len(unfiled) > 8 else ''}", file=sys.stderr)
+    for did in assigned:
+        if not any(d["id"] == did for d in dances):
+            problems.append(f"categories.json files {did}, which is not in assets_src/dances")
+
     # ---- stages -------------------------------------------------------------
     stages = []
     sdir = os.path.join(src, "stages")
@@ -223,6 +258,22 @@ def main():
             revision = 1
 
     index = {
+        # JSON has no comments, so the description of the format travels in the format.
+        "_readme": [
+            "Animo3D 的资源清单，由 tools/make_catalog.py 从 assets_src/ 的实际内容生成。",
+            "不要手改这个文件：改 assets_src/ 下的东西，然后重新生成。",
+            "",
+            "characters / dances / stages：每条的路径都是相对 baseUrl 的桶内路径。",
+            "  dances[].duration 是秒，读自 .vrma 自己的时间轴。",
+            "  dances[].categories 是这支舞属于的分类 id(可多个)；没有这个字段表示还没归类，",
+            "    App 里它只出现在「全部」下。分类在 assets_src/dances/categories.json 里人工维护。",
+            "  stages[] 是下发的场景，一个场景就是一张 2:1 等距柱面天空图；雾色、太阳方位、灯光、",
+            "    相机白点都是 App 加载时从图上量出来的，override 只在量错时才写。",
+            "",
+            "danceCategories：分类表本身，顺序即 App 里标签的顺序。name 是英文，App 负责本地化。",
+            "",
+            "revision 单调递增；App 只接受比手上这份更新的清单。",
+        ],
         "schema": SCHEMA,
         "revision": revision,
         "generated": date.today().isoformat(),
@@ -231,6 +282,7 @@ def main():
         "notice": args.notice,
         "builtin": builtin,
         "characters": characters,
+        "danceCategories": categories,
         "dances": dances,
         "stages": stages,
     }
@@ -242,6 +294,7 @@ def main():
     total = sum(os.path.getsize(p) for p, _ in uploads)
     print(f"wrote {out}  (schema {SCHEMA}, revision {revision})")
     print(f"characters={len(characters)} dances={len(dances)} stages={len(stages)}")
+    print(f"categories={len(categories)}, {filed}/{len(dances)} dances filed")
     print(f"built-in: {builtin}")
     print(f"upload {len(uploads)} files, {total/1e6:.1f} MB")
     for p in problems:

@@ -1,0 +1,234 @@
+{
+ "_readme": [
+  "舞蹈的分类表。这是人工维护的唯一真相源，make_catalog.py 读它、写进 dist/index.json。",
+  "",
+  "categories：分类本身。id 进 JSON 和代码，name 是英文显示名(App 里再做本地化)，",
+  "  顺序就是 App 里标签的顺序。加一个分类只要在这里加一行。",
+  "",
+  "dances：舞蹈 id -> 它属于哪些分类(数组，可以多选)。舞蹈 id 就是 assets_src/dances/ 下",
+  "  的文件名(去掉 .vrma)。这里没写到的舞蹈不属于任何分类，只会出现在「全部」里，",
+  "  make_catalog.py 会把它们列出来提醒你。",
+  "",
+  "为什么要人工标：名字是 Mixamo 原样带过来的，'Dancing 1' 这种从名字推不出任何东西，",
+  "  猜错比不猜更糟。"
+ ],
+ "categories": [
+  {
+   "id": "hiphop",
+   "name": "Hip Hop"
+  },
+  {
+   "id": "latin",
+   "name": "Latin & Social"
+  },
+  {
+   "id": "party",
+   "name": "Party & Fun"
+  },
+  {
+   "id": "capoeira",
+   "name": "Capoeira"
+  },
+  {
+   "id": "moves",
+   "name": "Moves & Poses"
+  }
+ ],
+ "dances": {
+  "Armada": [
+   "capoeira"
+  ],
+  "Au_To_Role": [
+   "capoeira"
+  ],
+  "Belly_Dance": [
+   "latin"
+  ],
+  "Booty_Hip_Hop_Dance": [
+   "hiphop"
+  ],
+  "Breakdance_Swipes": [
+   "hiphop"
+  ],
+  "Capoeira": [
+   "capoeira"
+  ],
+  "Capoeira_1": [
+   "capoeira"
+  ],
+  "Capoeira_2": [
+   "capoeira"
+  ],
+  "Chicken_Dance": [
+   "party"
+  ],
+  "Dancing_Maraschino_Step": [
+   "latin"
+  ],
+  "Dancing_Running_Man": [
+   "hiphop"
+  ],
+  "Dancing_Twerk": [
+   "hiphop"
+  ],
+  "Dancing_Twerk_1": [
+   "hiphop"
+  ],
+  "Esquiva_2": [
+   "capoeira"
+  ],
+  "Excited": [
+   "moves"
+  ],
+  "Flair": [
+   "capoeira"
+  ],
+  "Gangnam_Style": [
+   "party"
+  ],
+  "Ginga_Sideways_To_Au": [
+   "capoeira"
+  ],
+  "Ginga_Variation_1": [
+   "capoeira"
+  ],
+  "Golf_Putt_Victory": [
+   "moves"
+  ],
+  "Golf_Putt_Victory_1": [
+   "moves"
+  ],
+  "Golf_Putt_Victory_2": [
+   "moves"
+  ],
+  "Golf_Putting_Victory": [
+   "moves"
+  ],
+  "Hip_Hop_Dancing": [
+   "hiphop"
+  ],
+  "Hip_Hop_Dancing_1": [
+   "hiphop"
+  ],
+  "Hip_Hop_Dancing_2": [
+   "hiphop"
+  ],
+  "Hip_Hop_Dancing_3": [
+   "hiphop"
+  ],
+  "Hip_Hop_Dancing_4": [
+   "hiphop"
+  ],
+  "Hip_Hop_Dancing_5": [
+   "hiphop"
+  ],
+  "Hip_Hop_Dancing_6": [
+   "hiphop"
+  ],
+  "Hip_Hop_Dancing_7": [
+   "hiphop"
+  ],
+  "Hip_Hop_Dancing_8": [
+   "hiphop"
+  ],
+  "Jazz_Dancing": [
+   "latin"
+  ],
+  "Jazz_Dancing_1": [
+   "latin"
+  ],
+  "Jazz_Dancing_2": [
+   "latin"
+  ],
+  "Jazz_Dancing_3": [
+   "latin"
+  ],
+  "Jazz_Dancing_4": [
+   "latin"
+  ],
+  "Macarena_Dance_2": [
+   "party"
+  ],
+  "Northern_Soul_Floor_Combo": [
+   "hiphop"
+  ],
+  "Rasteira_2": [
+   "capoeira"
+  ],
+  "Robot_Hip_Hop_Dance": [
+   "hiphop"
+  ],
+  "Robot_Hip_Hop_Dance_1": [
+   "hiphop"
+  ],
+  "Salsa_Dancing": [
+   "latin"
+  ],
+  "Salsa_Dancing_1": [
+   "latin"
+  ],
+  "Samba_Dancing": [
+   "latin"
+  ],
+  "Samba_Dancing_1": [
+   "latin"
+  ],
+  "Samba_Dancing_2": [
+   "latin"
+  ],
+  "Samba_Dancing_3": [
+   "latin"
+  ],
+  "Samba_Dancing_4": [
+   "latin"
+  ],
+  "Silly_Dancing": [
+   "party"
+  ],
+  "Silly_Dancing_1": [
+   "party"
+  ],
+  "Sitting_Victory": [
+   "moves"
+  ],
+  "Swing_Dancing": [
+   "latin"
+  ],
+  "Thriller_Idle": [
+   "party"
+  ],
+  "Thriller_Part_1": [
+   "party"
+  ],
+  "Thriller_Part_2": [
+   "party"
+  ],
+  "Thriller_Part_3": [
+   "party"
+  ],
+  "Thriller_Part_4": [
+   "party"
+  ],
+  "Troca_1": [
+   "capoeira"
+  ],
+  "Twist_Dance": [
+   "latin"
+  ],
+  "Victory": [
+   "moves"
+  ],
+  "Victory_1": [
+   "moves"
+  ],
+  "Victory_Idle": [
+   "moves"
+  ],
+  "Victory_Idle_1": [
+   "moves"
+  ],
+  "Victory_Idle_2": [
+   "moves"
+  ]
+ }
+}

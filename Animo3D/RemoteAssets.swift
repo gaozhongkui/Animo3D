@@ -56,6 +56,17 @@ struct DanceItem: Identifiable, Codable, Hashable {
     let name: String
     let clip: AssetPath
     let duration: Double?
+    /// Which shelves this dance sits on, by category id. Absent means nobody has filed it yet, and
+    /// it shows only under "All" - which is a state the list has to survive, because the catalogue
+    /// gains dances before anyone gets round to sorting them.
+    let categories: [String]?
+}
+
+/// A shelf in the dance list. Defined by the catalogue rather than the app so a new one can be
+/// added without a release; `name` is English and the app localises it where one exists.
+struct DanceCategory: Identifiable, Codable, Hashable {
+    let id: String
+    let name: String
 }
 
 /// A stage the catalogue serves: one sky, and nothing that has to be kept in step with the app.
@@ -110,6 +121,7 @@ struct RemoteCatalog: Decodable {
     let notice: String?
     let builtin: BuiltInSet?
     let characters: [CharacterItem]
+    let danceCategories: [DanceCategory]?
     let dances: [DanceItem]
     /// Absent in every catalogue written before stages existed, and absent again if they are ever
     /// withdrawn - so the app must be able to show its own two and nothing else.
@@ -147,6 +159,7 @@ final class RemoteAssets: ObservableObject {
     @Published private(set) var characters: [CharacterItem] = []
     @Published private(set) var dances: [DanceItem] = []
     @Published private(set) var stages: [StageItem] = []
+    @Published private(set) var danceCategories: [DanceCategory] = []
     @Published private(set) var userCharacters: [CharacterItem] = []
     @Published private(set) var catalogSource: Source = .none
     @Published private(set) var state: State = .loading
@@ -311,6 +324,7 @@ final class RemoteAssets: ObservableObject {
             self.characters = self.userCharacters + cat.characters
             self.dances = cat.dances
             self.stages = cat.stages ?? []
+            self.danceCategories = cat.danceCategories ?? []
             self.notice = cat.notice
             self.catalogSource = source
             self.state = (cat.characters.isEmpty && self.userCharacters.isEmpty) || cat.dances.isEmpty ? .unavailable : .ready

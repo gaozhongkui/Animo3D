@@ -396,6 +396,37 @@ Girl_D.scn
 | `make_icon.swift` | App 图标 |
 | `make_promo.swift` | App Store 截图;产物不进包 |
 
+### 舞蹈分类
+
+分类在 `assets_src/dances/categories.json` 里**人工维护**，`make_catalog.py` 读它、写进
+`index.json` 的 `danceCategories` 和每支舞的 `categories`。
+
+```json
+{
+  "categories": [
+    { "id": "hiphop", "name": "Hip Hop" },
+    { "id": "latin",  "name": "Latin & Social" }
+  ],
+  "dances": {
+    "Hip_Hop_Dancing": ["hiphop"],
+    "Samba_Dancing":   ["latin"]
+  }
+}
+```
+
+- `categories` 的**顺序就是 App 里标签的顺序**，加一类只要加一行。`name` 写英文，App 负责本地化。
+- `dances` 是 舞蹈 id → 分类 id 数组，**可以多选**。舞蹈 id 就是 `assets_src/dances/` 下的文件名去掉 `.vrma`。
+- **没写到的舞蹈不属于任何分类**，只出现在「全部」里。这不是错误——清单里先有舞、后有人归类是常态；
+  `make_catalog.py` 会把这些列出来提醒。写了但分类 id 不存在才是错误，会进 problems。
+
+**为什么必须人工标**：名字是 Mixamo 原样带过来的。`Hip Hop Dancing 3` 能看出来，`Dancing 1` 看不出
+任何东西，按名字猜错比不猜更糟。当前 67 支里有 65 支归好了，`Dancing` 和 `Dancing_1` 这两支需要人眼
+看一下再填。
+
+顺带一提，归类时会发现一件事：**有 11 支根本不是舞**（`Victory`、`Victory_Idle*`、`Golf_Putt_Victory*`、
+`Sitting_Victory`、`Excited`、`Thriller_Idle`），它们是 Mixamo 的庆祝/待机动作，所以单独归到
+`moves`（Moves & Poses）而不是混在舞蹈里。
+
 ### 场景(stage)的下发格式
 
 `index.json` 里的 `stages` 段就是服务端下发的场景列表。**内置的 Daylight 和 Sunset 不在里面**——
