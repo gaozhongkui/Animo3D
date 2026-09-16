@@ -37,6 +37,24 @@ final class ThumbRenderer {
     /// How many moments of a take are auditioned before one is drawn.
     private static let signatureSamples = 18
 
+    /// A card that moves: a short loop around the frame the still card poses on.
+    ///
+    /// Not a live scene per card. A dance card used to be a still because forty-four live ones meant
+    /// forty-four characters loaded and animating at once, which is what made this list unusable in
+    /// the first place. This is the cheap version of moving: the same offscreen renderer draws ten
+    /// frames of a 1.2 second window, they go to disk, and the card flips through them. Ten drawings
+    /// per dance, paid once, against one 3D scene per card paid every frame forever.
+    ///
+    /// Ten frames over 1.2 seconds is about eight a second. That is not film, and on a card this
+    /// size it does not need to be: what the user is asking of it is "what kind of dance is this",
+    /// which eight frames answers and a still does not.
+    static let loopFrames = 10
+    static let loopWindow: Float = 1.2
+    /// Loop frames are drawn smaller than the still: ten of them per dance would otherwise be a
+    /// couple of megabytes each on disk, and softness reads far less in motion than it does in a
+    /// still image the eye can rest on.
+    private static var loopSize: CGSize { CGSize(width: size.width * 0.6, height: size.height * 0.6) }
+
     // Rendering is serial: only one thumbnail renders at a time, so it never fights the list scroll.
     private let renderQ = DispatchQueue(label: "com.animo3d.thumb.render", qos: .utility)
     // Disk reads and decodes are concurrent: a cache hit should not queue behind a long render.
@@ -52,14 +70,17 @@ final class ThumbRenderer {
     private var renderer: SCNRenderer?                      // renderQ only
     private let controller = CharacterSceneController()      // renderQ only
     private var loadedKey = ""                               // model currently in the controller
+    private var signatures: [String: Float] = [:]            // renderQ only
 
     private let dir: URL = {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         // Versioned, and the previous version is deleted: both the framing and the choice of frame
         // changed, so every image the old rules cached is wrong. Without this a device that has
         // run the app before keeps serving exactly the cards this set out to replace.
-        try? FileManager.default.removeItem(at: caches.appendingPathComponent("card_art", isDirectory: true))
-        let d = caches.appendingPathComponent("card_art_v2", isDirectory: true)
+        for old in ["card_art", "card_art_v2"] {
+            try? FileManager.default.removeItem(at: caches.appendingPathComponent(old, isDirectory: true))
+        }
+        let d = caches.appendingPathComponent("card_art_v3", isDirectory: true)
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }()
@@ -102,6 +123,51 @@ final class ThumbRenderer {
             self.controller.setRimTint(nil)
             self.controller.frameCameraOnPose(aspect: Self.aspect)
             return self.snapshot()
+        }
+    }
+
+    /// One frame of a dance's loop. Frames are asked for one at a time, so a card that scrolls past
+    /// after two of them has cost two drawings rather than ten.
+    func danceLoopFrame(character: String, dance: String, style: Int, index: Int) async -> UIImage? {
+        let who = character.isEmpty ? BuiltInAssets.characterId : character
+        let key = Self.danceKey(character: who, dance: dance, style: style) + "_l\(index)"
+        if let m = mem.object(forKey: key as NSString) { return m }
+        if let disk = await diskCached(key: key) { return disk }
+
+        guard !who.isEmpty,
+              let modelURL = try? await RemoteAssets.shared.resolveCharacterModel(who),
+              let clipPath = RemoteAssets.shared.dance(dance)?.clip,
+              let clipURL = try? await RemoteAssets.shared.resolve(clipPath) else { return nil }
+
+        return await rendered(key: key) { [weak self] in
+            guard let self, self.ensureModel(at: modelURL, id: who),
+                  let root = self.controller.characterRoot,
+                  let clip = VRMAnimationClip.load(clipURL) else { return nil }
+
+            // The camera is framed on the still card's pose, not on this frame's, and every frame in
+            // the loop uses that one framing. Framing each frame on its own pose is what turns a
+            // loop into a shake: the character stays put and the world jumps around them.
+            self.controller.resetToRestPose()
+            let centre = self.signature(of: clip, root: root, key: "\(who)|\(dance)")
+            guard let scout = self.makePlayer(clip: clip, root: root) else { return nil }
+            scout.apply(at: centre)
+            // A little wider than the still's framing, because the pose moves inside it now and an
+            // elbow leaving the card mid-loop is worse than a slightly smaller figure. Only a
+            // little: at 1.3 the figure sat in the middle of an empty card, which reads as a
+            // mistake rather than as room to move.
+            self.controller.frameCameraOnPose(aspect: Self.aspect, margin: 1.15)
+
+            // Then this frame's own moment, on a fresh player: `apply` carries a planting offset
+            // from the call before it.
+            let window = min(Self.loopWindow, max(clip.duration, 0.1))
+            let span = window / Float(Self.loopFrames)
+            var t = centre - window / 2 + span * Float(index)
+            if clip.duration > 0 { t = (t + clip.duration).truncatingRemainder(dividingBy: clip.duration) }
+            self.controller.resetToRestPose()
+            self.controller.setRimTint(CardBackdrop.accentUIColor(for: style))
+            guard let player = self.makePlayer(clip: clip, root: root) else { return nil }
+            player.apply(at: t)
+            return self.snapshot(size: Self.loopSize)
         }
     }
 
@@ -154,6 +220,15 @@ final class ThumbRenderer {
         VRMAnimationPlayer(clip: clip, root: root, bone: { [weak self] name in
             self?.controller.humanoidNode(name)
         })
+    }
+
+    /// `signatureTime`, remembered. Auditioning eighteen poses is cheap once and silly ten times
+    /// over for the ten frames of one loop.
+    private func signature(of clip: VRMAnimationClip, root: SCNNode, key: String) -> Float {
+        if let t = signatures[key] { return t }
+        let t = signatureTime(clip: clip, root: root)
+        signatures[key] = t
+        return t
     }
 
     /// Which moment of a take the card poses on.
@@ -299,7 +374,7 @@ final class ThumbRenderer {
         return true
     }
 
-    private func snapshot() -> UIImage? {
+    private func snapshot(size: CGSize = ThumbRenderer.size) -> UIImage? {
         guard let device, let cam = controller.cameraNode else { return nil }
         let r: SCNRenderer
         if let existing = renderer {
@@ -315,6 +390,6 @@ final class ThumbRenderer {
         }
         r.scene = controller.scene
         r.pointOfView = cam
-        return r.snapshot(atTime: 0, with: Self.size, antialiasingMode: DeviceTier.thumbAntialiasing)
+        return r.snapshot(atTime: 0, with: size, antialiasingMode: DeviceTier.thumbAntialiasing)
     }
 }

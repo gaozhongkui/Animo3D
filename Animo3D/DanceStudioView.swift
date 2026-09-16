@@ -289,7 +289,8 @@ struct DanceStudioView: View {
                                                                accent: CardBackdrop.accent(for: i)))
                                         .aspectRatio(3.0/4.0, contentMode: .fill)
                                 } else {
-                                    DanceCardView(character: previewCharacter, dance: d.id, style: i)
+                                    DanceCardView(character: previewCharacter, dance: d.id, style: i,
+                                                  animated: true)
                                         .aspectRatio(3.0/4.0, contentMode: .fill)
                                 }
                             }
