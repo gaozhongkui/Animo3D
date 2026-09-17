@@ -35,6 +35,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     var groundEnabled = false   // Ground + top-down view enabled only for large performance view; disabled for thumbnails/small cards
     var contactShadowOnly = false   // Detail page: Only add contact shadow under feet (to give grounding sense), no dark floor
     private var lightsAdded = false
+    private var facialSoul: FacialSoul?
 
     /// Only hair swings. A VRoid rig names every secondary bone `J_Sec_*`, which is also the
     /// bust, the skirt, the coat, the sleeves and the hood strings - `char_VRM_6` alone carries
@@ -210,6 +211,9 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         // root.boundingBox alone is unreliable - it may exclude children or ignore import scale.
         if modelHeight <= 0.01 { modelHeight = worldBoundingHeight(root) }
 
+        // Initialize facial soul for all characters (VRM or bundled)
+        facialSoul = FacialSoul(rootNode: root, headNode: humanoidNode("head"))
+
         if !lightsAdded { addLights(); lightsAdded = true }
         // Light levels are applied at the end of updateBackgroundAndGround(), after setupGround
         // has built the stage. Setting them here instead would be overwritten immediately.
@@ -276,13 +280,20 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// pinch gesture does not change how the hair behaves.
     func updatePhysics() {
         guard isLoaded else { return }
+        let t = CACurrentMediaTime()
 
-        // An imported model states where its own spring bones are and how they behave. That is real
-        // data from the file, strictly better than the name matching below, so it drives itself.
+        // 1. For VRM models, let the library update bone physics/springs first.
+        // This may reset morph weights, so we do it before our custom facial soul.
         if let vrm = vrmNode {
-            VRMCharacter.step(vrm, at: CACurrentMediaTime())
-            return
+            VRMCharacter.step(vrm, at: t)
         }
+
+        // 2. Inject "soul" (blinking/head drift) for all models.
+        // Doing this AFTER VRMCharacter.step ensures weights aren't overwritten.
+        facialSoul?.update(at: t)
+
+        // 3. Bundled models (Mixamo) use our own spring solver for hair.
+        if vrmNode != nil { return }
 
         springLock.lock()
         defer { springLock.unlock() }

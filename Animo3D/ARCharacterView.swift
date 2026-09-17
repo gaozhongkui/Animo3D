@@ -316,6 +316,9 @@ struct ARCharacterView: UIViewRepresentable {
                 DispatchQueue.main.async { [weak self] in self?.placeAutomatically(in: arView) }
             }
 
+            // Environment Fusion: Update lights based on physical room lighting
+            updateEnvironmentLighting(in: arView)
+
             guard let reticle else { return }
             let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
             guard let hit = ARPlacement.floorHit(at: center, in: arView) else {
@@ -326,6 +329,26 @@ struct ARCharacterView: UIViewRepresentable {
             reticle.simdWorldTransform = hit.worldTransform
             reticle.isHidden = false
             hasFloor = true
+        }
+
+        /// Updates the custom SceneKit lights to match the real-world environment.
+        private func updateEnvironmentLighting(in arView: ARSCNView) {
+            guard let frame = arView.session.currentFrame,
+                  let lightEstimate = frame.lightEstimate,
+                  let lights = arView.scene.rootNode.childNode(withName: "ar_lights", recursively: false) else { return }
+
+            let intensity = lightEstimate.ambientIntensity
+            let temperature = lightEstimate.ambientColorTemperature
+
+            for node in lights.childNodes {
+                guard let light = node.light else { continue }
+                if light.type == .ambient {
+                    light.intensity = intensity * 0.26
+                } else if light.type == .directional {
+                    light.intensity = intensity * 0.42
+                }
+                light.temperature = temperature
+            }
         }
 
 
