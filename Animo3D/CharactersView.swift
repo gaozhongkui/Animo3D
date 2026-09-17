@@ -87,7 +87,6 @@ struct MyCharactersView: View {
     @State private var pendingDelete: PickedCharacter?
     private let cols = [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)]
 
-    private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
 
     /// Characters the user brought in themselves - the only ones that can be deleted.
     private var isImported: (String) -> Bool {
@@ -130,7 +129,7 @@ struct MyCharactersView: View {
                             HapticManager.light()
                             picked = PickedCharacter(id: c.id, name: c.name)
                         } label: {
-                            CharacterCard(name: c.name, characterKey: c.id, tint: tints[i % tints.count])
+                            CharacterCard(name: c.name, characterKey: c.id, style: i)
                         }
                         .buttonStyle(CardButtonStyle())
                         .contextMenu {

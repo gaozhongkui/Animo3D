@@ -45,7 +45,6 @@ struct VideoDriveView: View {
     @State private var processing = false        // Exporting the recording
     @State private var videoRect: CGRect = .zero
 
-    private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
 
     var body: some View {
         ZStack {
@@ -177,16 +176,18 @@ struct VideoDriveView: View {
                     let isSelected = character == c.id
                     VStack(alignment: .leading, spacing: 10) {
                         ZStack(alignment: .bottomLeading) {
-                            CharacterThumbView(characterKey: c.id, tint: tints[i % tints.count])
+                            CharacterThumbView(characterKey: c.id, style: i)
                                 .aspectRatio(3.0 / 4.0, contentMode: .fill)
-                                .background(Color(.secondarySystemBackground))
-                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 3)
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .stroke(isSelected ? CardBackdrop.accent(for: i).opacity(0.95)
+                                                           : .white.opacity(0.12),
+                                                lineWidth: isSelected ? 2.5 : 0.5)
                                 )
-                                .shadow(color: isSelected ? Color.accentColor.opacity(0.3) : Color.black.opacity(0.05),
-                                        radius: isSelected ? 10 : 5, x: 0, y: 5)
+                                .shadow(color: isSelected ? CardBackdrop.accent(for: i).opacity(0.4)
+                                                          : .black.opacity(0.25),
+                                        radius: isSelected ? 15 : 8, x: 0, y: isSelected ? 8 : 4)
 
                             if isSelected {
                                 Image(systemName: "checkmark.circle.fill")

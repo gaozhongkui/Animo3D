@@ -164,17 +164,27 @@ struct StagePickerView: View {
             choose(id)
         } label: {
             VStack(alignment: .leading, spacing: 8) {
-                ZStack {
-                    if let art {
-                        Image(uiImage: art).resizable().aspectRatio(contentMode: .fill)
-                    } else {
-                        // Not downloaded yet: a card that says so beats an empty grey hole.
-                        Rectangle().fill(Color(.secondarySystemBackground))
-                        ProgressView()
+                // The picture hangs in an overlay rather than sitting in the card, and the card is
+                // sized by a `Color`, which accepts whatever width the column offers.
+                //
+                // This is not a style preference. A `.fill` image reports the size it would need to
+                // cover, and `.frame(height: 104)` leaves the width free, so the cell took *the
+                // picture's* ideal width at that height - a different width for every aspect ratio
+                // in the grid. Rows of wide photographs came out 186pt against the 179pt the column
+                // allows, ate the 12pt gutter, and met the card beside them in the middle. An
+                // overlay is not part of its parent's layout, so nothing it does can push the cell
+                // out of its column again.
+                Color(.secondarySystemBackground)
+                    .frame(height: 104)
+                    .frame(maxWidth: .infinity)
+                    .overlay {
+                        if let art {
+                            Image(uiImage: art).resizable().aspectRatio(contentMode: .fill)
+                        } else {
+                            // Not downloaded yet: a card that says so beats an empty grey hole.
+                            ProgressView()
+                        }
                     }
-                }
-                .frame(height: 104)
-                .frame(maxWidth: .infinity)
                 .task { await library.loadThumbnail(for: id) }
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 // The ring goes outside the clip, and draws inwards: drawn inside it, half its

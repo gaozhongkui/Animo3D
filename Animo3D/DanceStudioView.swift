@@ -68,7 +68,6 @@ struct DanceStudioView: View {
     @AppStorage("stage.id") private var stageID = CharacterSceneController.Stage.plaza.id
     @State private var showStagePicker = false
 
-    private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
 
     var body: some View {
         ZStack {
@@ -208,20 +207,27 @@ struct DanceStudioView: View {
                     let isSelected = character == c.id
                     VStack(alignment: .leading, spacing: 10) {
                         ZStack(alignment: .bottomLeading) {
-                            CharacterThumbView(characterKey: c.id, tint: tints[i % tints.count])
+                            // Selected the same way a dance card is - lifted and glowing in its own
+                            // stage colour - so the two steps of the same flow do not each have
+                            // their own idea of what "chosen" looks like.
+                            CharacterThumbView(characterKey: c.id, style: i)
                                 .aspectRatio(3.0/4.0, contentMode: .fill)
-                                .background(Color(.secondarySystemBackground))
-                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 3)
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .stroke(isSelected ? CardBackdrop.accent(for: i).opacity(0.95)
+                                                           : .white.opacity(0.12),
+                                                lineWidth: isSelected ? 2.5 : 0.5)
                                 )
-                                .shadow(color: isSelected ? Color.accentColor.opacity(0.3) : Color.black.opacity(0.05),
-                                        radius: isSelected ? 10 : 5, x: 0, y: 5)
+                                .shadow(color: isSelected ? CardBackdrop.accent(for: i).opacity(0.4)
+                                                          : .black.opacity(0.25),
+                                        radius: isSelected ? 15 : 8, x: 0, y: isSelected ? 8 : 4)
+                                .scaleEffect(isSelected ? 1.04 : 1)
+                                .animation(.spring(response: 0.32, dampingFraction: 0.7), value: isSelected)
 
-                            LinearGradient(colors: [.clear, .black.opacity(0.72)],
-                                           startPoint: .init(x: 0.5, y: 0.55), endPoint: .bottom)
-                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            LinearGradient(colors: [.clear, .black.opacity(0.28)],
+                                           startPoint: .init(x: 0.5, y: 0.6), endPoint: .bottom)
+                                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
 
                             if isSelected {
                                 Image(systemName: "checkmark.circle.fill")
@@ -295,24 +301,28 @@ struct DanceStudioView: View {
                                 }
                             }
                             .background(Color(.secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                RoundedRectangle(cornerRadius: 24, style: .continuous)
                                     .stroke(isSelected ? CardBackdrop.accent(for: i).opacity(0.95)
-                                                       : .white.opacity(0.08),
-                                            lineWidth: isSelected ? 2 : 0.5)
+                                                       : .white.opacity(0.12),
+                                            lineWidth: isSelected ? 2.5 : 0.5)
                             )
                             // Selection reads as stage light, not as a form control: the card lifts
                             // and glows, in its own accent rather than the system blue.
-                            .shadow(color: isSelected ? CardBackdrop.accent(for: i).opacity(0.6)
-                                                      : .black.opacity(0.35),
-                                    radius: isSelected ? 18 : 8, x: 0, y: isSelected ? 8 : 4)
-                            .scaleEffect(isSelected ? 1.03 : 1)
-                            .animation(.spring(response: 0.32, dampingFraction: 0.75), value: isSelected)
+                            .shadow(color: isSelected ? CardBackdrop.accent(for: i).opacity(0.4)
+                                                      : .black.opacity(0.25),
+                                    radius: isSelected ? 15 : 8, x: 0, y: isSelected ? 8 : 4)
+                            .scaleEffect(isSelected ? 1.04 : 1)
+                            .animation(.spring(response: 0.32, dampingFraction: 0.7), value: isSelected)
 
-                            LinearGradient(colors: [.clear, .black.opacity(0.72)],
+                            // Light, and low: `CardBackdrop` already ends in a darkened floor, so
+                            // this only has to cover the live preview, which brings its own
+                            // lighting. Heavier than this and it crushed the render's lower half
+                            // twice over - once in the backdrop, once here.
+                            LinearGradient(colors: [.clear, .black.opacity(0.32)],
                                            startPoint: .init(x: 0.5, y: 0.55), endPoint: .bottom)
-                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
 
                             VStack(alignment: .leading, spacing: 2) {
                                 // Two lines: "Booty Hip Hop Dance" and "Dancing Maraschino Step" do

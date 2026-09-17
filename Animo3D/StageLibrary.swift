@@ -19,6 +19,7 @@
 //
 
 import Combine
+import CoreImage
 import ImageIO
 import SwiftUI
 import UIKit
@@ -382,39 +383,104 @@ enum StageImage {
         }
     }
 
-    /// The picture at the shape of the screen, without cropping it.
+    /// The picture at the shape of the screen, without cropping it away.
     ///
     /// A landscape photograph on a phone held upright leaves most of the frame empty. Cropping to
-    /// fill would keep a narrow vertical strip of it - not what the user chose - so instead the
-    /// picture keeps its width and its topmost and bottommost rows are continued outwards to meet
-    /// the edges. On a photograph of anywhere outdoors those rows are sky and ground, which is
-    /// exactly what carries on past the frame of a picture in the real world.
+    /// fill would keep a narrow vertical strip of it - not what the user chose - so the picture is
+    /// zoomed as far as it can be without losing much of itself, and what is still missing above
+    /// and below is continued from its own edges.
+    ///
+    /// Both halves of that matter, and neither used to be there. With no zoom, a 16:9 photograph in
+    /// a phone-shaped frame was three quarters invention. And the invention was a one-pixel row
+    /// stretched at full sharpness, which is not a continuation but a comb: every speck in that row
+    /// became a hard vertical stripe the height of the frame. Blurred, the same band reads as haze
+    /// carrying on past the edge of the shot, which is what it is standing in for.
     static func filling(_ picture: UIImage, aspect: CGFloat) -> UIImage {
-        let w = picture.size.width
-        let h = max(picture.size.height, 1)
-        let target = max(h, w / max(aspect, 0.05))
-        guard target > h + 1 else { return picture }
+        guard let source = picture.cgImage else { return picture }
+        let target = max(picture.size.height, picture.size.width / max(aspect, 0.05))
+        guard target > picture.size.height + 1 else { return picture }
 
-        let size = CGSize(width: w, height: target)
-        let top = ((target - h) / 2).rounded()
+        // Narrow the picture, up to the point where a third of the width is gone. Past that the
+        // user stops recognising the shot they chose, which is the whole reason this does not
+        // simply crop to fill. Only the width goes: taking the same fraction off both sides leaves
+        // the proportions exactly as they were and buys no height at all, which is what the first
+        // attempt at this did.
+        let cg = narrowed(source, by: min(1.5, target / max(picture.size.height, 1)))
+        let w = CGFloat(cg.width), h = CGFloat(cg.height)
+        let size = CGSize(width: w, height: (w / max(aspect, 0.05)).rounded())
+        let top = ((size.height - h) / 2).rounded()
+        // How far the picture dissolves into its own haze. Butted straight against it, the two meet
+        // at a hard horizontal line and the backdrop reads as a print hung on a wall.
+        let fade = (h * 0.12).rounded()
+
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = true
-        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            // The edge rows first, stretched to fill above and below, then the picture over them.
-            if let cg = picture.cgImage {
-                let edge = max(1, Int(CGFloat(cg.height) * 0.01))
-                if let upper = cg.cropping(to: CGRect(x: 0, y: 0, width: cg.width, height: edge)) {
-                    UIImage(cgImage: upper).draw(in: CGRect(x: 0, y: 0, width: w, height: top + 1))
-                }
-                if let lower = cg.cropping(to: CGRect(x: 0, y: cg.height - edge,
-                                                      width: cg.width, height: edge)) {
-                    UIImage(cgImage: lower).draw(in: CGRect(x: 0, y: top + h - 1, width: w,
-                                                            height: target - top - h + 1))
-                }
+        return UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            // The edge bands first, softened and stretched past where the picture will sit, then
+            // the picture over them with its own edges faded out.
+            let band = max(1, Int(h * 0.06))
+            if let upper = cg.cropping(to: CGRect(x: 0, y: 0, width: cg.width, height: band)) {
+                softened(upper).draw(in: CGRect(x: 0, y: 0, width: w, height: top + fade + 1))
             }
-            picture.draw(in: CGRect(x: 0, y: top, width: w, height: h))
+            if let lower = cg.cropping(to: CGRect(x: 0, y: cg.height - band,
+                                                  width: cg.width, height: band)) {
+                softened(lower).draw(in: CGRect(x: 0, y: top + h - fade - 1, width: w,
+                                                height: size.height - top - h + fade + 1))
+            }
+            let rect = CGRect(x: 0, y: top, width: w, height: h)
+            if let mask = ramp(height: h, fade: fade) {
+                ctx.cgContext.saveGState()
+                ctx.cgContext.clip(to: rect, mask: mask)
+            }
+            UIImage(cgImage: cg).draw(in: rect)
+            ctx.cgContext.restoreGState()
         }
+    }
+
+    /// An image with `scale` times less width, taken from its middle.
+    private static func narrowed(_ cg: CGImage, by scale: CGFloat) -> CGImage {
+        guard scale > 1.01 else { return cg }
+        let w = (CGFloat(cg.width) / scale).rounded()
+        let rect = CGRect(x: ((CGFloat(cg.width) - w) / 2).rounded(), y: 0,
+                          width: w, height: CGFloat(cg.height))
+        return cg.cropping(to: rect) ?? cg
+    }
+
+    /// A clipping mask: opaque down the middle, transparent at the top and bottom edges.
+    private static func ramp(height: CGFloat, fade: CGFloat) -> CGImage? {
+        let h = max(Int(height.rounded()), 3)
+        let space = CGColorSpaceCreateDeviceGray()
+        guard fade >= 1,
+              let ctx = CGContext(data: nil, width: 1, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: 1, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.none.rawValue),
+              let gradient = CGGradient(colorsSpace: space,
+                                        colors: [CGColor(gray: 0, alpha: 1),
+                                                 CGColor(gray: 1, alpha: 1)] as CFArray,
+                                        locations: [0, 1])
+        else { return nil }
+        ctx.setFillColor(gray: 1, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: 1, height: CGFloat(h)))
+        ctx.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: fade), options: [])
+        ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: CGFloat(h)),
+                               end: CGPoint(x: 0, y: CGFloat(h) - fade), options: [])
+        return ctx.makeImage()
+    }
+
+    /// A band blurred until it has no detail left to stretch into stripes - only its colour.
+    ///
+    /// Clamped before blurring: without it the blur samples transparent black past the band's own
+    /// edges and the result fades out at the sides, which puts dark corners on the finished frame.
+    private static func softened(_ cg: CGImage) -> UIImage {
+        let input = CIImage(cgImage: cg)
+        guard let blur = CIFilter(name: "CIGaussianBlur",
+                                  parameters: [kCIInputImageKey: input.clampedToExtent(),
+                                               kCIInputRadiusKey: CGFloat(cg.width) * 0.02]),
+              let out = blur.outputImage,
+              let made = CIContext().createCGImage(out, from: input.extent)
+        else { return UIImage(cgImage: cg) }
+        return UIImage(cgImage: made)
     }
 
     /// The same picture, no larger than `longEdge` on its longer side.

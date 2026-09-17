@@ -647,6 +647,12 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     }
 
     private var backdropNode: SCNNode?
+    /// The backdrop's geometry, kept so `fitBackdrop` can resize it without rebuilding.
+    private var backdropPlane: SCNPlane?
+    /// The viewport shape the backdrop picture was cut for. 0 when there is no backdrop.
+    private var backdropAspect: Float = 0
+    /// True while a re-cut is queued on the main actor, so the render thread asks once.
+    private var backdropRefilling = false
     private var floorNode: SCNNode?
     private var contactShadow: SCNNode?
     private var footShadows: [SCNNode] = []
@@ -839,54 +845,101 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// Ground: Visible floor (with slight reflection) + a soft contact shadow always visible under feet to eliminate "floating" sensation.
     /// The picture behind the performer, when the stage is one.
     ///
-    /// A plane rather than a sky: see `StageSpec.backdrop`. It is placed behind the character along
-    /// the way the camera is looking and turned to face it, and it is made half again as wide as
-    /// the frame needs, because the shot swings fourteen degrees either side and an edge coming
-    /// into view would give the whole thing away as a flat card.
+    /// A plane rather than a sky: see `StageSpec.backdrop`.
+    ///
+    /// It hangs off the camera, at a fixed distance in front of it, and it is cut to exactly the
+    /// frustum at that distance. That is what guarantees it covers the frame, and covering the
+    /// frame is the whole job: the same photograph is *also* wrapped around the dome behind it, so
+    /// any sliver the plane fails to reach shows a blurred, stretched second copy of the picture
+    /// with a hard vertical seam where the plane's edge is.
+    ///
+    /// It used to be parked at a fixed point in the world, behind the character along whatever way
+    /// the camera happened to be looking at the moment the stage was applied, and sized from that
+    /// one reading with a flat 15% margin. Nothing about that survived the shot moving: the camera
+    /// swings fourteen degrees either side, its distance breathes, and `stepCameraMove` slides the
+    /// whole orbit sideways to follow a dancer who travels. All three walk the frame off the card -
+    /// which is what the dome showing top, bottom and both sides was.
+    ///
+    /// Hanging it off the camera fixed the moving, and left the *shape* of the frame still read
+    /// once and trusted forever - which is its own version of the same bug, because the camera's
+    /// projection is not fixed either. `setupFrontCamera` mounts the stage shot at a 55-degree
+    /// field of view and leaves `projectionDirection` at SceneKit's default, and `placeCamera` -
+    /// which `beginCameraFollow` and `frameCameraOnPose` both go through - resets it to 42 degrees
+    /// and to `.vertical`. Whichever of those ran last after the plane was cut, the plane was cut
+    /// for the other one, and a plane cut for 42 degrees inside a 55-degree frame leaves the dome
+    /// showing down both sides. So the size is no longer decided here: `fitBackdrop` re-derives it
+    /// from the live camera every frame, and this only builds the picture and the node.
     private func setupBackdrop() {
         backdropNode?.removeFromParentNode(); backdropNode = nil
-        guard groundEnabled, let make = stage.backdrop, let picture = make(),
-              let camera = cameraNode else { return }
+        backdropPlane = nil
+        guard groundEnabled, let make = stage.backdrop, let picture = make(), let cameraNode
+        else { backdropAspect = 0; return }
 
-        let h = max(modelHeight, 0.1)
-        let centre = simd_float3(stageCenter.x, feetY + h * 0.55, stageCenter.z)
-        let eye = camera.simdWorldPosition
-        let forward = simd_length(centre - eye) > 0.001
-            ? simd_normalize(centre - eye)
-            : simd_float3(0, 0, -1)
-        let behind = centre + forward * (h * 4)
-        let distance = simd_length(behind - eye)
-
-        // What the camera can see at that distance.
-        //
-        // The camera's `fieldOfView` is 42 degrees, but on a portrait viewport SceneKit applies it
-        // across the *width*, so the vertical angle is more than half as much again - which is why
-        // the first version of this left a band of dome above and below the picture with a visible
-        // seam at each edge. Derived rather than assumed, and the larger of the two readings is
-        // taken so neither convention can leave a gap.
         let aspect = max(viewportAspect, 0.3)
-        let vertical = max(42 * Float.pi / 180, 2 * atan(tan(21 * .pi / 180) / aspect))
-        let frameH = 2 * distance * tan(vertical / 2) * 1.15   // margin for the camera's slow arc
-        let frameW = frameH * aspect * 1.15
-
-        // The picture, widened to the shape of the frame by continuing its own top and bottom rows.
-        // Cropping it to fit instead would throw away most of a landscape photograph on a screen
-        // this tall, and leaving it short is what the seam was.
-        let filled = StageImage.filling(picture, aspect: CGFloat(frameW / frameH))
-
-        let plane = SCNPlane(width: CGFloat(frameW), height: CGFloat(frameH))
+        // The picture, widened to the shape of the frame by continuing its own edges. Cropping it
+        // to fit instead would throw away most of a landscape photograph on a screen this tall.
+        //
+        // The frame's shape is the viewport's shape and nothing else - the plane is always the
+        // frustum's full width and height, so `frameW / frameH` is `aspect` whatever the field of
+        // view is doing. That is why a field-of-view change costs a resize and not this, which
+        // decodes and blurs.
+        let plane = SCNPlane(width: 1, height: 1)
         let m = plane.firstMaterial!
-        m.diffuse.contents = filled
+        m.diffuse.contents = StageImage.filling(picture, aspect: CGFloat(aspect))
         m.lightingModel = .constant     // it is a photograph; lighting it twice is what makes a
         m.isDoubleSided = true          // backdrop look like a painted flat
         m.diffuse.mipFilter = .linear
 
         let node = SCNNode(geometry: plane)
-        node.simdPosition = behind
         node.castsShadow = false
-        node.constraints = [SCNBillboardConstraint()]
-        scene.rootNode.addChildNode(node)
+        cameraNode.addChildNode(node)
         backdropNode = node
+        backdropPlane = plane
+        backdropAspect = aspect
+        fitBackdrop()
+    }
+
+    /// Cut the backdrop to the frustum the camera has *this frame*, and park it in front of it.
+    ///
+    /// Called from the renderer delegate, so it has to stay cheap: two float compares in the usual
+    /// case, and otherwise two property writes on a plane that is already built. Re-cutting the
+    /// picture is not done here - see `setupBackdrop` for why it does not have to be.
+    func fitBackdrop() {
+        guard let node = backdropNode, let plane = backdropPlane,
+              let cameraNode, let camera = cameraNode.camera else { return }
+
+        let h = max(modelHeight, 0.1)
+        // Far enough back to sit well behind the performer (the shot is framed from about one and
+        // a half body heights) and near enough that the stage's own fog barely touches it.
+        let distance = min(h * 5.5, Float(camera.zFar) * 0.8)
+
+        // `fieldOfView` is one angle and `projectionDirection` says which one it is, so read both
+        // rather than guessing: assuming the wrong one is a plane sized for a frame the camera
+        // never had, and the default is not the one `placeCamera` leaves behind.
+        let aspect = max(viewportAspect, 0.3)
+        let fov = Float(camera.fieldOfView) * .pi / 180
+        let vertical = camera.projectionDirection == .horizontal
+            ? 2 * atan(tan(fov / 2) / aspect)
+            : fov
+        let frameH = 2 * distance * tan(vertical / 2) * 1.04   // a hair over, for the near/far edge
+        let frameW = frameH * aspect * 1.04
+
+        if abs(Float(plane.height) - frameH) > frameH * 0.001 {
+            plane.width = CGFloat(frameW)
+            plane.height = CGFloat(frameH)
+            node.simdPosition = simd_float3(0, 0, -distance)
+        }
+
+        // A real change of shape - a rotation, or the stage laid out at a size the default did not
+        // predict - is the one thing that does need the picture cut again. It decodes and blurs, so
+        // it goes back to the main actor rather than running here on the render thread.
+        if abs(aspect - backdropAspect) > 0.02 && !backdropRefilling {
+            backdropRefilling = true
+            Task { @MainActor [weak self] in
+                self?.setupBackdrop()
+                self?.backdropRefilling = false
+            }
+        }
     }
 
     private func setupGround(_ root: SCNNode) {
@@ -1649,6 +1702,10 @@ struct CharacterSceneView: UIViewRepresentable {
             }
             controller.updatePhysics()
             controller.stepCameraMove()
+            // After the camera move, and unconditionally: the backdrop is cut to the frustum, and
+            // the frustum changes with the shot. `stepCameraMove` returns early when the auto-orbit
+            // is off, which is exactly when a still camera would keep a stale plane forever.
+            controller.fitBackdrop()
 
             // Hair physics used to be stepped here, on a `VRMNode` mounted straight from a `.vrm`
             // file. Nothing mounts one any more - every character is a `.scn` built by

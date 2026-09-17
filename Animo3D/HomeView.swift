@@ -31,7 +31,6 @@ struct HomeView: View {
     @State private var launch: StudioLaunch?
     @State private var showVideo = false
 
-    private let tints: [Color] = [.blue, .pink, .purple, .orange, .teal, .indigo, .green, .red]
 
     /// One gutter for the whole page, matching the inset of the large navigation title.
     ///
@@ -57,7 +56,7 @@ struct HomeView: View {
                         launch = StudioLaunch(character: c.id)
                         Track.log(.characterSelected, ["character": c.id, "source": "home_grid"])
                     } label: {
-                        CharacterCard(name: c.name, characterKey: c.id, tint: tints[i % tints.count])
+                        CharacterCard(name: c.name, characterKey: c.id, style: i)
                     }
                     .buttonStyle(CardButtonStyle())
                 }
