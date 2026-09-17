@@ -99,7 +99,16 @@ final class StageLibrary: ObservableObject {
     private nonisolated static func build(id: String, name: String, icon: String,
                                           url: URL) async -> CharacterSceneController.StageSpec? {
         await Task.detached(priority: .userInitiated) {
-            guard let image = UIImage(contentsOfFile: url.path) else { return nil }
+            guard let decoded = UIImage(contentsOfFile: url.path) else { return nil }
+            // Orientation baked into the pixels before anything measures the picture.
+            //
+            // A photograph out of the camera roll carries an `imageOrientation`, and from here on
+            // it is handled two different ways: `UIImage.size` and `UIImage.draw` honour it, while
+            // `cgImage` and everything that reads pixels out of one do not. Mixing the two is a
+            // quarter-turn - the shot laid on its side, with the bands meant to continue its sky
+            // and ground standing down its left and right instead. Settling it once here is why
+            // `dome`, `SkyReader` and `filling` can all go straight to the pixels below.
+            let image = StageImage.upright(decoded)
             let aspect = image.size.width / max(image.size.height, 1)
             let isPanorama = abs(aspect - 2) < 0.08
             let sky = isPanorama ? image : (StageImage.dome(from: image) ?? image)
@@ -395,7 +404,10 @@ enum StageImage {
     /// stretched at full sharpness, which is not a continuation but a comb: every speck in that row
     /// became a hard vertical stripe the height of the frame. Blurred, the same band reads as haze
     /// carrying on past the edge of the shot, which is what it is standing in for.
-    static func filling(_ picture: UIImage, aspect: CGFloat) -> UIImage {
+    static func filling(_ original: UIImage, aspect: CGFloat) -> UIImage {
+        // Callers get their pictures from `StageLibrary.build`, which has already done this - but
+        // this measures in pixels and draws in points, and the two only agree on an upright image.
+        let picture = upright(original)
         guard let source = picture.cgImage else { return picture }
         let target = max(picture.size.height, picture.size.width / max(aspect, 0.05))
         guard target > picture.size.height + 1 else { return picture }
@@ -435,6 +447,21 @@ enum StageImage {
             }
             UIImage(cgImage: cg).draw(in: rect)
             ctx.cgContext.restoreGState()
+        }
+    }
+
+    /// The same picture with its orientation baked into the pixels, at scale 1.
+    ///
+    /// Cheap and a no-op for an image that is already upright, which every catalogue asset is -
+    /// this is for the photographs, where it is the difference between a backdrop and a backdrop
+    /// lying on its side.
+    static func upright(_ image: UIImage) -> UIImage {
+        guard image.imageOrientation != .up || image.scale != 1 else { return image }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
         }
     }
 

@@ -624,7 +624,16 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     func updateBackgroundAndGround() {
         // Only the full stage paints a background. Thumbnails and the live dance cards draw over a
         // SwiftUI backdrop, so a scene background here covers that card with a flat slab of colour.
-        scene.background.contents = groundEnabled ? stage.sky() : nil
+        //
+        // A stage with a `backdrop` gets a flat colour rather than its dome. The dome would be the
+        // same photograph stretched around the sky, sitting directly behind the plane that shows it
+        // properly - so any sliver the plane does not reach is a second, blurred copy of the shot
+        // with a hard edge between them, which is exactly the fault this kept coming back as. The
+        // horizon colour is what the picture fades to at its own edges, so what shows there now is
+        // the wall of the room instead of a ghost of the photograph.
+        scene.background.contents = groundEnabled
+            ? (stage.backdrop != nil ? stage.horizon : stage.sky())
+            : nil
 
         // Fog: the ground fades into the sky in the distance, which is what fuses the two and
         // gives the scene its depth (large performance view only).
@@ -641,6 +650,8 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             setupGround(root)
         }
         setupBackdrop()
+        // A stage made of a photograph and one made of a sky are driven by different cameras.
+        syncCameraControl()
         // Last, so the levels match the stage setupGround just built or tore down.
         applyLightLevels()
         applyCameraGrade()
@@ -713,6 +724,55 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// How far either side of the original framing the camera swings, in radians (about 14 deg).
     private let orbitSwing: Float = 0.25
 
+    /// The view the stage is drawn into, and the drag that turns the shot when we own the camera.
+    weak var hostView: SCNView?
+    weak var cameraPan: UIPanGestureRecognizer?
+
+    /// How far the user has turned the shot from the framing it opened at, and how far they have
+    /// raised or lowered it. Bounded for the same reason `orbitSwing` is fourteen degrees: past a
+    /// point the camera is behind the performer, looking out through the scenery.
+    private var userAzimuth: Float = 0
+    private var userPitch: Float = 0
+    private static let azimuthLimit: Float = 0.70          // about 40 degrees either side
+    private static let pitchLimit: ClosedRange<Float> = -0.10 ... 0.30
+
+    /// True when the stage is a photograph standing on a plane rather than a sky on a dome.
+    var usesFlatBackdrop: Bool { stage.backdrop != nil }
+
+    /// Turn the shot. Translation in points, from the stage's own pan gesture.
+    func dragCamera(byX dx: Float, y dy: Float) {
+        let k: Float = 0.0045                              // a screen's width is about the limit
+        userAzimuth = min(max(userAzimuth - dx * k, -Self.azimuthLimit), Self.azimuthLimit)
+        userPitch = min(max(userPitch + dy * k, Self.pitchLimit.lowerBound), Self.pitchLimit.upperBound)
+    }
+
+    func resetCameraDrag() { userAzimuth = 0; userPitch = 0 }
+
+    /// Who drives the camera, which depends on what the stage is made of.
+    ///
+    /// A sky is a sphere. The camera can be spun anywhere inside it and there is always sky in
+    /// shot, so those stages keep SceneKit's own free orbit - which is what they have always had.
+    ///
+    /// A photograph is a flat plane, and nothing flat survives being looked at from the side. Worse
+    /// than the geometry: `allowsCameraControl` swaps `pointOfView` for an internal camera of its
+    /// own (`kSCNFreeViewCameraName`) the first time a finger touches the screen, and never gives
+    /// it back. From then on the plane is parented to a camera nobody is looking through and
+    /// `stepCameraMove` is steering one too - which is the tilted wedge of photograph with the
+    /// performer lying on their side behind it. So a photograph stage takes the camera back and
+    /// pans it itself, within bounds it cannot be dragged out of.
+    func syncCameraControl() {
+        guard let view = hostView else { return }
+        let flat = usesFlatBackdrop
+        view.allowsCameraControl = !flat
+        cameraPan?.isEnabled = flat
+        guard flat, let cam = cameraNode else { return }
+        if view.pointOfView !== cam {
+            // Coming back from the free camera, wherever the last drag left it.
+            view.pointOfView = cam
+            resetCameraDrag()
+        }
+    }
+
     func startAutoOrbit() { isAutoOrbiting = true }
     func stopAutoOrbit() { isAutoOrbiting = false }
     func resetCameraMove() { orbitBaseAzimuth = nil; orbitClock = 0 }
@@ -733,7 +793,8 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         guard let base = orbitBaseAzimuth else { return }
 
         orbitClock += 1.0 / 30.0                     // the display link runs at 30
-        let azimuth = base + sin(orbitClock * 0.20) * orbitSwing
+        // The slow swing is still the shot; the drag only moves the point it swings around.
+        let azimuth = base + userAzimuth + sin(orbitClock * 0.20) * orbitSwing
 
         // Where the performance actually is this frame.
         //
@@ -773,7 +834,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         cam.simdPosition.z = look.z + cos(azimuth) * radius
         // Keep the same height above the subject the composed shot had, so following a jump does
         // not flatten the camera into a level stare.
-        cam.simdPosition.y = look.y + modelHeight * 0.57
+        cam.simdPosition.y = look.y + modelHeight * (0.57 + userPitch)
         cam.look(at: SCNVector3(look))
         SCNTransaction.commit()
     }
@@ -924,7 +985,12 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         let frameH = 2 * distance * tan(vertical / 2) * 1.04   // a hair over, for the near/far edge
         let frameW = frameH * aspect * 1.04
 
-        if abs(Float(plane.height) - frameH) > frameH * 0.001 {
+        // Both dimensions, not just the height: on a `.vertical` camera the height is a function of
+        // the field of view and the distance alone, so a change of viewport shape moves the width
+        // and leaves the height exactly where it was. Testing the height only meant that change was
+        // never noticed, and a plane too narrow for the frame is a seam down one side.
+        if abs(Float(plane.height) - frameH) > frameH * 0.001
+            || abs(Float(plane.width) - frameW) > frameW * 0.001 {
             plane.width = CGFloat(frameW)
             plane.height = CGFloat(frameH)
             node.simdPosition = simd_float3(0, 0, -distance)
@@ -1743,6 +1809,16 @@ struct CharacterSceneView: UIViewRepresentable {
             controller.userRotationY -= Float(g.rotation)
             g.rotation = 0
         }
+
+        /// One finger turns the shot, on the stages where the camera is ours to turn. Enabled and
+        /// disabled by `syncCameraControl`; the other two gestures are two-fingered and move the
+        /// model rather than the camera, so nothing here competes with them.
+        @objc func handlePan(_ g: UIPanGestureRecognizer) {
+            guard g.state == .changed else { return }
+            let t = g.translation(in: g.view)
+            controller.dragCamera(byX: Float(t.x), y: Float(t.y))
+            g.setTranslation(.zero, in: g.view)
+        }
     }
 
     func makeUIView(context: Context) -> SCNView {
@@ -1752,15 +1828,21 @@ struct CharacterSceneView: UIViewRepresentable {
         let view = SCNView()
         view.scene = controller.scene
         view.antialiasingMode = DeviceTier.antialiasing   // Lower anti-aliasing on low-end to reduce lag
-        view.allowsCameraControl = true
 
         // Add gestures for manual model adjustment (Scale & Rotate)
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
         view.addGestureRecognizer(pinch)
         let rotate = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRotate(_:)))
         view.addGestureRecognizer(rotate)
+        // Ours, for the stages SceneKit is not allowed to drive - see `syncCameraControl`.
+        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
+        pan.maximumNumberOfTouches = 1
+        view.addGestureRecognizer(pan)
+        controller.hostView = view
+        controller.cameraPan = pan
 
-        // Controlled turntable: Horizontal orbit around character + restricted pitch angle, avoiding ground halos in face at eye-level
+        // Controlled turntable, for the sky stages that keep SceneKit's own orbit: horizontal
+        // around the character with the pitch held back, so the ground halo stays out of the face.
         let cc = view.defaultCameraController
         cc.interactionMode = .orbitTurntable
         cc.inertiaEnabled = true
@@ -1784,12 +1866,16 @@ struct CharacterSceneView: UIViewRepresentable {
         // has said 30 since it was written; it had simply never been applied to a view.
         view.preferredFramesPerSecond = DeviceTier.playbackFPS
         if let cam = controller.cameraNode { view.pointOfView = cam }
+        controller.syncCameraControl()
         holder?.scnView = view
         return view
     }
 
     func updateUIView(_ uiView: SCNView, context: Context) {
-        if let cam = controller.cameraNode { uiView.pointOfView = cam }
+        controller.hostView = uiView
+        // Not an unconditional `pointOfView` write any more: on a sky stage that would snatch the
+        // camera back from SceneKit's free orbit mid-drag, and those stages are meant to keep it.
+        controller.syncCameraControl()
     }
 
     /// "Stage" background image with vertical gradient + bottom spotlight. Fixed content -> generated once and reused
