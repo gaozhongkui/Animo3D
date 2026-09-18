@@ -50,15 +50,22 @@ struct HomeView: View {
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 16),
                                 GridItem(.flexible(), spacing: 16)], spacing: 20) {
-                ForEach(Array(remoteAssets.characters.prefix(4).enumerated()), id: \.element.id) { i, c in
-                    Button {
-                        HapticManager.light()
-                        launch = StudioLaunch(character: c.id)
-                        Track.log(.characterSelected, ["character": c.id, "source": "home_grid"])
-                    } label: {
-                        CharacterCard(name: c.name, characterKey: c.id, style: i)
+                if remoteAssets.characters.isEmpty {
+                    // 数据未就绪时展现高级骨架流光屏
+                    ForEach(0..<4, id: \.self) { i in
+                        skeletonCard(aspectRatio: 3.0 / 4.0)
                     }
-                    .buttonStyle(CardButtonStyle())
+                } else {
+                    ForEach(Array(remoteAssets.characters.prefix(4).enumerated()), id: \.element.id) { i, c in
+                        Button {
+                            HapticManager.light()
+                            launch = StudioLaunch(character: c.id)
+                            Track.log(.characterSelected, ["character": c.id, "source": "home_grid"])
+                        } label: {
+                            CharacterCard(name: c.name, characterKey: c.id, style: i)
+                        }
+                        .buttonStyle(CardButtonStyle())
+                    }
                 }
             }
             .padding(.horizontal, gutter)
@@ -72,21 +79,28 @@ struct HomeView: View {
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 14) {
-                    ForEach(Array(remoteAssets.dances.prefix(8).enumerated()), id: \.element.id) { i, d in
-                        Button {
-                            launch = StudioLaunch(dance: d.id)
-                            Track.log(.danceSelected, ["dance": d.id, "source": "home_carousel"])
-                        } label: {
-                            posterCard(title: d.name) {
-                                if i == 0 {
-                                    CardBackdrop(style: 0)
-                                        .overlay(LiveDanceView(character: showcaseCharacter, dance: d.id,
-                                                               accent: CardBackdrop.accent(for: 0)))
-                                } else {
-                                    DanceCardView(character: showcaseCharacter, dance: d.id, style: i)
+                    if remoteAssets.dances.isEmpty {
+                        // 推荐栏骨架屏横滑插值
+                        ForEach(0..<5, id: \.self) { _ in
+                            skeletonCard(width: 140, height: 186)
+                        }
+                    } else {
+                        ForEach(Array(remoteAssets.dances.prefix(8).enumerated()), id: \.element.id) { i, d in
+                            Button {
+                                launch = StudioLaunch(dance: d.id)
+                                Track.log(.danceSelected, ["dance": d.id, "source": "home_carousel"])
+                            } label: {
+                                posterCard(title: d.name) {
+                                    if i == 0 {
+                                        CardBackdrop(style: 0)
+                                            .overlay(LiveDanceView(character: showcaseCharacter, dance: d.id,
+                                                                   accent: CardBackdrop.accent(for: 0)))
+                                    } else {
+                                        DanceCardView(character: showcaseCharacter, dance: d.id, style: i)
+                                    }
                                 }
-                            }
-                        }.buttonStyle(CardButtonStyle())
+                            }.buttonStyle(CardButtonStyle())
+                        }
                     }
                 }
                 .padding(.horizontal, gutter)
@@ -159,10 +173,8 @@ struct HomeView: View {
             .fullScreenCover(isPresented: $showVideo) {
                 studioCover(VideoDriveView())
             }
-            // index.json is the only source for both carousels, so until it lands there is nothing
-            // to show. On a normal launch the splash holds until it arrives, so this is really the
-            // failure state - the one that needs a retry the user can press.
-            .overlay { if remoteAssets.characters.isEmpty { catalogWait } }
+            // 骨架屏秒开优化：正常网络流加载时绝不采用大黑块弹窗强行中断创作者体验，唯有在网络死锁完全不可用(.unavailable)时才启动阻断异常提示层
+            .overlay { if remoteAssets.state == .unavailable && remoteAssets.characters.isEmpty { catalogWait } }
         }
     }
 
@@ -423,6 +435,40 @@ struct HomeView: View {
             }
         }
         .padding(.horizontal, gutter)
+    }
+
+    /// 高级毛玻璃流光数字骨架屏组件 (Glassmorphism Shimmer Skeleton)
+    @ViewBuilder
+    private func skeletonCard(width: CGFloat? = nil, height: CGFloat? = nil, aspectRatio: CGFloat? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Group {
+                if let ratio = aspectRatio {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color(.secondarySystemBackground))
+                        .aspectRatio(ratio, contentMode: .fill)
+                } else {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color(.secondarySystemBackground))
+                        .frame(width: width, height: height)
+                }
+            }
+            .overlay {
+                LinearGradient(colors: [Color.white.opacity(0), Color.white.opacity(0.08), Color.white.opacity(0)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .rotationEffect(.degrees(30))
+            }
+            .overlay {
+                // 呼吸灯光感反馈，平滑削减冷启动尴尬
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.white.opacity(0.04), lineWidth: 0.5)
+            }
+
+            // 骨架屏伪文字线
+            Capsule()
+                .fill(Color(.label).opacity(0.04))
+                .frame(width: width != nil ? width! * 0.7 : 90, height: 14)
+                .padding(.leading, 4)
+        }
     }
 
     /// Fullscreen studio container (includes close button)
