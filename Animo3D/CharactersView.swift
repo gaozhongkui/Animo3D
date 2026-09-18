@@ -18,18 +18,29 @@ struct CharactersView: View {
 
     private var seg: AppRouter.CharactersSegment { router.charactersSegment }
 
+    // 专属流体悬浮舱蓝紫渐变
+    private var communityGradient: LinearGradient {
+        LinearGradient(colors: [Color(rgb: 0x6366F1), Color(rgb: 0xA855F7)],
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Custom refined segmented control
+            // Refined Segmented Fluid Capsule (流体悬浮舱分段选择器)
             HStack(spacing: 0) {
                 pickerItem(title: "My Characters", segment: .mine)
                 pickerItem(title: "Community", segment: .community)
             }
             .padding(4)
-            .background(Color(.secondarySystemFill), in: Capsule())
+            .background(Color.white.opacity(0.04)) // 精致毛玻璃底色
+            .clipShape(Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(Color.white.opacity(0.06), lineWidth: 1) // 极细呼吸光边框
+            }
             .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 20)
 
             ZStack {
                 if seg == .mine {
@@ -44,7 +55,8 @@ struct CharactersView: View {
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: seg)
         }
-        .background(Color(.systemBackground).ignoresSafeArea())
+        // 升级全量暗黑宇宙深邃星空舞台背景
+        .background(Color(rgb: 0x0B0A12).ignoresSafeArea())
         .trackScreen("Characters")
     }
 
@@ -52,23 +64,23 @@ struct CharactersView: View {
         let isOn = seg == segment
         return Text(title)
             .font(.system(size: 14, weight: isOn ? .bold : .medium))
-            .foregroundStyle(isOn ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            // 选中的一瞬间文字进行高光反白
+            .foregroundStyle(isOn ? Color.white : Color.white.opacity(0.55))
             .frame(maxWidth: .infinity)
-            .frame(height: 36)
+            .frame(height: 38)
             .background {
                 if isOn {
-                    // The knob has to be the page background, not literal white: white behind
-                    // `.primary` text is white-on-white once the phone is in dark mode.
+                    // 滑块升级为极具科技流体张力的霓虹渐变悬浮舱
                     Capsule()
-                        .fill(Color(.systemBackground))
-                        .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
+                        .fill(communityGradient)
+                        .shadow(color: Color(rgb: 0x6366F1).opacity(0.35), radius: 8, x: 0, y: 3)
                         .matchedGeometryEffect(id: "picker", in: animation)
                 }
             }
             .contentShape(Capsule())
             .onTapGesture {
                 HapticManager.selection()
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
                     router.charactersSegment = segment
                 }
             }
