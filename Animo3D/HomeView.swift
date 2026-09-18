@@ -30,6 +30,8 @@ struct HomeView: View {
     @ObservedObject private var remoteAssets = RemoteAssets.shared
     @State private var launch: StudioLaunch?
     @State private var showVideo = false
+    // 异步 3D 延迟加载状态，用于彻底粉碎冷启动主线程卡顿
+    @State private var is3DViewRendered = false
 
 
     /// One gutter for the whole page, matching the inset of the large navigation title.
@@ -91,7 +93,7 @@ struct HomeView: View {
                                 Track.log(.danceSelected, ["dance": d.id, "source": "home_carousel"])
                             } label: {
                                 posterCard(title: d.name) {
-                                    if i == 0 {
+                                    if i == 0 && is3DViewRendered {
                                         CardBackdrop(style: 0)
                                             .overlay(LiveDanceView(character: showcaseCharacter, dance: d.id,
                                                                    accent: CardBackdrop.accent(for: 0)))
@@ -175,6 +177,15 @@ struct HomeView: View {
             }
             // 骨架屏秒开优化：正常网络流加载时绝不采用大黑块弹窗强行中断创作者体验，唯有在网络死锁完全不可用(.unavailable)时才启动阻断异常提示层
             .overlay { if remoteAssets.state == .unavailable && remoteAssets.characters.isEmpty { catalogWait } }
+            .onAppear {
+                // 延迟一小段安全转场时间（0.35秒），确保闪屏页面淡出与路由切换动画完全平滑渲染完毕后，再激活 3D 引擎。
+                // 这样能将闪屏到主页的 CPU 瞬间吞吐卡顿彻底降为 0，带来丝滑顺畅的德芙般转场。
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    withAnimation(.easeIn(duration: 0.35)) {
+                        is3DViewRendered = true
+                    }
+                }
+            }
         }
     }
 
@@ -230,7 +241,7 @@ struct HomeView: View {
     private var heroCard: some View {
         ZStack(alignment: .trailing) {
             // Right Side: 3D Stage Window Window Showcase (免下载，免配置的冷启动实时 3D 舞台渲染)
-            if !remoteAssets.dances.isEmpty {
+            if !remoteAssets.dances.isEmpty && is3DViewRendered {
                 CardBackdrop(style: 1)
                     .frame(width: 160, height: 200)
                     .overlay {
@@ -246,6 +257,8 @@ struct HomeView: View {
                     )
                     .opacity(0.85)
                     .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
             }
 
             // Left Side: Content copy & call to actions
