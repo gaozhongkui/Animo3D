@@ -122,26 +122,25 @@ struct HomeView: View {
                     // More ways to play
                     VStack(alignment: .leading, spacing: 14) {
                         sectionHeader("More Ways to Play")
-                        VStack(spacing: 12) {
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 14),
+                                            GridItem(.flexible(), spacing: 14)], spacing: 14) {
                             Button {
                                 showVideo = true
                                 Track.log(.videoDriveStarted)
                             } label: {
-                                actionCard(icon: "video.fill",
-                                           title: "Video Drive Motion",
-                                           subtitle: "Upload video to mimic motions in real-time",
-                                           iconFill: Color.blue)
+                                gridActionCard(icon: "video.fill",
+                                               title: "Video Drive",
+                                               subtitle: "Upload video to mimic motions in real-time",
+                                               iconFill: Color.blue)
                             }.buttonStyle(CardButtonStyle())
 
-                            // The doorway to the Sketchfab library, in the same list as the other
-                            // secondary entry points rather than as a gradient slab mid-page.
                             Button {
                                 AppRouter.shared.openCharacters(.community)
                             } label: {
-                                actionCard(icon: "globe.americas.fill",
-                                           title: "Browse the Community",
-                                           subtitle: "Thousands of shared 3D models, ready to view in AR",
-                                           iconFill: communityGradient)
+                                gridActionCard(icon: "globe.americas.fill",
+                                               title: "Community",
+                                               subtitle: "Thousands of shared 3D models ready for AR",
+                                               iconFill: communityGradient)
                             }.buttonStyle(CardButtonStyle())
                         }
                         .padding(.horizontal, gutter)
@@ -217,60 +216,125 @@ struct HomeView: View {
     // MARK: - Elegant Components
 
     private var heroCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Start New AR Show")
-                    .font(.system(size: 24, weight: .black, design: .rounded))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-
-                Text("Bring 3D characters into your world and direct your own immersive performance.")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.95))
-                    .fixedSize(horizontal: false, vertical: true)
+        ZStack(alignment: .trailing) {
+            // Right Side: 3D Stage Window Window Showcase (免下载，免配置的冷启动实时 3D 舞台渲染)
+            if !remoteAssets.dances.isEmpty {
+                CardBackdrop(style: 1)
+                    .frame(width: 160, height: 200)
+                    .overlay {
+                        LiveDanceView(character: showcaseCharacter,
+                                      dance: remoteAssets.dances.first?.id ?? "",
+                                      accent: CardBackdrop.accent(for: 1))
+                            .scaleEffect(1.15)
+                            .offset(y: 10)
+                    }
+                    .mask(
+                        LinearGradient(colors: [.black, .black, .black, .clear],
+                                       startPoint: .trailing, endPoint: .leading)
+                    )
+                    .opacity(0.85)
+                    .allowsHitTesting(false)
             }
-            // Clear of the glyph, and nothing else. The copy used to be capped at a flat 260pt so
-            // it would not collide with an icon sitting next to it in an HStack - which truncated
-            // the subtitle mid-word ("...direct your own imm...") on every phone made.
-            .padding(.trailing, 56)
 
-            HStack(spacing: 8) {
-                Text("Start Now")
-                    .font(.system(size: 14, weight: .bold))
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 12, weight: .bold))
+            // Left Side: Content copy & call to actions
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Start New AR Show")
+                        .font(.system(size: 24, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    Text("Bring 3D characters into your world and direct your own immersive performance.")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.trailing, 130) // Prevent text colliding with the 3D dancer window
+
+                HStack(spacing: 8) {
+                    Text("Start Now")
+                        .font(.system(size: 14, weight: .bold))
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 12, weight: .bold))
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .background(.white)
+                .foregroundStyle(Color.accentColor)
+                .clipShape(Capsule())
+                .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            .background(.white)
-            .foregroundStyle(Color.accentColor)
-            .clipShape(Capsule())
-            .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(22)
         }
-        .padding(22)
-        .frame(maxWidth: .infinity, minHeight: 168, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 200, alignment: .leading)
         .background(heroBackdrop)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    /// Decoration only: both the glow and the glyph are behind the copy, anchored to the card's own
-    /// corners, so neither steals width from the text on a narrow phone.
+    /// Decoration only: multi-layered digital futuristic fluid glows and mesh gradient shapes.
     private var heroBackdrop: some View {
-        LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.8)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing)
-            .overlay(alignment: .topTrailing) {
-                Circle()
-                    .fill(.white.opacity(0.15))
-                    .frame(width: 160, height: 160)
-                    .offset(x: 48, y: -56)
+        ZStack {
+            LinearGradient(colors: [Color.accentColor, Color(rgb: 0x4F46E5)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+
+            Circle()
+                .fill(Color(rgb: 0xEC4899).opacity(0.4))
+                .frame(width: 200, height: 200)
+                .blur(radius: 40)
+                .offset(x: 120, y: -40)
+
+            Circle()
+                .fill(Color(rgb: 0x06B6D4).opacity(0.3))
+                .frame(width: 150, height: 150)
+                .blur(radius: 30)
+                .offset(x: -80, y: 60)
+
+            Circle()
+                .stroke(.white.opacity(0.12), lineWidth: 1)
+                .frame(width: 240, height: 240)
+                .offset(x: 80, y: -60)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            Image(systemName: "arkit")
+                .font(.system(size: 64, weight: .ultraLight))
+                .foregroundStyle(.white.opacity(0.16))
+                .padding([.trailing, .bottom], 16)
+        }
+    }
+
+    private func gridActionCard<Fill: ShapeStyle>(icon: String, title: LocalizedStringKey, subtitle: LocalizedStringKey, iconFill: Fill) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundStyle(.white)
+                    .frame(width: 42, height: 42)
+                    .background(iconFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                Spacer()
+                Image(systemName: "arrow.up.forward.circle.fill")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.tertiary)
             }
-            .overlay(alignment: .bottomTrailing) {
-                Image(systemName: "arkit")
-                    .font(.system(size: 58))
-                    .foregroundStyle(.white.opacity(0.16))
-                    .padding([.trailing, .bottom], 18)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: .black.opacity(0.02), radius: 5, x: 0, y: 2)
     }
 
     /// A dance tile. 3:4 like the character cards, so the two carousels share a rhythm.
