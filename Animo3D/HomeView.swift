@@ -259,7 +259,6 @@ struct HomeView: View {
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
-            }
 
             // Left Side: Content copy & call to actions
             VStack(alignment: .leading, spacing: 16) {
