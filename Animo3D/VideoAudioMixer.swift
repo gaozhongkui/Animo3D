@@ -55,8 +55,7 @@ enum VideoAudioMixer {
             export.outputURL = out
             export.outputFileType = .mp4
 
-            // 使用标准 Swift 现代并发方案，配合一个带锁或串行标志的原子隔离闭包隔离处理，彻底杜绝底层多线程并发状态导致的 Continuation 多次 Resume Crash 隐患。
-            let out = out // 保持变量可见
+            // 使用标准 Swift 现代并发方案，配合一个带锁的原子隔离闭包隔离处理，彻底杜绝底层多线程并发状态导致的 Continuation 多次 Resume Crash 隐患。
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                 let lock = NSLock()
                 var resumed = false
