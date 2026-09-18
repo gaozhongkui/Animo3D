@@ -290,8 +290,31 @@ final class VRMAnimationPlayer {
 
     @objc private func tick(_ link: CADisplayLink) {
         if startTime == 0 { startTime = link.timestamp }
-        let elapsed = Float(link.timestamp - startTime)
-        apply(at: clip.duration > 0 ? elapsed.truncatingRemainder(dividingBy: clip.duration) : 0)
+
+        // 核心优化：引入优雅减速因子 (0.88x)
+        // 1.0x 原生速度在小屏幕橱窗里往往显得过于锐利急促，0.88x 能增加动作的重量感与优雅感。
+        let speedFactor: Float = 0.88
+        let elapsed = Float(link.timestamp - startTime) * speedFactor
+
+        // 优化方案：引入循环呼吸停顿机制
+        // 每一个循环周期 = 舞蹈时长 + 1.2秒的静止休息时长
+        let restDuration: Float = 1.2
+        let totalCycle = clip.duration + restDuration
+
+        if clip.duration > 0 {
+            let currentTimeInCycle = elapsed.truncatingRemainder(dividingBy: totalCycle)
+
+            if currentTimeInCycle <= clip.duration {
+                // 1. 正常舞蹈时间轴
+                apply(at: currentTimeInCycle)
+            } else {
+                // 2. 呼吸休息时间轴：保持在最后一帧，给予用户视觉喘息
+                apply(at: clip.duration)
+            }
+        } else {
+            apply(at: 0)
+        }
+
         onFrame?(link.timestamp)
     }
 

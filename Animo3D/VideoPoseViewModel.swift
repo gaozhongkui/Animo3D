@@ -38,6 +38,8 @@ final class VideoPoseViewModel: ObservableObject {
     // so playback time cannot be used as the timestamp directly - after one loop it would never grow again and detection would stall completely.
     // Instead a separate monotonic counter is used, incremented by 33ms (~30fps) per processed frame, so it always increases.
     private var monotonicMs: Int = 0
+    /// 核心处理锁：确保重型 AI 推理不会在后台堆积，保护主线程绝对流畅
+    private var isProcessing = false
 
     /// True once the pose model is loaded and frames can actually be analysed.
     @Published private(set) var isModelReady = false
@@ -111,34 +113,47 @@ final class VideoPoseViewModel: ObservableObject {
     }
 
     @objc private func onFrame() {
-        guard let output = videoOutput, let service else { return }
+        guard !isProcessing, let output = videoOutput, let service else { return }
         let time = player.currentTime()
         guard output.hasNewPixelBuffer(forItemTime: time) else { return }
         guard let pixelBuffer = output.copyPixelBuffer(forItemTime: time,
                                                        itemTimeForDisplay: nil) else { return }
 
-        // Monotonically increasing timestamp: hasNewPixelBuffer already guarantees a new frame, so all that is needed here is a timestamp that keeps growing,
-        // which keeps increasing across video loops (otherwise MediaPipe rejects it after the rewind to 0 and the drive stalls).
+        // 激活处理锁
+        isProcessing = true
         monotonicMs += 33
+        let ts = monotonicMs
+        let orient = orientation
 
-        guard let result = service.detect(pixelBuffer: pixelBuffer,
-                                          orientation: orientation,
-                                          timestampMs: monotonicMs) else { return }
+        // 🚀 性能大招：将重型神经网络推理（BlazePose Heavy）彻底从主线程剥离！
+        // 这能瞬间释放主线程 CPU 负载，让视频播放、录制按钮和 UI 交互恢复到 120fps 的极致丝滑。
+        Task.detached(priority: .userInitiated) { [weak self, service] in
+            let result = service.detect(pixelBuffer: pixelBuffer,
+                                        orientation: orient,
+                                        timestampMs: ts)
 
-        if let first = result.normalized.first {
-            landmarks = first.map {
-                NormalizedLandmarkLite(x: CGFloat($0.x),
-                                       y: CGFloat($0.y),
-                                       visibility: $0.visibility?.floatValue ?? 1)
+            await MainActor.run {
+                guard let self = self else { return }
+                self.isProcessing = false
+
+                guard let result = result else { return }
+
+                if let first = result.normalized.first {
+                    self.landmarks = first.map {
+                        NormalizedLandmarkLite(x: CGFloat($0.x),
+                                               y: CGFloat($0.y),
+                                               visibility: $0.visibility?.floatValue ?? 1)
+                    }
+                } else {
+                    self.landmarks = []
+                }
+
+                // 3D world coordinates -> 驱动 3D 模型
+                if let firstWorld = result.world.first {
+                    let pts = firstWorld.map { simd_float3(Float($0.x), Float($0.y), Float($0.z)) }
+                    self.onWorld?(pts)
+                }
             }
-        } else {
-            landmarks = []
-        }
-
-        // 3D world coordinates -> drive the model
-        if let firstWorld = result.world.first {
-            let pts = firstWorld.map { simd_float3(Float($0.x), Float($0.y), Float($0.z)) }
-            onWorld?(pts)
         }
     }
 

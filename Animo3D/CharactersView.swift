@@ -26,18 +26,13 @@ struct CharactersView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Refined Segmented Fluid Capsule (流体悬浮舱分段选择器)
+            // Refined Segmented Control
             HStack(spacing: 0) {
                 pickerItem(title: "My Characters", segment: .mine)
                 pickerItem(title: "Community", segment: .community)
             }
             .padding(4)
-            .background(Color.white.opacity(0.04)) // 精致毛玻璃底色
-            .clipShape(Capsule())
-            .overlay {
-                Capsule()
-                    .stroke(Color.white.opacity(0.06), lineWidth: 1) // 极细呼吸光边框
-            }
+            .background(Color(.secondarySystemFill), in: Capsule()) // 恢复系统级填充色
             .padding(.horizontal, 20)
             .padding(.top, 16)
             .padding(.bottom, 20)
@@ -55,8 +50,8 @@ struct CharactersView: View {
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: seg)
         }
-        // 升级全量暗黑宇宙深邃星空舞台背景
-        .background(Color(rgb: 0x0B0A12).ignoresSafeArea())
+        // 还原回系统默认背景色（自适应亮色/暗色模式）
+        .background(Color(.systemBackground).ignoresSafeArea())
         .trackScreen("Characters")
     }
 
@@ -64,16 +59,15 @@ struct CharactersView: View {
         let isOn = seg == segment
         return Text(title)
             .font(.system(size: 14, weight: isOn ? .bold : .medium))
-            // 选中的一瞬间文字进行高光反白
-            .foregroundStyle(isOn ? Color.white : Color.white.opacity(0.55))
+            .foregroundStyle(isOn ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)) // 恢复自适应文字色
             .frame(maxWidth: .infinity)
             .frame(height: 38)
             .background {
                 if isOn {
-                    // 滑块升级为极具科技流体张力的霓虹渐变悬浮舱
+                    // 滑块保留高级感，但使用更轻量的阴影
                     Capsule()
-                        .fill(communityGradient)
-                        .shadow(color: Color(rgb: 0x6366F1).opacity(0.35), radius: 8, x: 0, y: 3)
+                        .fill(Color(.systemBackground))
+                        .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
                         .matchedGeometryEffect(id: "picker", in: animation)
                 }
             }
@@ -112,11 +106,10 @@ struct MyCharactersView: View {
                 HStack {
                     Text("3D Virtual Dancers")
                         .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary) // 恢复系统默认首选色，确保亮/暗模式清晰可见
                     Spacer()
-                    // This is the armory, which is where bringing your own model belongs. It used
-                    // to be the first tile of the studio's character grid - a dashed placeholder
-                    // ahead of every real dancer, on the one screen whose job is picking a dancer
-                    // fast, and with nowhere to manage what had been imported.
+
+                    // 导入按钮微调：保留彩色渐变，但针对系统背景优化呼吸感
                     Button {
                         HapticManager.light()
                         showImporter = true
@@ -126,8 +119,13 @@ struct MyCharactersView: View {
                         } else {
                             Image(systemName: "plus")
                                 .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(.white)
                                 .frame(width: 32, height: 32)
-                                .background(Color(.secondarySystemFill), in: Circle())
+                                .background(
+                                    LinearGradient(colors: [Color(rgb: 0x6366F1), Color(rgb: 0xA855F7)],
+                                                   startPoint: .topLeading, endPoint: .bottomTrailing),
+                                    in: Circle()
+                                )
                         }
                     }
                     .disabled(importing)
