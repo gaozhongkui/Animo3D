@@ -125,6 +125,14 @@ final class PoseRetargeter {
     private var spineChain: [SpineRest] = []
     private let spineGain: Float = 0.7               // Damping, so noise is not amplified and the spine does not overshoot
 
+    // Hand pose simulation
+    private struct HandBones {
+        let side: String
+        let fingers: [[SCNNode]] // [Thumb chain, Index chain, ...]
+    }
+    private var leftHand: HandBones?
+    private var rightHand: HandBones?
+
     init(controller: BoneRig) {
         self.controller = controller
     }
@@ -201,6 +209,9 @@ final class PoseRetargeter {
             }
         }
 
+        leftHand = captureHand(left: true)
+        rightHand = captureHand(left: false)
+
         captured = !rests.isEmpty
         if captured {
             setupIK()
@@ -228,6 +239,22 @@ final class PoseRetargeter {
         rik.influenceFactor = 0
         rFoot.constraints = (rFoot.constraints ?? []) + [rik]
         rightLegIK = rik
+    }
+
+    private func captureHand(left: Bool) -> HandBones? {
+        let side = left ? "left" : "right"
+        var chains: [[SCNNode]] = []
+        for finger in ["Thumb", "Index", "Middle", "Ring", "Little"] {
+            var chain: [SCNNode] = []
+            for j in 1...3 {
+                let vrmName = "\(side)\(finger)\(j == 1 ? (finger == "Thumb" ? "Metacarpal" : "Proximal") : (j == 2 ? (finger == "Thumb" ? "Proximal" : "Intermediate") : "Distal"))"
+                if let node = controller.boneNodes[MixamoBoneMap.humanoid[vrmName] ?? ""] {
+                    chain.append(node)
+                }
+            }
+            if !chain.isEmpty { chains.append(chain) }
+        }
+        return chains.isEmpty ? nil : HandBones(side: side, fingers: chains)
     }
 
     private var debugLogged = false
@@ -348,7 +375,36 @@ final class PoseRetargeter {
             r.node.simdOrientation = simd_slerp(r.node.simdOrientation, local, 0.5)
         }
 
+        driveFingers(left: true)
+        driveFingers(left: false)
+
         plantFeet()
+    }
+
+    private func driveFingers(left: Bool) {
+        guard let hand = left ? leftHand : rightHand else { return }
+
+        // Landmark speed heuristic: faster hand movement -> tighter curl
+        let wristIdx = left ? 15 : 16
+        let speed = filters.indices.contains(wristIdx) ? simd_length(filters[wristIdx].lastDeriv) : 0
+        let curlFactor = min(1.0, max(0.2, speed * 0.5)) // 0.2 (relaxed) to 1.0 (clenched)
+
+        let t = CACurrentMediaTime()
+        for (i, chain) in hand.fingers.enumerated() {
+            for (j, node) in chain.enumerated() {
+                // Heuristic: Thumb curls less, Index/Middle/Ring/Pinky curl progressively more
+                let fingerBaseCurl = Float(i) * 0.1
+                let jointCurl = Float(j + 1) * 0.4
+                let angle = (fingerBaseCurl + jointCurl) * curlFactor
+
+                // Add a tiny bit of "life" noise
+                let noise = sin(Float(t) * 2.0 + Float(i) * 0.5) * 0.05
+
+                // Curl around the local X axis (typical for Mixamo/Humanoid finger bones)
+                let targetLocal = simd_quatf(angle: angle + noise, axis: simd_float3(1, 0, 0))
+                node.simdOrientation = simd_slerp(node.simdOrientation, targetLocal, 0.1)
+            }
+        }
     }
 
     /// Pull the character back down until its lower foot is on the ground again.

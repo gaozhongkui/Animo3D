@@ -73,4 +73,7 @@ enum DeviceTier {
 
     /// People occlusion in AR: off on low-end. It is a full-frame depth segmentation pass.
     static var allowsPeopleOcclusion: Bool { !isLowEnd }
+
+    /// High-end cinematic effects (Depth of Field, Motion Blur): off on low-end.
+    static var allowsCinematicEffects: Bool { !isLowEnd }
 }

@@ -51,7 +51,7 @@ struct VideoDriveView: View {
             Color(.systemBackground).ignoresSafeArea()
 
             if step == .perform {
-                performStep
+                performStep				
             } else {
                 VStack(spacing: 0) {
                     stepHeader.padding(.top, 10)

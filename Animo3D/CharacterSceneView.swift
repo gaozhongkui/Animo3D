@@ -37,14 +37,11 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     private var lightsAdded = false
     private var facialSoul: FacialSoul?
 
-    /// Only hair swings. A VRoid rig names every secondary bone `J_Sec_*`, which is also the
-    /// bust, the skirt, the coat, the sleeves and the hood strings - `char_VRM_6` alone carries
-    /// over a hundred of them. Driving all of those from one set of constants is not "basic hair
-    /// physics", it is a whole cloth solver, so this takes the hair chains and leaves the rest
-    /// skinned-but-static, exactly as before.
-    private static let hairBonePrefix = "J_Sec_Hair"
+    /// Secondary bones (hair, skirt, sleeves, bust) swings. A VRoid rig names every secondary
+    /// bone `J_Sec_*`.
+    private static let secondaryBonePrefix = "J_Sec_"
 
-    /// One link of a hair chain, simulated as a single particle sitting at the bone's tail.
+    /// One link of a secondary bone chain, simulated as a single particle sitting at the bone's tail.
     private struct SpringBone {
         let node: SCNNode
         /// Where the tail sits in the bone's own space: the next link's position, so the chain
@@ -167,7 +164,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         // the clips sit on the bones. Left in place they play themselves and fight the retargeter
         // for control of the skeleton.
         var found: [String] = []
-        var hairNodes: [SCNNode] = []
+        var secondaryNodes: [SCNNode] = []
         root.removeAllAnimations()
         root.enumerateChildNodes { node, _ in
             for key in node.animationKeys { node.removeAnimation(forKey: key) }
@@ -175,7 +172,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
             if let name = node.name {
                 boneNodes[name] = node
                 if name.hasPrefix("mixamorig") { found.append(name) }
-                if name.hasPrefix(Self.hairBonePrefix) { hairNodes.append(node) }
+                if name.hasPrefix(Self.secondaryBonePrefix) { secondaryNodes.append(node) }
                 if name.hasPrefix("J_Sec_") { isToonCharacter = true }
                 if name.hasPrefix("mixamorig") || name.hasPrefix("J_Sec_") { boundsNodes.append(node) }
             }
@@ -209,10 +206,11 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         root.simdScale = simd_float3(repeating: userScale)
         root.simdEulerAngles.y = userRotationY
 
-        // Seed the hair particles only now. normalizeOrientation() and the two lines above all
-        // move the character in world space, and a particle seeded before them starts the first
-        // frame metres away from its bone - which reads as the hair being flung across the stage.
-        seedHairPhysics(hairNodes)
+        // Seed the secondary bone particles only now. normalizeOrientation() and the two lines
+        // above all move the character in world space, and a particle seeded before them starts
+        // the first frame metres away from its bone - which reads as the chain being flung across
+        // the stage.
+        seedSecondaryPhysics(secondaryNodes)
 
         // Fallback height: when bone lookup fails (a Tripo static mesh has no Mixamo skeleton),
         // walk every geometry and convert the 8 corners of its local bounding box to world space.
@@ -267,18 +265,18 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         }
     }
 
-    /// Build the hair chains from the bones just collected, with the character already in its
-    /// final place. Call this from `install()` and nowhere else.
-    private func seedHairPhysics(_ nodes: [SCNNode]) {
+    /// Build the secondary bone chains from the bones just collected, with the character already
+    /// in its final place. Call this from `install()` and nowhere else.
+    private func seedSecondaryPhysics(_ nodes: [SCNNode]) {
         var bones: [SpringBone] = []
         bones.reserveCapacity(nodes.count)
 
         for node in nodes {
             // A link swings toward the next link. The tip of a chain - VRoid spells those
-            // `..._end_...` - has nothing to swing toward and is carried by its parent, so it is
+            // ..._end_... - has nothing to swing toward and is carried by its parent, so it is
             // simulated by proxy and skipped here.
             guard let tip = node.childNodes.first(where: {
-                ($0.name ?? "").hasPrefix(Self.hairBonePrefix)
+                ($0.name ?? "").hasPrefix(Self.secondaryBonePrefix)
             }) else { continue }
             let localTail = tip.simdPosition
             guard simd_length_squared(localTail) > 1e-8 else { continue }
@@ -306,11 +304,12 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         return d
     }
 
-    /// Step the hair chains. Runs once per rendered frame, on SceneKit's render thread.
+    /// Step the secondary bone chains (hair, skirt, etc). Runs once per rendered frame,
+    /// on SceneKit's render thread.
     ///
     /// Verlet particle per link, constrained to the bone's own length, with the result applied as
     /// a swing *delta* on the pose the `.vrma` player wrote. Everything is scale-relative, so the
-    /// pinch gesture does not change how the hair behaves.
+    /// pinch gesture does not change how the secondary movement behaves.
     func updatePhysics() {
         guard isLoaded else { return }
         let t = CACurrentMediaTime()
@@ -325,7 +324,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         // Doing this AFTER VRMCharacter.step ensures weights aren't overwritten.
         facialSoul?.update(at: t)
 
-        // 3. Bundled models (Mixamo) use our own spring solver for hair.
+        // 3. Bundled models (Mixamo) use our own spring solver for secondary movement.
         if vrmNode != nil { return }
 
         windPhase += 0.05
@@ -646,6 +645,16 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         camera.bloomIntensity = DeviceTier.isLowEnd ? 0 : g.bloom
         camera.bloomThreshold = g.bloomThreshold
         camera.bloomBlurRadius = 15.0
+
+        // Cinematic effects: Depth of Field and Motion Blur
+        if DeviceTier.allowsCinematicEffects {
+            camera.motionBlurIntensity = 0.5
+            camera.fStop = 2.8 // Wide aperture for cinematic shallow depth of field
+            camera.focalBlurSampleCount = 8
+        } else {
+            camera.motionBlurIntensity = 0
+            camera.fStop = 0 // Disable DoF
+        }
     }
 
     /// Push the current levels into the rig. Safe to call at any time; it only touches intensities.
@@ -884,6 +893,12 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         // not flatten the camera into a level stare.
         cam.simdPosition.y = look.y + modelHeight * (0.57 + userPitch)
         cam.look(at: SCNVector3(look))
+
+        // Dynamic Auto-Focus: keep the subject in focus as the camera moves
+        if DeviceTier.allowsCinematicEffects, let camera = cam.camera {
+            let focusDist = simd_distance(cam.simdPosition, look)
+            camera.focusDistance = CGFloat(focusDist)
+        }
         SCNTransaction.commit()
     }
 
