@@ -292,6 +292,9 @@ struct ARCharacterView: UIViewRepresentable {
         /// The reticle being visible is the contract: it means a tap will land, and its absence
         /// means a tap will not. `handleTap` checks the same thing rather than guessing.
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
+            controller.updatePhysics()  // Step hair/physics in AR too
+            if let arView { updateEnvironmentLighting(in: arView) }
+
             guard detectGround, !placed, let arView else { return }
 
             // Same reasoning as StaticARView: the character starts hidden and was only revealed by

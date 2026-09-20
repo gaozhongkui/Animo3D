@@ -58,6 +58,13 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         var prev: simd_float3
     }
     private var springBones: [SpringBone] = []
+    /// Bounding spheres for collision detection with hair particles.
+    private struct Collider {
+        let node: SCNNode
+        let radius: Float // Base radius at scale 1.0
+    }
+    private var colliders: [Collider] = []
+    private var windPhase: Float = 0
     /// `install()` rebuilds the chains on the main thread while `updatePhysics()` walks them on
     /// SceneKit's render thread - switching character mid-frame used to be a crash window.
     private let springLock = NSLock()
@@ -196,6 +203,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         sanitizeMaterials(root)
         normalizeOrientation(root)
         setupFrontCamera()
+        setupColliders()
 
         // Apply user adjustments
         root.simdScale = simd_float3(repeating: userScale)
@@ -232,6 +240,31 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     func humanoidNode(_ vrmBoneName: String) -> SCNNode? {
         if vrmNode != nil { return vrmHumanoid[vrmBoneName] }
         return MixamoBoneMap.humanoid[vrmBoneName].flatMap { boneNodes[$0] }
+    }
+
+    /// Set up bounding spheres for collision detection based on the character's dimensions.
+    private func setupColliders() {
+        colliders.removeAll()
+        let h = max(modelHeight, 0.1)
+
+        func add(_ bone: String, radius: Float) {
+            if let node = humanoidNode(bone) {
+                colliders.append(Collider(node: node, radius: radius * h))
+            }
+        }
+
+        // Head and shoulders are the primary points hair interacts with.
+        add("head", radius: 0.12)
+        add("leftShoulder", radius: 0.08)
+        add("rightShoulder", radius: 0.08)
+        // Upper torso to prevent long hair from sinking into the chest/back.
+        add("upperChest", radius: 0.15)
+        if humanoidNode("upperChest") == nil {
+            add("chest", radius: 0.15)
+        }
+        if humanoidNode("upperChest") == nil && humanoidNode("chest") == nil {
+            add("spine", radius: 0.15)
+        }
     }
 
     /// Build the hair chains from the bones just collected, with the character already in its
@@ -295,6 +328,10 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         // 3. Bundled models (Mixamo) use our own spring solver for hair.
         if vrmNode != nil { return }
 
+        windPhase += 0.05
+        // Subtle environmental wind to add life to the character even when standing still.
+        let wind = simd_float3(sin(windPhase) * 0.008, 0, cos(windPhase * 0.7) * 0.008) * userScale
+
         springLock.lock()
         defer { springLock.unlock() }
         guard !springBones.isEmpty else { return }
@@ -324,7 +361,18 @@ final class CharacterSceneController: ObservableObject, BoneRig {
 
             let velocity = (springBones[i].current - springBones[i].prev) * drag
             let pull = (restTail - springBones[i].current) * stiffness
-            var next = springBones[i].current + velocity + pull + simd_float3(0, -sag * length, 0)
+            var next = springBones[i].current + velocity + pull + simd_float3(0, -sag * length, 0) + wind
+
+            // Collision detection: keep hair particles outside the character's head and torso.
+            for collider in colliders {
+                let center = collider.node.simdWorldPosition
+                let r = collider.radius * userScale
+                let dist = simd_distance(next, center)
+                if dist < r {
+                    let dir = simd_normalize(next - center)
+                    next = center + dir * r
+                }
+            }
 
             // Hold the particle on the sphere of the bone's length: the link rotates, it does not
             // stretch.

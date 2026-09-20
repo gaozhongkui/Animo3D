@@ -15,6 +15,7 @@
 
 import SceneKit
 import simd
+import QuartzCore
 
 final class PoseRetargeter {
 
@@ -29,7 +30,49 @@ final class PoseRetargeter {
     private var rests: [Rest] = []
     private var characterFrame = simd_float3x3(1)   // Character torso frame (local -> world)
     private var captured = false
+
+    /// Adaptive filter for each landmark.
+    private struct OneEuroFilter {
+        var minCutoff: Float = 1.0     // Decrease to reduce jitter in slow motion
+        var beta: Float = 0.01          // Increase to reduce lag in fast motion
+        var dCutoff: Float = 1.0
+
+        var lastValue: simd_float3?
+        var lastDeriv: simd_float3 = .zero
+        var lastTime: Double?
+
+        mutating func filter(value: simd_float3, time: Double) -> simd_float3 {
+            guard let prevValue = lastValue, let prevTime = lastTime else {
+                lastValue = value
+                lastTime = time
+                return value
+            }
+            let dt = Float(time - prevTime)
+            guard dt > 0.0001 else { return prevValue }
+
+            let deriv = (value - prevValue) / dt
+            let aD = alpha(cutoff: dCutoff, dt: dt)
+            lastDeriv = simd_mix(lastDeriv, deriv, simd_float3(repeating: aD))
+
+            let cutoff = minCutoff + beta * simd_length(lastDeriv)
+            let a = alpha(cutoff: cutoff, dt: dt)
+            let result = simd_mix(prevValue, value, simd_float3(repeating: a))
+
+            lastValue = result
+            lastTime = time
+            return result
+        }
+
+        private func alpha(cutoff: Float, dt: Float) -> Float {
+            let tau = 1.0 / (2.0 * .pi * cutoff)
+            return 1.0 / (1.0 + tau / dt)
+        }
+    }
+    private var filters: [OneEuroFilter] = []
     private var smoothed: [simd_float3]?             // Landmarks after temporal smoothing
+
+    private var leftLegIK: SCNIKConstraint?
+    private var rightLegIK: SCNIKConstraint?
 
     // Hip translation: lets the body sink naturally as the legs bend, giving weight and footing (otherwise the limbs move while the torso stays nailed down, which looks stiff)
     private var hipsNode: SCNNode?
@@ -74,9 +117,12 @@ final class PoseRetargeter {
     private var srcRestFrameInv = simd_float3x3(1)
     private var srcTorsoLen: Float = 1
 
-    // Spine drive: lets the torso twist and lean with the shoulder line (removes the board-like upper body)
-    private var spineNode: SCNNode?
-    private var spineRestWorldOrient = simd_quatf(angle: 0, axis: [0, 1, 0])
+    // Spine drive: distribute torso rotation across the spine chain for natural flexibility
+    private struct SpineRest {
+        let node: SCNNode
+        let restWorldOrient: simd_quatf
+    }
+    private var spineChain: [SpineRest] = []
     private let spineGain: Float = 0.7               // Damping, so noise is not amplified and the spine does not overshoot
 
     init(controller: BoneRig) {
@@ -88,6 +134,14 @@ final class PoseRetargeter {
         captured = false
         srcCaptured = false
         smoothed = nil
+        filters.removeAll()
+
+        // Clean up constraints from bones
+        let s = controller.scheme
+        controller.boneNodes[s.leftFoot]?.constraints = controller.boneNodes[s.leftFoot]?.constraints?.filter { !($0 is SCNIKConstraint) }
+        controller.boneNodes[s.rightFoot]?.constraints = controller.boneNodes[s.rightFoot]?.constraints?.filter { !($0 is SCNIKConstraint) }
+        leftLegIK = nil
+        rightLegIK = nil
     }
 
     /// Builds an orthonormal torso frame from an "up" and a "right" direction (columns: right, up, forward).
@@ -137,11 +191,43 @@ final class PoseRetargeter {
         }
         hipsNode = controller.boneNodes[s.hips]
         charHipsRestWorld = hipsNode?.simdWorldPosition ?? .init(repeating: 0)
-        // Spine bone plus its rest world orientation (torso twist reference)
-        spineNode = controller.boneNodes[s.spine]
-        spineRestWorldOrient = spineNode?.simdWorldOrientation ?? simd_quatf(angle: 0, axis: [0, 1, 0])
+
+        // Capture spine chain (Spine, Chest, UpperChest) to distribute rotation naturally
+        spineChain.removeAll()
+        let spineNames = [s.spine, s.chest, s.upperChest].compactMap { $0 }
+        for name in spineNames {
+            if let node = controller.boneNodes[name] {
+                spineChain.append(SpineRest(node: node, restWorldOrient: node.simdWorldOrientation))
+            }
+        }
+
         captured = !rests.isEmpty
-        if captured { print("[Retarget] rest pose captured, \(rests.count) bones") }
+        if captured {
+            setupIK()
+            print("[Retarget] rest pose captured, \(rests.count) bones")
+        }
+    }
+
+    private func setupIK() {
+        let s = controller.scheme
+        guard let lUp = controller.boneNodes[s.leftUpLeg],
+              let lFoot = controller.boneNodes[s.leftFoot],
+              let rUp = controller.boneNodes[s.rightUpLeg],
+              let rFoot = controller.boneNodes[s.rightFoot] else { return }
+
+        // Remove old IK constraints if any (ensure we don't stack them)
+        lFoot.constraints = lFoot.constraints?.filter { !($0 is SCNIKConstraint) }
+        rFoot.constraints = rFoot.constraints?.filter { !($0 is SCNIKConstraint) }
+
+        let lik = SCNIKConstraint.inverseKinematicsConstraint(chainRootNode: lUp)
+        lik.influenceFactor = 0 // Start disabled, plantFeet() will enable it
+        lFoot.constraints = (lFoot.constraints ?? []) + [lik]
+        leftLegIK = lik
+
+        let rik = SCNIKConstraint.inverseKinematicsConstraint(chainRootNode: rUp)
+        rik.influenceFactor = 0
+        rFoot.constraints = (rFoot.constraints ?? []) + [rik]
+        rightLegIK = rik
     }
 
     private var debugLogged = false
@@ -178,16 +264,16 @@ final class PoseRetargeter {
             print("[Axis] nose0=\(p(0)) Lsh11=\(p(11)) Rsh12=\(p(12)) Lhip23=\(p(23)) Rhip24=\(p(24)) Lankle27=\(p(27))")
         }
 
-        // Temporal smoothing: low-pass every landmark to remove jitter and stutter
-        let alpha: Float = 0.35
-        if smoothed == nil || smoothed!.count != world.count {
-            smoothed = world
-        } else {
-            for i in 0..<world.count {
-                smoothed![i] += (world[i] - smoothed![i]) * alpha
-            }
+        // Temporal smoothing: One Euro Filter to remove jitter while maintaining low lag for fast motion
+        let currentTime = CACurrentMediaTime()
+        if filters.count != world.count {
+            filters = Array(repeating: OneEuroFilter(), count: world.count)
         }
-        let w = smoothed!
+        var w = [simd_float3](repeating: .zero, count: world.count)
+        for i in 0..<world.count {
+            w[i] = filters[i].filter(value: world[i], time: currentTime)
+        }
+        smoothed = w
 
         // Landmark lookup: supports virtual midpoints (100 = shoulder center, 101 = hip center)
         func lm(_ i: Int) -> simd_float3 {
@@ -225,16 +311,24 @@ final class PoseRetargeter {
             hips.simdWorldPosition = simd_mix(hips.simdWorldPosition, target, simd_float3(repeating: 0.5))
         }
 
-        // Spine drive: torso rotation relative to rest -> the character's spine bone (applied before the limbs, which then self-correct against the parent's new orientation).
-        if let spine = spineNode {
+        // Spine drive: distribute torso rotation across the spine chain (removes the board-like upper body)
+        if !spineChain.isEmpty {
             let rLocal = srcRestFrameInv * srcFrame                     // Torso rotation relative to rest (in torso local space)
             let rChar = characterFrame * rLocal * characterFrame.transpose  // Into the character's world basis
-            var q = simd_quatf(rChar)
-            q = simd_slerp(simd_quatf(angle: 0, axis: [0, 1, 0]), q, spineGain)   // Damping
-            let desiredWorld = q * spineRestWorldOrient
-            let parentWorld = spine.parent?.simdWorldOrientation ?? simd_quatf(angle: 0, axis: [0, 1, 0])
-            let local = parentWorld.inverse * desiredWorld
-            spine.simdOrientation = simd_slerp(spine.simdOrientation, local, 0.5)
+            let fullQ = simd_quatf(rChar)
+
+            // Distribute the rotation equally across all available spine bones
+            let angle = fullQ.angle
+            let axis = fullQ.axis
+            let portionQ = simd_quatf(angle: angle / Float(spineChain.count), axis: axis)
+
+            for sr in spineChain {
+                var q = simd_slerp(simd_quatf(angle: 0, axis: [0, 1, 0]), portionQ, spineGain) // Damping
+                let desiredWorld = q * sr.restWorldOrient
+                let parentWorld = sr.node.parent?.simdWorldOrientation ?? simd_quatf(angle: 0, axis: [0, 1, 0])
+                let local = parentWorld.inverse * desiredWorld
+                sr.node.simdOrientation = simd_slerp(sr.node.simdOrientation, local, 0.5)
+            }
         }
 
         for r in rests {
@@ -259,17 +353,9 @@ final class PoseRetargeter {
 
     /// Pull the character back down until its lower foot is on the ground again.
     ///
-    /// Hip translation and limb driving are supposed to cancel: as the source dancer rises out of a
-    /// crouch the hips go up and the legs straighten, and the feet stay planted. They only cancel
-    /// if the character's legs are the same length as the source's, which they are not - the hips
-    /// are translated by the source displacement scaled by *torso* length, and the residual is pure
-    /// float. Measured on Arms Hip Hop Dance with Erika: the lower foot sat up to 0.23 above its
-    /// rest height, about 14% of body height, for the whole dance.
-    ///
-    /// Enforcing the constraint directly is the only version of this that holds for every
-    /// (character, dance) pair. Note the cost: a take with a genuine jump has that jump flattened.
-    /// None of the current library jumps, and a character floating at knee height for 20 seconds is
-    /// a far worse artefact than a lost hop.
+    /// Uses a two-stage approach:
+    /// 1. Global hip shift to handle large vertical movements and "body weight".
+    /// 2. SCNIKConstraint (IK) for each leg to ensure precise foot planting and prevent clipping.
     private func plantFeet() {
         // Read live rather than using the value captured with the rest pose: in AR the ground moves
         // whenever the user taps to place the character somewhere else, and no rest re-capture is
@@ -283,33 +369,45 @@ final class PoseRetargeter {
         let sole = lowestSole - ground
         let tolerance = charTorsoLen * footPlantTolerance
 
-        // How far out of bounds the sole is: positive when floating above the tolerance band,
-        // negative when it is through the floor, zero inside the band.
+        // 1) Coarse adjustment: shift the entire body if it is floating or buried.
         let error: Float = sole > tolerance ? sole - tolerance : (sole < 0 ? sole : 0)
-        guard error != 0 else { return }
+        if error != 0 {
+            hips.simdWorldPosition.y -= error
+            plantOffsetY += error
+            let limit = charTorsoLen * 0.5
+            plantOffsetY = min(max(plantOffsetY, -limit), limit)
+        }
 
-        // Corrected on this frame *and* carried in the offset, which is what makes the sole land on
-        // the floor rather than approach it. Two earlier versions each got half of this:
-        //
-        //  - Offset only: the hips are re-set to the target every frame and blended 50/50, so the
-        //    correction was diluted and the sole only ever converged part-way.
-        //  - Node only, plus an offset measured against the *bone's own rest height*: that quantity
-        //    carries a systematic bias, the offset accumulated it, and the character sank into the
-        //    floor until the sign flipped and it bounced. The measurement was the bug, not the
-        //    double application - `sole` here is an absolute distance to the actual ground plane,
-        //    so applying it twice is a fixed-point iteration, not a compounding error.
-        //
-        // A positive offset lowers the character, a negative one lifts it, and both directions are
-        // needed. An earlier version clamped the offset at zero because the character "must not be
-        // lifted above the source motion" - that is precisely why the boots kept clipping, because
-        // when the retargeted pose itself puts a sole under the floor only a lift can fix it.
-        // Between fidelity to the source and not driving a boot through the ground, the ground
-        // wins: nobody notices a centimetre of licence, everybody notices clipping.
-        hips.simdWorldPosition.y -= error
-        plantOffsetY += error
+        // 2) Fine adjustment: use IK to keep both feet firmly on the ground without clipping.
+        updateFootIK(left: true, ground: ground)
+        updateFootIK(left: false, ground: ground)
+    }
 
-        // Safety rail, both ways: no clip should be able to bury or launch the character.
-        let limit = charTorsoLen * 0.5
-        plantOffsetY = min(max(plantOffsetY, -limit), limit)
+    private func updateFootIK(left: Bool, ground: Float) {
+        let s = controller.scheme
+        let footName = left ? s.leftFoot : s.rightFoot
+        let toeName = left ? s.leftToe : s.rightToe
+        guard let foot = controller.boneNodes[footName],
+              let toe = controller.boneNodes[toeName],
+              let ik = left ? leftLegIK : rightLegIK else { return }
+
+        let footOffset = soleOffsets.first { $0.node === foot }?.offset ?? 0
+        let toeOffset = soleOffsets.first { $0.node === toe }?.offset ?? 0
+
+        // Calculate current sole heights (lowest point of foot/toe)
+        let footSoleY = foot.simdWorldPosition.y - footOffset
+        let toeSoleY = toe.simdWorldPosition.y - toeOffset
+        let lowestSoleY = min(footSoleY, toeSoleY)
+
+        // If the sole is through the ground, or very close to it, enable IK to lock it.
+        // We use a small buffer to avoid flickering.
+        if lowestSoleY < ground + 0.005 {
+            var targetPos = foot.simdWorldPosition
+            targetPos.y += (ground - lowestSoleY)
+            ik.targetPosition = SCNVector3(targetPos)
+            ik.influenceFactor = 1.0
+        } else {
+            ik.influenceFactor = 0.0
+        }
     }
 }

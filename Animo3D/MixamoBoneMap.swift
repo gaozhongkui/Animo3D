@@ -115,7 +115,10 @@ struct BoneScheme {
     /// the foot bone reads level while the boot is already through the floor.
     let leftToe: String
     let rightToe: String
-    let spine: String   // Spine bone that drives torso twist and lean (between hips and shoulders)
+    let spine: String
+    let chest: String?
+    let upperChest: String?
+    /// Spine bone that drives torso twist and lean (between hips and shoulders)
     // Used for the torso frame
     let leftArm: String
     let rightArm: String
@@ -130,7 +133,7 @@ struct BoneScheme {
         leftFoot: "mixamorig_LeftFoot", rightFoot: "mixamorig_RightFoot",
         leftHand: "mixamorig_LeftHand", rightHand: "mixamorig_RightHand",
         leftToe: "mixamorig_LeftToeBase", rightToe: "mixamorig_RightToeBase",
-        spine: "mixamorig_Spine",
+        spine: "mixamorig_Spine", chest: "mixamorig_Spine1", upperChest: "mixamorig_Spine2",
         leftArm: "mixamorig_LeftArm", rightArm: "mixamorig_RightArm",
         leftUpLeg: "mixamorig_LeftUpLeg", rightUpLeg: "mixamorig_RightUpLeg")
 
@@ -156,6 +159,9 @@ struct BoneScheme {
               let leftLeg = name(.leftLowerLeg), let rightLeg = name(.rightLowerLeg)
         else { return nil }
 
+        let chest = name(.chest)
+        let upperChest = name(.upperChest)
+
         // Toes are optional in VRM 1.0. Foot planting reads the toe when there is one and the
         // ankle otherwise, so falling back to the foot degrades the plant rather than failing.
         let leftToe = name(.leftToes) ?? leftFoot
@@ -180,7 +186,7 @@ struct BoneScheme {
                           leftFoot: leftFoot, rightFoot: rightFoot,
                           leftHand: leftHand, rightHand: rightHand,
                           leftToe: leftToe, rightToe: rightToe,
-                          spine: spine,
+                          spine: spine, chest: chest, upperChest: upperChest,
                           leftArm: leftArm, rightArm: rightArm,
                           leftUpLeg: leftUpLeg, rightUpLeg: rightUpLeg)
     }

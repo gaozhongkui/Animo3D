@@ -70,4 +70,7 @@ enum DeviceTier {
     /// Bits per pixel per frame for the recording. Encoding is not free either, and at 1280 the
     /// lower figure still leaves a clean picture - the pixels it is spread over are fewer.
     static var captureBitsPerPixel: Double { isLowEnd ? 0.12 : 0.15 }
+
+    /// People occlusion in AR: off on low-end. It is a full-frame depth segmentation pass.
+    static var allowsPeopleOcclusion: Bool { !isLowEnd }
 }
