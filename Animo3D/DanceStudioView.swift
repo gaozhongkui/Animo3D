@@ -506,32 +506,44 @@ struct DanceStudioView: View {
             VStack(spacing: 0) {
                 HStack {
                     circleButton("chevron.left") { back() }
-                        .opacity(recorder.isRecording ? 0 : 1) // hidden while recording
+                        .opacity(recorder.isRecording ? 0 : 1) // 录制时纯净淡出
                     Spacer()
-                    Picker("", selection: $arMode) { Text("Screen").tag(false); Text("AR").tag(true) }
-                        .pickerStyle(.segmented).frame(width: 120)
-                        .opacity(recorder.isRecording ? 0 : 1) // hidden while recording
-                        .onChange(of: arMode) { on in
-                            if on {
-                                arEnteredAt = CFAbsoluteTimeGetCurrent()
-                                Track.log(.arEntered, ["character": character, "dance": dance])
-                            } else if arEnteredAt > 0 {
-                                // Whether the room ever gave us somewhere to stand is the number
-                                // that says AR failed, and it is only knowable on the way out.
-                                Track.log(.arAbandoned, ["placed": arPlaced ? "yes" : "no",
-                                                         "seconds": Int(CFAbsoluteTimeGetCurrent() - arEnteredAt)])
-                                arEnteredAt = 0
+
+                    if recorder.isRecording {
+                        // 🎥 录制中动态时间码：增加导演创作的仪式感
+                        HStack(spacing: 6) {
+                            Circle().fill(.red).frame(width: 8, height: 8)
+                                .opacity(Int(CFAbsoluteTimeGetCurrent() * 2) % 2 == 0 ? 1 : 0.2) // 模拟 REC 闪烁
+
+                            if let started = recordStartedAt {
+                                Text(started, style: .timer)
+                                    .font(.system(.subheadline, design: .monospaced).bold())
+                                    .foregroundStyle(.white)
                             }
                         }
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(.black.opacity(0.4), in: Capsule())
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    } else {
+                        Picker("", selection: $arMode) { Text("Screen").tag(false); Text("AR").tag(true) }
+                            .pickerStyle(.segmented).frame(width: 120)
+                            .onChange(of: arMode) { on in
+                                if on {
+                                    arEnteredAt = CFAbsoluteTimeGetCurrent()
+                                    Track.log(.arEntered, ["character": character, "dance": dance])
+                                } else if arEnteredAt > 0 {
+                                    Track.log(.arAbandoned, ["placed": arPlaced ? "yes" : "no",
+                                                             "seconds": Int(CFAbsoluteTimeGetCurrent() - arEnteredAt)])
+                                    arEnteredAt = 0
+                                }
+                            }
+                    }
                 }
                 .padding(.horizontal, 12).padding(.top, 6)
 
                 Spacer()
 
                 VStack(spacing: 14) {
-                    // Only on the screen stage. In AR the sky and the ground are the room the user
-                    // is standing in, so a scene to put the dancer in is the one thing this cannot
-                    // offer there.
                     if !arMode {
                         stageButton
                             .opacity(recorder.isRecording ? 0 : 1)
@@ -539,7 +551,7 @@ struct DanceStudioView: View {
                     }
                     if DeviceTier.allowsStageVFX {
                         vfxBar
-                            .opacity(recorder.isRecording ? 0 : 1) // hidden while recording
+                            .opacity(recorder.isRecording ? 0 : 1)
                     }
 
                     recordButton.padding(.top, 2)
