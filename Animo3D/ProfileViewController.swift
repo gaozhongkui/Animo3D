@@ -18,11 +18,15 @@ import AVFoundation
 /// that by being larger than any status bar; a compact header has to ask for the number.
 ///
 /// Read once from the window: it does not change for the life of the app.
-nonisolated let profileSafeAreaTop: CGFloat = {
+nonisolated var profileSafeAreaTop: CGFloat {
     let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
     let inset = scenes.flatMap { $0.windows }.first { $0.isKeyWindow }?.safeAreaInsets.top
-    return inset ?? scenes.first?.windows.first?.safeAreaInsets.top ?? 44
-}()
+    let base = inset ?? scenes.first?.windows.first?.safeAreaInsets.top ?? 44
+    if UIDevice.current.userInterfaceIdiom == .pad {
+        return base + 44
+    }
+    return base
+}
 
 nonisolated enum ProfileSection: Int, CaseIterable { case header, pro, works }
 nonisolated enum ProfileItem: Hashable, Sendable {
@@ -64,9 +68,13 @@ final class ProfileViewController: UIViewController {
     }
 
     private func setupCollectionView() {
-        let layout = UICollectionViewCompositionalLayout { [weak self] index, _ in
+        let layout = UICollectionViewCompositionalLayout { [weak self] index, env in
             guard let self = self else { return nil }
             let section = Section(rawValue: index)!
+
+            let containerWidth = env.container.effectiveContentSize.width
+            let maxContentWidth: CGFloat = 720
+            let sideInset: CGFloat = max(0, (containerWidth - maxContentWidth) / 2)
 
             switch section {
             case .header:
@@ -76,28 +84,38 @@ final class ProfileViewController: UIViewController {
                 // fold on every launch. Same content, laid out across instead of down.
                 let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1),
                                                   heightDimension: .absolute(176 + profileSafeAreaTop))
-                return NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
+                let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
+                if sideInset > 0 {
+                    s.contentInsets = .init(top: 0, leading: sideInset, bottom: 0, trailing: sideInset)
+                }
+                return s
 
             case .pro:
                 let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(100))
                 let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
-                s.contentInsets = .init(top: 0, leading: 20, bottom: 32, trailing: 20)
+                s.contentInsets = .init(top: 0, leading: sideInset + 20, bottom: 32, trailing: sideInset + 20)
                 return s
 
             case .works:
                 if WorksStore.shared.works.isEmpty {
                     let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(200))
                     let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
-                    s.contentInsets = .init(top: 0, leading: 20, bottom: 20, trailing: 20)
+                    s.contentInsets = .init(top: 0, leading: sideInset + 20, bottom: 20, trailing: sideInset + 20)
                     s.boundarySupplementaryItems = [Self.createHeader(L("My Creations"))]
                     return s
                 }
-                let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0/3.0), heightDimension: .fractionalHeight(1))
+
+                let effectiveWidth = containerWidth - (sideInset * 2)
+                let columns = effectiveWidth > 600 ? 4 : 3
+
+                let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0 / CGFloat(columns)), heightDimension: .fractionalHeight(1))
                 let item = NSCollectionLayoutItem(layoutSize: itemSize)
                 item.contentInsets = .init(top: 4, leading: 4, bottom: 4, trailing: 4)
-                let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(150))
-                let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.horizontal(layoutSize: groupSize, subitems: [item, item, item]))
-                s.contentInsets = .init(top: 4, leading: 12, bottom: 32, trailing: 12)
+
+                let rowHeight: CGFloat = effectiveWidth > 600 ? 180 : 150
+                let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(rowHeight))
+                let s = NSCollectionLayoutSection(group: NSCollectionLayoutGroup.horizontal(layoutSize: groupSize, repeatingSubitem: item, count: columns))
+                s.contentInsets = .init(top: 4, leading: sideInset + 12, bottom: 32, trailing: sideInset + 12)
                 s.boundarySupplementaryItems = [Self.createHeader(L("My Creations"))]
                 return s
             }
@@ -221,6 +239,7 @@ private final class CleanHeaderCell: UICollectionViewCell {
     var onSettingsTap: (() -> Void)?
 
     private let meshBg = UIView()
+    private let grad = CAGradientLayer()
     private let neonRing = UIView()
     private let avatarContainer = UIView()
     private let avatarGradient = CAGradientLayer()
@@ -236,6 +255,17 @@ private final class CleanHeaderCell: UICollectionViewCell {
     private let bioLabel = UILabel()
     private let statsStack = UIStackView()
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        grad.frame = meshBg.bounds
+        if traitCollection.userInterfaceIdiom == .pad {
+            contentView.layer.cornerRadius = 24
+            contentView.clipsToBounds = true
+        } else {
+            contentView.layer.cornerRadius = 0
+        }
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
 
@@ -243,10 +273,7 @@ private final class CleanHeaderCell: UICollectionViewCell {
         meshBg.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(meshBg)
 
-        let grad = CAGradientLayer()
         grad.colors = [UIColor(rgb: 0x6366F1).withAlphaComponent(0.12).cgColor, UIColor.white.cgColor]
-        grad.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width,
-                            height: 176 + profileSafeAreaTop)
         meshBg.layer.addSublayer(grad)
 
         neonRing.layer.cornerRadius = 39
@@ -613,6 +640,8 @@ struct SettingsView: View {
                 }
                 .scrollContentBackground(.hidden)
             }
+            .frame(maxWidth: 600)
+            .frame(maxWidth: .infinity)
 
             CircleButton(system: "xmark") { dismiss() }
                 .padding(.leading, 20)

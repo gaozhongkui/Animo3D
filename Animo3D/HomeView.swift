@@ -50,8 +50,8 @@ struct HomeView: View {
                 AppRouter.shared.openCharacters(.mine)
             }
 
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 16),
-                                GridItem(.flexible(), spacing: 16)], spacing: 20) {
+            // Adaptive grid: 2 columns on iPhone, up to 4-5 on iPad Pro
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 20) {
                 if remoteAssets.characters.isEmpty {
                     // 数据未就绪时展现高级骨架流光屏
                     ForEach(0..<4, id: \.self) { i in
@@ -138,8 +138,7 @@ struct HomeView: View {
                     // More ways to play
                     VStack(alignment: .leading, spacing: 14) {
                         sectionHeader("More Ways to Play")
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 14),
-                                            GridItem(.flexible(), spacing: 14)], spacing: 14) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 14)], spacing: 14) {
                             Button {
                                 showVideo = true
                                 Track.log(.videoDriveStarted)
@@ -164,6 +163,8 @@ struct HomeView: View {
                 }
                 .padding(.top, 4)
                 .padding(.bottom, 24)
+                .frame(maxWidth: 760, alignment: .leading) // iPad constraint
+                .frame(maxWidth: .infinity) // Centre in page
             }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("Create")

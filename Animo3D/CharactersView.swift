@@ -36,6 +36,7 @@ struct CharactersView: View {
             .padding(.horizontal, 20)
             .padding(.top, 16)
             .padding(.bottom, 20)
+            .frame(maxWidth: 500)
 
             ZStack {
                 if seg == .mine {
@@ -91,7 +92,7 @@ struct MyCharactersView: View {
     @State private var importing = false
     @State private var importError: String?
     @State private var pendingDelete: PickedCharacter?
-    private let cols = [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)]
+    private let cols = [GridItem(.adaptive(minimum: 160), spacing: 16)]
 
 
     /// Characters the user brought in themselves - the only ones that can be deleted.
@@ -155,6 +156,8 @@ struct MyCharactersView: View {
             }
             .padding(.top, 4)
             .padding(.bottom, 30)
+            .frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
         // `.data`, not a VRM type: the system has no type registered for the extension, so
         // `UTType(filenameExtension: "vrm")` is nil and there is nothing narrower to ask for. The
