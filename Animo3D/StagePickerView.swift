@@ -34,7 +34,7 @@ struct StagePickerView: View {
     @State private var renaming: UserStage?
     @State private var draftName = ""
 
-    private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    private let columns = [GridItem(.adaptive(minimum: 150), spacing: 12)]
 
     /// The one stage anyone can use. Changing where you dance is what Pro buys here, so the stage
     /// the app opens in stays free - a locked default would mean a paywall between the user and the
@@ -80,6 +80,8 @@ struct StagePickerView: View {
                     }
                 }
                 .padding(16)
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
             }
             .navigationTitle("Scene")
             .navigationBarTitleDisplayMode(.inline)

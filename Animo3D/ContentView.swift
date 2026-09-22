@@ -56,6 +56,7 @@ struct VideoDriveView: View {
                 VStack(spacing: 0) {
                     stepHeader.padding(.top, 10)
 
+                    // Content area: Use if/else to ensure stable View identity and prevent layout collapse
                     ZStack {
                         if step == .video { videoStep } else { characterStep }
                     }
@@ -64,6 +65,8 @@ struct VideoDriveView: View {
                     Divider().padding(.horizontal)
                     bottomBar.padding(.top, 12)
                 }
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
             }
         }
         .animation(.default, value: step)
@@ -171,7 +174,7 @@ struct VideoDriveView: View {
 
     private var characterStep: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
                 ForEach(Array(remoteAssets.characters.enumerated()), id: \.element.id) { i, c in
                     let isSelected = character == c.id
                     VStack(alignment: .leading, spacing: 10) {

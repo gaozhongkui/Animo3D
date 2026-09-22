@@ -79,6 +79,8 @@ struct PaywallView: View {
                     .padding(.bottom, 210)
                 }
             }
+            .frame(maxWidth: 550)
+            .frame(maxWidth: .infinity)
 
             // Bottom CTA
             VStack {
@@ -91,6 +93,8 @@ struct PaywallView: View {
                             .ignoresSafeArea()
                     )
             }
+            .frame(maxWidth: 550)
+            .frame(maxWidth: .infinity)
         }
         .onAppear {
             animateItems = true

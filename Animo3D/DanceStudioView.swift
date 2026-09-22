@@ -100,6 +100,8 @@ struct DanceStudioView: View {
                     bottomBar
                         .padding(.top, 12)
                 }
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
             }
         }
         // Use one simple standard animation throughout and drop all the nested withAnimation calls
@@ -202,7 +204,7 @@ struct DanceStudioView: View {
     // MARK: Step 1 - select character
     private var characterStep: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
                 ForEach(Array(remoteAssets.characters.enumerated()), id: \.element.id) { i, c in
                     let isSelected = character == c.id
                     VStack(alignment: .leading, spacing: 10) {
@@ -278,7 +280,7 @@ struct DanceStudioView: View {
     // MARK: Step 2 - select dance (cards are pre-rendered art, see DanceThumb)
     private var danceStep: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
                 ForEach(Array(remoteAssets.dances.enumerated()), id: \.element.id) { i, d in
                     let isSelected = dance == d.id
                     VStack(alignment: .leading, spacing: 10) {
