@@ -335,9 +335,9 @@ final class CharacterSceneController: ObservableObject, BoneRig {
         defer { springLock.unlock() }
         guard !springBones.isEmpty else { return }
 
-        let stiffness: Float = 0.08     // how hard a link is pulled back to the animated pose
-        let drag: Float = 0.85          // share of velocity kept each frame
-        let sag: Float = 0.03           // gravity, as a fraction of the link's own length
+        let stiffness: Float = 0.16     // how hard a link is pulled back to the animated pose
+        let drag: Float = 0.75          // share of velocity kept each frame
+        let sag: Float = 0.015          // gravity, as a fraction of the link's own length
 
         for i in springBones.indices {
             let node = springBones[i].node
