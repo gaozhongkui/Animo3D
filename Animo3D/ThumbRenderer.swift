@@ -77,10 +77,14 @@ final class ThumbRenderer {
         // Versioned, and the previous version is deleted: both the framing and the choice of frame
         // changed, so every image the old rules cached is wrong. Without this a device that has
         // run the app before keeps serving exactly the cards this set out to replace.
-        for old in ["card_art", "card_art_v2"] {
+        //
+        // v3 -> v4 for the same reason: the motion blur smear is baked into those PNGs. A device
+        // that already drew its cards would otherwise keep the ghosts forever, since the fix below
+        // only governs images drawn from here on.
+        for old in ["card_art", "card_art_v2", "card_art_v3"] {
             try? FileManager.default.removeItem(at: caches.appendingPathComponent(old, isDirectory: true))
         }
-        let d = caches.appendingPathComponent("card_art_v3", isDirectory: true)
+        let d = caches.appendingPathComponent("card_art_v4", isDirectory: true)
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }()
@@ -376,6 +380,23 @@ final class ThumbRenderer {
 
     private func snapshot(size: CGSize = ThumbRenderer.size) -> UIImage? {
         guard let device, let cam = controller.cameraNode else { return nil }
+
+        // Motion blur off, every time, on the camera that actually draws.
+        //
+        // This is where the card ghosts came from. `applyCameraGrade()` arms the camera with
+        // `motionBlurIntensity = 0.5`, and SceneKit's motion blur is temporal: it smears against the
+        // transforms the renderer held from the frame before. One `SCNRenderer` draws all of the
+        // cards back to back, and between two snapshots the skeleton has been reset and thrown into
+        // a different pose - often a different dance entirely - so every card came out carrying an
+        // afterimage of the one drawn before it.
+        //
+        // Set each time rather than once: the grade is re-applied whenever the stage changes, which
+        // would re-arm it behind this. Nothing is restored afterwards - this controller is private
+        // to the thumbnail path and never draws a live frame, so there is no cinematic look to put
+        // back. (Depth of field is left alone: it blurs by distance, not by time, so it has no
+        // memory of the previous card to leak.)
+        cam.camera?.motionBlurIntensity = 0
+
         let r: SCNRenderer
         if let existing = renderer {
             r = existing

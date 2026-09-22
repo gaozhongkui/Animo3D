@@ -40,27 +40,28 @@ struct DanceCardView: View {
         ZStack {
             CardBackdrop(style: style)
 
-            // The still is what the card is until the loop has enough of itself to move, and what
-            // it stays if this card is not meant to move at all. It fades out as the loop comes in
-            // rather than being drawn under it: both images are cut out around the figure, so one
-            // over the other is two characters at once - which is exactly what it looked like.
-            if let image {
-                Image(uiImage: image).resizable().scaledToFit().opacity(loops ? 0 : 1)
-            } else {
-                ProgressView().tint(.white).scaleEffect(1.2)
-            }
-
             if loops {
                 TimelineView(.periodic(from: .now, by: Self.interval)) { context in
                     let step = Int(context.date.timeIntervalSinceReferenceDate / Self.interval)
-                    // Offset per dance, so a screenful of cards is not marching in lockstep.
-                    let i = (step + abs(dance.hashValue % frames.count)) % frames.count
-                    Image(uiImage: frames[i]).resizable().scaledToFit()
+                    // Both the offset and the modulus count the whole loop, not the frames that have
+                    // arrived so far. Counting arrivals meant that every time one landed the cadence
+                    // was re-dealt underneath the playhead - at three frames the card played 0,1,2,
+                    // at four it played a different order from a different phase - so frames the eye
+                    // had already seen flashed back. The frames themselves still stream in; a slot
+                    // the renderer has not reached yet holds on the newest one instead of jumping.
+                    let i = (step + abs(dance.hashValue % ThumbRenderer.loopFrames)) % ThumbRenderer.loopFrames
+                    Image(uiImage: frames[min(i, frames.count - 1)]).resizable().scaledToFit()
                 }
-                .transition(.opacity)
+            } else if let image {
+                // Showing static signature frame exclusively when loops is false.
+                // This prevents the semi-transparent overlay "ghosting" or "artifacting"
+                // between the static and moving layers during animation transitions.
+                Image(uiImage: image).resizable().scaledToFit()
+            } else {
+                ProgressView().tint(.white).scaleEffect(1.2)
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: loops)
+        .animation(.none, value: loops) // Disable container interpolation which bleeds transparency.
         .onAppear { onScreen = true }
         .onDisappear { onScreen = false }
         .task(id: character + "|" + dance + "|\(style)|\(animated)") {
