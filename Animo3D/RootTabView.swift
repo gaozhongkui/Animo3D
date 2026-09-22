@@ -135,6 +135,8 @@ struct DiscoverView: View {
             }
             .padding(.top, 12)
             .padding(.bottom, 16)
+            .frame(maxWidth: 600)
+            .frame(maxWidth: .infinity)
 
             // searchText stays empty here for good: browsing is by category only now.
             DiscoverViewControllerRepresentable(searchText: $searchText, selectedCategory: $selectedCategory) { model in

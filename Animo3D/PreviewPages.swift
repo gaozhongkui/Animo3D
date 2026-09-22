@@ -85,10 +85,12 @@ private struct PreviewShell: View {
             VStack {
                 Spacer()
                 Text(name).font(.title3.weight(.semibold)).foregroundStyle(.white)
-                Text(arMode ? "Move your phone to find a surface" : "Drag to rotate · pinch to zoom")
+                Text(arMode ? "Move your device to find a surface" : "Drag to rotate · pinch to zoom")
                     .font(.caption).foregroundStyle(.white.opacity(0.7))
                     .padding(.bottom, 30)
-            }.frame(maxWidth: .infinity)
+            }
+            .frame(maxWidth: 500)
+            .frame(maxWidth: .infinity)
         }
         .overlay {
             if !stage.isReady {

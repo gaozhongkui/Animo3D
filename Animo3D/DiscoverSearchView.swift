@@ -57,6 +57,8 @@ struct DiscoverSearchView: View {
             .padding(.horizontal, 20)
             .padding(.top, 12)
             .padding(.bottom, 16)
+            .frame(maxWidth: 600)
+            .frame(maxWidth: .infinity)
 
             ZStack {
                 // No category binding: on this screen a query is the only filter, which is also why

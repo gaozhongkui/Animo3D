@@ -11,7 +11,6 @@
 
 import SwiftUI
 import AVKit
-import StoreKit
 
 struct WorkDetailView: View {
     let url: URL
@@ -48,14 +47,6 @@ struct WorkDetailView: View {
                     guard justSaved else { return }
                     withAnimation(.spring(response: 0.4)) { showSavedBanner = true }
 
-                    // Review prompt, one second after a successful save - while the user is
-                    // looking at something they just made and are pleased with.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        if let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
-                            SKStoreReviewController.requestReview(in: scene)
-                        }
-                    }
-
                     try? await Task.sleep(nanoseconds: 3_500_000_000)
                     withAnimation(.easeOut(duration: 0.25)) { showSavedBanner = false }
                 }
@@ -83,11 +74,12 @@ struct WorkDetailView: View {
             // Bottom: share / delete
             VStack {
                 Spacer()
-                HStack(spacing: 40) {
+                HStack(spacing: UIDevice.current.userInterfaceIdiom == .pad ? 80 : 40) {
                     shareButton
                     actionButton("trash", "Delete", tint: .red) { showDeleteConfirm = true }
                 }
                 .padding(.bottom, 36)
+                .frame(maxWidth: .infinity)
             }
         }
         .sheet(isPresented: $showShare) {
