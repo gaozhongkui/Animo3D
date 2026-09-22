@@ -43,6 +43,10 @@ struct LiveDanceView: UIViewRepresentable {
         v.backgroundColor = .clear
         v.rendersContinuously = true
         v.isPlaying = true
+        v.preferredFramesPerSecond = 60
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            v.contentScaleFactor = min(v.contentScaleFactor, 1.5) // 卡片预览进一步降低采样以保流畅
+        }
         // Off: it adds a white omni on the camera, over the rig the controller already installed,
         // and a flat frontal fill is what made the dancer read as a sticker rather than a figure
         // standing in the light the card is painted with.

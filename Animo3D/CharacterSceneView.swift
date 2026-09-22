@@ -1892,6 +1892,17 @@ struct CharacterSceneView: UIViewRepresentable {
         view.scene = controller.scene
         view.antialiasingMode = DeviceTier.antialiasing   // Lower anti-aliasing on low-end to reduce lag
 
+        // iPad 性能优化：限制帧率并根据分辨率调整采样
+        // iPad 屏幕像素密度极大（尤其是 Pro 系列的 ProMotion），原生渲染压力远超手机。
+        // 强制锁定在 60FPS 可以有效防止 GPU 过热导致的降频卡顿。
+        view.preferredFramesPerSecond = 60
+
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            // 在 iPad 上，如果开启了抗锯齿，进一步检查是否需要对超高分辨率进行缩放优化
+            // 对于 iPad，2.0 的 contentScaleFactor 已经足够清晰
+            view.contentScaleFactor = min(view.contentScaleFactor, 2.0)
+        }
+
         // Add gestures for manual model adjustment (Scale & Rotate)
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
         view.addGestureRecognizer(pinch)

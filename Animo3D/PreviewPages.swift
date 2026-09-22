@@ -39,6 +39,10 @@ struct SceneOrbitView: UIViewRepresentable {
         v.antialiasingMode = DeviceTier.antialiasing   // 4x MSAA is too heavy, so it is tiered by device
         v.rendersContinuously = animated
         v.isPlaying = animated
+        v.preferredFramesPerSecond = 60
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            v.contentScaleFactor = min(v.contentScaleFactor, 2.0)
+        }
         if let cam = controller.cameraNode { v.pointOfView = cam }
         return v
     }

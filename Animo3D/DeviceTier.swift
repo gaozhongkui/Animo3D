@@ -8,19 +8,37 @@
 
 import Foundation
 import SceneKit
+import UIKit
 
 enum DeviceTier {
+    private static let ramGB: Double = Double(ProcessInfo.processInfo.physicalMemory) / (1024 * 1024 * 1024)
+
     /// Physical memory < 4GB counts as low-end (A11 and earlier, or low-spec).
-    static let isLowEnd: Bool = ProcessInfo.processInfo.physicalMemory < UInt64(4) * 1024 * 1024 * 1024
+    static let isLowEnd: Bool = ramGB < 3.9
 
-    /// Bloom glow intensity: off (0) on low-end, 1.1 on high-end.
-    static var bloomIntensity: CGFloat { isLowEnd ? 0 : 1.1 }
+    /// iPads have extremely high-resolution Retina displays, placing excessive pixel and fill-rate load on the GPU.
+    /// Non-M-series iPads (with less than 8GB RAM) require conservative graphics scaling to avoid severe stutter.
+    static let isMidEndPad: Bool = UIDevice.current.userInterfaceIdiom == .pad && ramGB < 7.5
 
-    /// Particle birth-rate factor: 0.45 on low-end, 1.0 on high-end.
-    static var particleScale: CGFloat { isLowEnd ? 0.45 : 1.0 }
+    /// Bloom glow intensity: off (0) on low-end, 0.6 on mid-end iPad, 1.1 on high-end.
+    static var bloomIntensity: CGFloat {
+        if isLowEnd { return 0 }
+        if isMidEndPad { return 0.6 }
+        return 1.1
+    }
 
-    /// Antialiasing for the live/performance views: off on low-end, 2x on high-end (4x is too heavy, so it is unused).
-    static var antialiasing: SCNAntialiasingMode { isLowEnd ? .none : .multisampling2X }
+    /// Particle birth-rate factor: 0.45 on low-end, 0.7 on mid-end iPad, 1.0 on high-end.
+    static var particleScale: CGFloat {
+        if isLowEnd { return 0.45 }
+        if isMidEndPad { return 0.7 }
+        return 1.0
+    }
+
+    /// Antialiasing for the live/performance views: off on low-end and mid-end iPad to save high-res fill rate, 2x on high-end.
+    static var antialiasing: SCNAntialiasingMode {
+        if isLowEnd || isMidEndPad { return .none }
+        return .multisampling2X
+    }
 
     /// Antialiasing for offscreen thumbnail rendering.
     static var thumbAntialiasing: SCNAntialiasingMode { isLowEnd ? .none : .multisampling2X }
@@ -38,17 +56,17 @@ enum DeviceTier {
     /// that trades frame time for the feature, which is the trade the tier system exists to avoid.)
     static var allowsStageVFX: Bool { !isLowEnd }
 
-    /// Live stage floor reflection: off on low-end. A reflection renders the whole scene one extra time, so like shadows it is a major cost.
-    static var floorReflectivity: CGFloat { isLowEnd ? 0 : 0.16 }
+    /// Live stage floor reflection: off on low-end and mid-end iPads. A reflection renders the whole scene one extra time, so like shadows it is a major cost.
+    static var floorReflectivity: CGFloat { (isLowEnd || isMidEndPad) ? 0 : 0.16 }
 
-    /// Floor reflection strength in sky mode (sky mode relies on the reflection alone, so low-end lowers it rather than turning it off).
-    static var skyFloorReflectivity: CGFloat { isLowEnd ? 0 : 0.5 }
+    /// Floor reflection strength in sky mode (sky mode relies on the reflection alone, so low-end/mid-end lowers it rather than turning it off).
+    static var skyFloorReflectivity: CGFloat { isLowEnd ? 0 : (isMidEndPad ? 0.22 : 0.5) }
 
-    /// Real-time soft shadows from the directional light: off on low-end, since the contact shadow texture under the feet already sells the grounding.
-    static var dynamicShadows: Bool { !isLowEnd }
+    /// Real-time soft shadows from the directional light: off on low-end and mid-end iPads to save draw calls and shadow pass overhead on high-res panels.
+    static var dynamicShadows: Bool { !(isLowEnd || isMidEndPad) }
 
     /// Soft shadow sample count: the previous fixed 16 was too heavy (forward mode runs a shadow pass every frame).
-    static var shadowSampleCount: Int { isLowEnd ? 4 : 8 }
+    static var shadowSampleCount: Int { (isLowEnd || isMidEndPad) ? 4 : 8 }
 
     /// Skeletal playback frame rate: the mocap source is 30fps anyway, so there is no need to re-skin at 60Hz.
     static var playbackFPS: Int { 30 }
@@ -71,9 +89,9 @@ enum DeviceTier {
     /// lower figure still leaves a clean picture - the pixels it is spread over are fewer.
     static var captureBitsPerPixel: Double { isLowEnd ? 0.12 : 0.15 }
 
-    /// People occlusion in AR: off on low-end. It is a full-frame depth segmentation pass.
-    static var allowsPeopleOcclusion: Bool { !isLowEnd }
+    /// People occlusion in AR: off on low-end and mid-end iPads. It is a full-frame depth segmentation pass.
+    static var allowsPeopleOcclusion: Bool { !(isLowEnd || isMidEndPad) }
 
-    /// High-end cinematic effects (Depth of Field, Motion Blur): off on low-end.
-    static var allowsCinematicEffects: Bool { !isLowEnd }
+    /// High-end cinematic effects (Depth of Field, Motion Blur): off on low-end and mid-end iPads.
+    static var allowsCinematicEffects: Bool { !(isLowEnd || isMidEndPad) }
 }
