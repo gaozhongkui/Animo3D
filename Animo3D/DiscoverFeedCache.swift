@@ -21,6 +21,7 @@
 //
 
 import Foundation
+import UIKit
 
 struct DiscoverPage: Codable {
     let models: [SketchfabModel]
@@ -36,6 +37,16 @@ final class DiscoverFeedCache {
 
     private let lock = NSLock()
     private var memory: [String: DiscoverPage] = [:]
+
+    private init() {
+        NotificationCenter.default.addObserver(self, selector: #selector(clearMemory), name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+    }
+
+    @objc private func clearMemory() {
+        lock.lock()
+        memory.removeAll()
+        lock.unlock()
+    }
 
     private let dir: URL = {
         let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]

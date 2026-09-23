@@ -1952,6 +1952,12 @@ struct CharacterSceneView: UIViewRepresentable {
         controller.syncCameraControl()
     }
 
+    static func dismantleUIView(_ uiView: SCNView, coordinator: Coordinator) {
+        uiView.delegate = nil
+        uiView.scene = nil
+        uiView.pointOfView = nil
+    }
+
     /// "Stage" background image with vertical gradient + bottom spotlight. Fixed content -> generated once and reused
     /// (previously a 300x650 CG image was redrawn every time updateBackgroundAndGround() was called).
     static let skyImage: UIImage = makeSkyBackdrop()
