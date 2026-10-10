@@ -58,6 +58,7 @@ final class ProStore: ObservableObject {
     // MARK: - Catalog
 
     func loadProducts() async {
+        loadFailed = false
         do {
             let fetched = try await Product.products(for: Self.productIDs)
             // Keep the declared order; StoreKit returns them in whatever order it likes.

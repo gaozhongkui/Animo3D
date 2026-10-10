@@ -119,7 +119,16 @@ struct PaywallView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 } else if store.loadFailed {
-                    Text("App Store unavailable").font(.footnote).foregroundStyle(.secondary)
+                    VStack(spacing: 8) {
+                        Text("App Store unavailable").font(.footnote).foregroundStyle(.secondary)
+                        Button {
+                            Task { await store.loadProducts() }
+                        } label: {
+                            Label("Tap to Retry", systemImage: "arrow.clockwise")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(Color(rgb: 0x6366F1))
+                        }
+                    }
                 } else {
                     ProgressView()
                 }
