@@ -5,9 +5,7 @@
 //  In-app purchases (StoreKit 2). Pro unlocks every character, dance and track, and drops the
 //  watermark from exported video.
 //
-//  Sold as an auto-renewable subscription (weekly / monthly / yearly, one group so the tiers can be
-//  swapped freely) plus a non-consumable lifetime unlock. Any one of them grants the same thing, so
-//  entitlement is "does the user own *any* of our product IDs".
+//  Sold as a non-consumable lifetime unlock.
 //
 //  Local testing: Product > Scheme > Edit Scheme > Run > Options > StoreKit Configuration >
 //  Animo3D.storekit.
@@ -23,7 +21,7 @@ final class ProStore: ObservableObject {
 
     enum Tier: String, CaseIterable {
         case lifetime
-        var productID: String { "com.animar.ar.companion.Animo3D.pro." + rawValue }
+        var productID: String { "com.animar.ar.companion.animo.lifetime" }
     }
 
     /// Every product that grants Pro.
@@ -71,41 +69,7 @@ final class ProStore: ObservableObject {
         }
     }
 
-    var subscriptions: [Product] { products.filter { $0.type == .autoRenewable } }
     var lifetime: Product? { products.first { $0.id == Tier.lifetime.productID } }
-
-    /// "3 days free" style line for a product's introductory offer, or nil when it has none.
-    func introOfferText(for product: Product) -> String? {
-        guard let offer = product.subscription?.introductoryOffer else { return nil }
-        let unit = offer.period.unit
-        let n = offer.period.value
-        let name: String
-        switch unit {
-        case .day:   name = n == 1 ? "day" : "days"
-        case .week:  name = n == 1 ? "week" : "weeks"
-        case .month: name = n == 1 ? "month" : "months"
-        case .year:  name = n == 1 ? "year" : "years"
-        @unknown default: name = "days"
-        }
-        switch offer.paymentMode {
-        case .freeTrial:  return "\(n) \(name) free"
-        case .payAsYouGo: return "\(offer.displayPrice) per \(name)"
-        case .payUpFront: return "\(offer.displayPrice) for \(n) \(name)"
-        default:          return nil
-        }
-    }
-
-    /// "week" / "month" / "year", for the "$2.99 / week" line. nil for the lifetime unlock.
-    func periodText(for product: Product) -> String? {
-        guard let period = product.subscription?.subscriptionPeriod else { return nil }
-        switch period.unit {
-        case .day:   return period.value == 1 ? "day" : "\(period.value) days"
-        case .week:  return period.value == 1 ? "week" : "\(period.value) weeks"
-        case .month: return period.value == 1 ? "month" : "\(period.value) months"
-        case .year:  return period.value == 1 ? "year" : "\(period.value) years"
-        @unknown default: return nil
-        }
-    }
 
     // MARK: - Buying
 
