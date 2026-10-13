@@ -102,7 +102,7 @@ private struct PreviewShell: View {
             }
         }
         .task { await stage.load(character: character, dance: dance) }
-        .onDisappear { stage.stop() }
+        .onDisappear { stage.unload() }
     }
 }
 

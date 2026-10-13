@@ -33,7 +33,7 @@ struct LiveDanceView: UIViewRepresentable {
         func cancel() {
             task?.cancel()
             task = nil
-            performer.stop()
+            performer.unload()
         }
     }
 

@@ -16,6 +16,7 @@ struct DanceStudioView: View {
     var initialDance: String? = nil
     @ObservedObject private var remoteAssets = RemoteAssets.shared
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var stage = DancePerformer(owner: "DanceStage", groundEnabled: true)
     @StateObject private var recorder = SceneViewRecorder()
@@ -152,8 +153,15 @@ struct DanceStudioView: View {
             // The grid only shows pre-rendered art; pull the full take now.
             stage.prewarm(dance: d)
         }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                stage.resume()
+            } else {
+                stage.pause()
+            }
+        }
         .onDisappear {
-            music.stop(); vfx.remove(); stage.stop()
+            music.stop(); vfx.remove(); stage.unload()
             // Leaving before performing is the drop-off. Step counts alone cannot separate "went
             // back a step" from "gave up here"; this can.
             if step != .perform { Track.log(.studioAbandoned, ["step": String(describing: step)]) }

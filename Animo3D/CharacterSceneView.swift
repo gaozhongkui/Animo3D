@@ -66,6 +66,97 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// SceneKit's render thread - switching character mid-frame used to be a crash window.
     private let springLock = NSLock()
 
+    @Published var isSceneActive: Bool = true
+
+    private var memoryObserver: NSObjectProtocol?
+    private var backgroundObserver: NSObjectProtocol?
+    private var activeObserver: NSObjectProtocol?
+
+    init() {
+        memoryObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleLowMemory()
+        }
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.isSceneActive = false
+        }
+        activeObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.isSceneActive = true
+        }
+    }
+
+    deinit {
+        if let memoryObserver { NotificationCenter.default.removeObserver(memoryObserver) }
+        if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
+        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
+        tearDown()
+    }
+
+    func pause() {
+        isSceneActive = false
+    }
+
+    func resume() {
+        isSceneActive = true
+    }
+
+    /// Explicitly unmount and purge 3D character nodes, materials, and geometries from GPU memory.
+    func tearDown() {
+        springLock.lock()
+        springBones.removeAll()
+        springLock.unlock()
+        colliders.removeAll()
+        boneNodes.removeAll()
+        boundsNodes.removeAll()
+        vrmHumanoid.removeAll()
+        bindPose.removeAll()
+        vrmNode = nil
+        facialSoul = nil
+
+        purgeNode(characterRoot)
+        characterRoot = nil
+        isLoaded = false
+    }
+
+    /// Purges materials, geometries, and child nodes to ensure Metal GPU texture resources are freed immediately.
+    private func purgeNode(_ root: SCNNode?) {
+        guard let root else { return }
+        root.enumerateChildNodes { node, _ in
+            node.removeAllAnimations()
+            if let geometry = node.geometry {
+                for mat in geometry.materials {
+                    mat.diffuse.contents = nil
+                    mat.normal.contents = nil
+                    mat.roughness.contents = nil
+                    mat.metalness.contents = nil
+                    mat.ambientOcclusion.contents = nil
+                    mat.emission.contents = nil
+                    mat.transparent.contents = nil
+                }
+                node.geometry = nil
+            }
+            node.skinner = nil
+            node.removeFromParentNode()
+        }
+        root.removeAllAnimations()
+        root.removeFromParentNode()
+    }
+
+    private func handleLowMemory() {
+        SCNTransaction.flush()
+    }
+
     @Published var userScale: Float = 1.0 {
         didSet { characterRoot?.simdScale = simd_float3(repeating: userScale) }
     }
@@ -140,10 +231,9 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// Install the pre-parsed scene into this controller (lightweight, main thread).
     @discardableResult
     func install(_ loaded: SCNScene) -> [String] {
-        // Reuse the same scene: remove the old character first, otherwise every switch stacks
-        // another character and its textures in memory (this is what crashed the device after a
-        // handful of switches).
-        characterRoot?.removeFromParentNode()
+        // Reuse the same scene: purge the old character first, unbinding textures and geometries so
+        // Metal releases them immediately rather than stacking characters in memory.
+        purgeNode(characterRoot)
         boneNodes.removeAll()
         boundsNodes.removeAll()
         vrmHumanoid.removeAll()
@@ -311,7 +401,7 @@ final class CharacterSceneController: ObservableObject, BoneRig {
     /// a swing *delta* on the pose the `.vrma` player wrote. Everything is scale-relative, so the
     /// pinch gesture does not change how the secondary movement behaves.
     func updatePhysics() {
-        guard isLoaded else { return }
+        guard isLoaded, isSceneActive else { return }
         let t = CACurrentMediaTime()
 
         // 1. For VRM models, let the library update bone physics/springs first.

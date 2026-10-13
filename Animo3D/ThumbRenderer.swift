@@ -66,6 +66,33 @@ final class ThumbRenderer {
         return c
     }()
 
+    private var memoryObserver: NSObjectProtocol?
+
+    private init() {
+        memoryObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.clearMemoryCache()
+        }
+    }
+
+    deinit {
+        if let memoryObserver {
+            NotificationCenter.default.removeObserver(memoryObserver)
+        }
+    }
+
+    func clearMemoryCache() {
+        mem.removeAllObjects()
+        renderQ.async { [weak self] in
+            self?.signatures.removeAll()
+            self?.controller.tearDown()
+            self?.loadedKey = ""
+        }
+    }
+
     private lazy var device = MTLCreateSystemDefaultDevice()
     private var renderer: SCNRenderer?                      // renderQ only
     private let controller = CharacterSceneController()      // renderQ only

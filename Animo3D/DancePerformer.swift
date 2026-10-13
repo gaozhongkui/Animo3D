@@ -187,6 +187,18 @@ final class DancePerformer: ObservableObject {
     /// `PoseRetargeter` is for.
     func drive(_ world: [simd_float3]) { retargeter?.apply(world: world) }
 
+    /// Pause 3D animation ticks and spring physics updates when offscreen or in background.
+    func pause() {
+        vrmaPlayer?.pause()
+        controller.pause()
+    }
+
+    /// Resume 3D animation ticks and spring physics updates when active.
+    func resume() {
+        vrmaPlayer?.resume()
+        controller.resume()
+    }
+
     /// Always call this when the view goes away: `CADisplayLink(target:)` retains its target, so a
     /// player left running keeps burning CPU after the page is dismissed.
     func stop() {
@@ -194,6 +206,20 @@ final class DancePerformer: ObservableObject {
         vrmaPlayer?.stop()
         vrmaPlayer = nil
         loadedDance = ""
+    }
+
+    /// Unload mounted character and release SceneKit resources.
+    func unload() {
+        stop()
+        controller.tearDown()
+        isReady = false
+        loadedCharacter = ""
+        loadedDance = ""
+        prewarmKey = ""
+        prewarmTask?.cancel()
+        prewarmTask = nil
+        retargeter = nil
+        loadedClip = nil
     }
 
     /// Ride the camera along with the take, so the dancer fills the frame throughout.

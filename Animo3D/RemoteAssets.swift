@@ -33,6 +33,7 @@
 
 import Foundation
 import Combine
+import UIKit
 
 // MARK: - Catalog models
 
@@ -205,6 +206,8 @@ final class RemoteAssets: ObservableObject {
     private var catalogCacheURL: URL { cacheDir.appendingPathComponent("_index.json") }
     private var userIndexURL: URL { cacheDir.appendingPathComponent("_user_index.json") }
 
+    private var memoryObserver: NSObjectProtocol?
+
     private init() {
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         // Load user-imported characters first
@@ -218,6 +221,26 @@ final class RemoteAssets: ObservableObject {
         if let cat = decodeCatalog(try? Data(contentsOf: catalogCacheURL), from: "cache") {
             apply(cat, source: .cache)
         }
+
+        memoryObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleLowMemory()
+        }
+    }
+
+    deinit {
+        if let memoryObserver {
+            NotificationCenter.default.removeObserver(memoryObserver)
+        }
+    }
+
+    private func handleLowMemory() {
+        lock.lock()
+        defer { lock.unlock() }
+        inFlight = inFlight.filter { !$0.value.isCancelled }
     }
 
     // MARK: - Catalog

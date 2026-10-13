@@ -268,9 +268,12 @@ final class VRMAnimationPlayer {
         return simd_quatf(simd_float3x3(left, up, forward))
     }
 
+    private(set) var isPaused = false
+
     func start() {
         stop()
         startTime = 0
+        isPaused = false
         let link = DisplayLinkProxy.create(target: self) { [weak self] l in
             self?.tick(l)
         }
@@ -283,11 +286,26 @@ final class VRMAnimationPlayer {
         self.link = link
     }
 
+    /// Pause animation playback and halt CADisplayLink ticks to save CPU/GPU cycles when offscreen or backgrounded.
+    func pause() {
+        guard !isPaused else { return }
+        isPaused = true
+        link?.isPaused = true
+    }
+
+    /// Resume animation playback ticks when coming back to active state.
+    func resume() {
+        guard isPaused else { return }
+        isPaused = false
+        link?.isPaused = false
+    }
+
     /// `CADisplayLink(target:)` retains its target, so a player left running keeps posing a
     /// skeleton nobody is looking at. Every owner has to call this when its view goes away.
     func stop() {
         link?.invalidate()
         link = nil
+        isPaused = false
     }
 
     @objc private func tick(_ link: CADisplayLink) {
