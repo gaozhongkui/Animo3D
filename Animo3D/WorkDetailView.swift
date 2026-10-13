@@ -27,6 +27,11 @@ struct WorkDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var showSavedBanner = false
 
+    @State private var gifURL: URL?
+    @State private var preparingGIF = false
+    @State private var gifProgress: Float = 0.0
+    @State private var showGIFShare = false
+
     var body: some View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
@@ -71,11 +76,12 @@ struct WorkDetailView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
-            // Bottom: share / delete
+            // Bottom: share / gif / delete
             VStack {
                 Spacer()
-                HStack(spacing: UIDevice.current.userInterfaceIdiom == .pad ? 80 : 40) {
+                HStack(spacing: UIDevice.current.userInterfaceIdiom == .pad ? 60 : 30) {
                     shareButton
+                    gifButton
                     actionButton("trash", "Delete", tint: .red) { showDeleteConfirm = true }
                 }
                 .padding(.bottom, 36)
@@ -86,6 +92,11 @@ struct WorkDetailView: View {
             // The prepared item when it is ready, the bare URL if the thumbnail could not be made -
             // a missing preview is not a reason to refuse to share.
             ShareSheet(items: [shareItem ?? url])
+        }
+        .sheet(isPresented: $showGIFShare) {
+            if let gif = gifURL {
+                ShareSheet(items: [gif])
+            }
         }
         .confirmationDialog("Delete this creation?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
@@ -137,6 +148,50 @@ struct WorkDetailView: View {
             .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
         }
         .disabled(preparingShare)
+    }
+
+    private var gifButton: some View {
+        Button {
+            guard !preparingGIF else { return }
+            HapticManager.light()
+            if gifURL != nil {
+                showGIFShare = true
+                return
+            }
+            preparingGIF = true
+            gifProgress = 0.0
+            Task {
+                let generatedGIF = await GIFExporter.convertToGIF(videoURL: url) { p in
+                    Task { @MainActor in gifProgress = p }
+                }
+                await MainActor.run {
+                    preparingGIF = false
+                    if let generatedGIF {
+                        gifURL = generatedGIF
+                        showGIFShare = true
+                        HapticManager.success()
+                    }
+                }
+            }
+        } label: {
+            VStack(spacing: 6) {
+                ZStack {
+                    Image(systemName: "photo.stack")
+                        .font(.title2)
+                        .opacity(preparingGIF ? 0 : 1)
+                    if preparingGIF {
+                        ProgressView().tint(.white)
+                    }
+                }
+                .frame(height: 26)
+                Text(preparingGIF ? "\(Int(gifProgress * 100))%" : "GIF")
+                    .font(.caption)
+            }
+            .foregroundStyle(.white)
+            .frame(width: 64, height: 60)
+            .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
+        }
+        .disabled(preparingGIF)
     }
 
     private func actionButton(_ icon: String, _ title: LocalizedStringKey, tint: Color = .white, action: @escaping () -> Void) -> some View {

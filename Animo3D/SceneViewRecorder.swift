@@ -155,11 +155,18 @@ final class SceneViewRecorder: ObservableObject {
             view.preferredFramesPerSecond = fps
         }
 
-        let l = CADisplayLink(target: self, selector: #selector(capture(_:)))
+        let l = DisplayLinkProxy.create(target: self) { [weak self] link in
+            self?.capture(link)
+        }
         l.preferredFramesPerSecond = fps
         l.add(to: .main, forMode: .common)
         link = l
         isRecording = true
+    }
+
+    deinit {
+        link?.invalidate()
+        link = nil
     }
 
     @objc private func capture(_ link: CADisplayLink) {

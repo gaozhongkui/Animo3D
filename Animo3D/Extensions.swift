@@ -101,3 +101,34 @@ enum StorageManager {
         for file in files { try? fm.removeItem(at: file) }
     }
 }
+
+// MARK: - CADisplayLink Weak Proxy
+
+/// A weak proxy for `CADisplayLink` to prevent strong reference cycles (memory leaks).
+/// `CADisplayLink(target:selector:)` retains its target strongly, preventing deallocation.
+/// `DisplayLinkProxy` holds a weak reference to the target and automatically invalidates
+/// the display link when the target is deallocated.
+final class DisplayLinkProxy: NSObject {
+    private weak var target: AnyObject?
+    private let tickBlock: (CADisplayLink) -> Void
+
+    init(target: AnyObject, tickBlock: @escaping (CADisplayLink) -> Void) {
+        self.target = target
+        self.tickBlock = tickBlock
+        super.init()
+    }
+
+    static func create(target: AnyObject, onTick: @escaping (CADisplayLink) -> Void) -> CADisplayLink {
+        let proxy = DisplayLinkProxy(target: target, tickBlock: onTick)
+        return CADisplayLink(target: proxy, selector: #selector(proxy.handleTick(_:)))
+    }
+
+    @objc private func handleTick(_ link: CADisplayLink) {
+        if target != nil {
+            tickBlock(link)
+        } else {
+            link.invalidate()
+        }
+    }
+}
+

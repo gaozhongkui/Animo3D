@@ -271,7 +271,9 @@ final class VRMAnimationPlayer {
     func start() {
         stop()
         startTime = 0
-        let link = CADisplayLink(target: self, selector: #selector(tick))
+        let link = DisplayLinkProxy.create(target: self) { [weak self] l in
+            self?.tick(l)
+        }
         // Above the take's own 30fps on purpose. Sampling is against a continuous clock rather
         // than stepping one stored frame per tick, so the extra ticks cost one slerp per bone and
         // buy real smoothing. It matters: a fast take's forearms turn a median 13 degrees *per

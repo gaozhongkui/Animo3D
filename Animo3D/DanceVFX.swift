@@ -99,9 +99,15 @@ final class DanceVFX {
         if cur.notes { buildNotes() }
         if cur.ripples { buildRipplePool() }
 
-        let l = CADisplayLink(target: self, selector: #selector(tick))
+        let l = DisplayLinkProxy.create(target: self) { [weak self] _ in
+            self?.tick()
+        }
         l.add(to: .main, forMode: .common)
         link = l
+    }
+
+    deinit {
+        remove()
     }
 
     func remove() {

@@ -18,7 +18,11 @@ import UIKit
 enum VideoAudioMixer {
     /// Mix background music into a recorded clip. Returns nil if anything fails, so the caller can
     /// fall back to the original recording.
-    static func export(video videoURL: URL, audio audioURL: URL?) async -> URL? {
+    static func export(
+        video videoURL: URL,
+        audio audioURL: URL?,
+        onProgress: ((Float) -> Void)? = nil
+    ) async -> URL? {
         let comp = AVMutableComposition()
         let videoAsset = AVURLAsset(url: videoURL)
 
@@ -55,6 +59,18 @@ enum VideoAudioMixer {
             export.outputURL = out
             export.outputFileType = .mp4
 
+            // 实时导出进度轮询任务 (每 50ms 回调一次进度)
+            let progressTask = Task {
+                while !Task.isCancelled {
+                    let currentProgress = export.progress
+                    onProgress?(currentProgress)
+                    if export.status == .completed || export.status == .failed || export.status == .cancelled {
+                        break
+                    }
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                }
+            }
+
             // 使用标准 Swift 现代并发方案，配合一个带锁的原子隔离闭包隔离处理，彻底杜绝底层多线程并发状态导致的 Continuation 多次 Resume Crash 隐患。
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                 let lock = NSLock()
@@ -70,7 +86,13 @@ enum VideoAudioMixer {
                     }
                 }
             }
-            if export.status == .completed { return out }
+
+            progressTask.cancel()
+
+            if export.status == .completed {
+                onProgress?(1.0)
+                return out
+            }
             print("[Export] failed: \(export.error?.localizedDescription ?? "unknown")")
             return nil
         } catch {

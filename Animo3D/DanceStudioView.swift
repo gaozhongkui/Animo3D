@@ -47,6 +47,7 @@ struct DanceStudioView: View {
     @State private var finished: FinishedWork?      // Completion page after a recording
     @State private var showAudioDoc = false
     @State private var processing = false   // Mixing music
+    @State private var exportProgress: Float = 0.0
     /// When the current take started, so `record_finished` can carry its length.
     @State private var recordStartedAt: Date?
     /// When Start Performance was pressed, so `stage_ready` can carry how long the user waited for
@@ -106,7 +107,13 @@ struct DanceStudioView: View {
         }
         // Use one simple standard animation throughout and drop all the nested withAnimation calls
         .animation(.default, value: step)
-        .overlay { if loading { StageLoadingHUD(progress: remoteAssets.activeDownloadProgress) } }
+        .overlay {
+            if loading {
+                StageLoadingHUD(progress: remoteAssets.activeDownloadProgress)
+            } else if processing {
+                ExportingHUD(progress: exportProgress)
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)   // It ships its own unified back/close button
         .sheet(isPresented: $showShare) { if let url = shareURL { ShareSheet(items: [url]) } }
@@ -689,14 +696,18 @@ struct DanceStudioView: View {
                     // The watermark is already in the frames, so only music still needs an export pass.
                     if let audio = selectedMusic?.url {
                         processing = true
+                        exportProgress = 0.0
                         Task {
                             let exportStart = CFAbsoluteTimeGetCurrent()
-                            let final = await VideoAudioMixer.export(video: url, audio: audio) ?? url
+                            let final = await VideoAudioMixer.export(video: url, audio: audio) { p in
+                                Task { @MainActor in exportProgress = p }
+                            } ?? url
                             await MainActor.run {
                                 Track.log(.exportFinished, ["ms": Track.ms(since: exportStart),
                                                             "ok": final == url ? "no" : "yes"])
                                 HapticManager.success()
                                 processing = false
+                                exportProgress = 0.0
                                 if let saved = WorksStore.shared.add(from: final) {
                                     Track.log(.workSaved, ["music": "yes"])
                                     finished = FinishedWork(url: saved)
@@ -980,3 +991,35 @@ struct ARCoachView: View {
         .onAppear { isAnimating = true }
     }
 }
+
+// MARK: - Exporting HUD
+
+private struct ExportingHUD: View {
+    let progress: Float
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.65).ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                ProgressView()
+                    .tint(.white)
+                    .scaleEffect(1.3)
+
+                VStack(spacing: 8) {
+                    Text(L("Mixing music & exporting…"))
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+
+                    Text("\(Int(progress * 100))%")
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.vertical, 24)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+    }
+}
+

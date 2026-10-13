@@ -33,6 +33,7 @@ final class VideoPoseViewModel: ObservableObject {
     private var service: PoseLandmarkerService?
     private var videoOutput: AVPlayerItemVideoOutput?
     private var displayLink: CADisplayLink?
+    private var playerObserverToken: NSObjectProtocol?
     private var orientation: UIImage.Orientation = .up
     // MediaPipe's video mode requires strictly increasing timestamps. Looping the video rewinds the playback time to 0,
     // so playback time cannot be used as the timestamp directly - after one loop it would never grow again and detection would stall completely.
@@ -90,8 +91,13 @@ final class VideoPoseViewModel: ObservableObject {
 
         player.replaceCurrentItem(with: item)
 
+        if let token = playerObserverToken {
+            NotificationCenter.default.removeObserver(token)
+            playerObserverToken = nil
+        }
+
         // Loop playback, which makes repeated observation easier
-        NotificationCenter.default.addObserver(
+        playerObserverToken = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
         ) { [weak self] _ in
             self?.player.seek(to: .zero)
@@ -106,7 +112,9 @@ final class VideoPoseViewModel: ObservableObject {
 
     private func startDisplayLink() {
         displayLink?.invalidate()
-        let link = CADisplayLink(target: self, selector: #selector(onFrame))
+        let link = DisplayLinkProxy.create(target: self) { [weak self] _ in
+            self?.onFrame()
+        }
         link.preferredFramesPerSecond = 30
         link.add(to: .main, forMode: .common)
         displayLink = link
@@ -161,6 +169,10 @@ final class VideoPoseViewModel: ObservableObject {
         player.pause()
         displayLink?.invalidate()
         displayLink = nil
+        if let token = playerObserverToken {
+            NotificationCenter.default.removeObserver(token)
+            playerObserverToken = nil
+        }
         isRunning = false
     }
 
