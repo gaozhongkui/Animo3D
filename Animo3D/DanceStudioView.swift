@@ -69,6 +69,8 @@ struct DanceStudioView: View {
     /// index onto a different scene.
     @AppStorage("stage.id") private var stageID = CharacterSceneController.Stage.plaza.id
     @State private var showStagePicker = false
+    @State private var selectedDanceCategory: String = "all"
+    @State private var danceDisplayCount: Int = 12
 
 
     var body: some View {
@@ -292,81 +294,140 @@ struct DanceStudioView: View {
         return s < 60 ? "\(s)s" : String(format: "%d:%02d", s / 60, s % 60)
     }
 
-    // MARK: Step 2 - select dance (cards are pre-rendered art, see DanceThumb)
-    private var danceStep: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
-                ForEach(Array(remoteAssets.dances.enumerated()), id: \.element.id) { i, d in
-                    let isSelected = dance == d.id
-                    VStack(alignment: .leading, spacing: 10) {
-                        ZStack(alignment: .bottomLeading) {
-                            Group {
-                                if isSelected && DeviceTier.allowsLiveDanceCards {
-                                    // The same aspect the static card carries, and for the same
-                                    // reason: `CardBackdrop` is a GeometryReader and `LiveDanceView`
-                                    // is a UIViewRepresentable, so neither offers an intrinsic
-                                    // height. Without this the selected cell collapsed to a sliver
-                                    // and the live dance read as "selection stopped the card".
-                                    CardBackdrop(style: i)
-                                        .overlay(LiveDanceView(character: previewCharacter, dance: d.id,
-                                                               accent: CardBackdrop.accent(for: i)))
-                                        .aspectRatio(3.0/4.0, contentMode: .fill)
-                                } else {
-                                    DanceCardView(character: previewCharacter, dance: d.id, style: i,
-                                                  animated: true)
-                                        .aspectRatio(3.0/4.0, contentMode: .fill)
-                                }
-                            }
-                            .background(Color(.secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                    .stroke(isSelected ? CardBackdrop.accent(for: i).opacity(0.95)
-                                                       : .white.opacity(0.12),
-                                            lineWidth: isSelected ? 2.5 : 0.5)
-                            )
-                            // Selection reads as stage light, not as a form control: the card lifts
-                            // and glows, in its own accent rather than the system blue.
-                            .shadow(color: isSelected ? CardBackdrop.accent(for: i).opacity(0.4)
-                                                      : .black.opacity(0.25),
-                                    radius: isSelected ? 15 : 8, x: 0, y: isSelected ? 8 : 4)
-                            .scaleEffect(isSelected ? 1.04 : 1)
-                            .animation(.spring(response: 0.32, dampingFraction: 0.7), value: isSelected)
+    private var filteredDances: [DanceItem] {
+        if selectedDanceCategory == "all" {
+            return remoteAssets.dances
+        } else {
+            return remoteAssets.dances.filter { d in
+                d.categories?.contains(selectedDanceCategory) ?? false
+            }
+        }
+    }
 
-                            // Light, and low: `CardBackdrop` already ends in a darkened floor, so
-                            // this only has to cover the live preview, which brings its own
-                            // lighting. Heavier than this and it crushed the render's lower half
-                            // twice over - once in the backdrop, once here.
-                            LinearGradient(colors: [.clear, .black.opacity(0.32)],
-                                           startPoint: .init(x: 0.5, y: 0.55), endPoint: .bottom)
-                                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    private var displayedDances: [DanceItem] {
+        Array(filteredDances.prefix(danceDisplayCount))
+    }
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                // Two lines: "Booty Hip Hop Dance" and "Dancing Maraschino Step" do
-                                // not fit on one at this size, and a truncated dance name is the
-                                // one thing on this card the user is actually reading.
-                                Text(d.name)
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(2)
-                                    .minimumScaleFactor(0.85)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Text(danceMeta(d)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.85))
-                            }
-                            .padding(12)
-                        }
-                    }
-                    .onTapGesture {
-                        HapticManager.light()
-                        dance = d.id
-                        Track.log(.danceSelected, ["dance": d.id, "character": character])
-                    }
+    private var danceCategoryPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                categoryPill(id: "all", label: "All")
+                ForEach(remoteAssets.danceCategories) { cat in
+                    categoryPill(id: cat.id, label: cat.name)
                 }
             }
-            // Top padding is not decoration: a card's selection stroke, its shadow and (on the
-            // dance grid) its 1.03 scale all extend past its own bounds, and with the grid flush
-            // against the scroll view's top edge the first row had all three clipped off.
-            .padding(.horizontal).padding(.top, 12).padding(.bottom, 20)
+            .padding(.horizontal)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func categoryPill(id: String, label: String) -> some View {
+        let isSelected = selectedDanceCategory == id
+        return Text(NSLocalizedString(label, comment: label))
+            .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+            .foregroundStyle(isSelected ? .white : .primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(
+                Capsule()
+                    .fill(isSelected ? Color.accentColor : Color(.tertiarySystemFill))
+            )
+            .onTapGesture {
+                HapticManager.light()
+                withAnimation(.default) {
+                    selectedDanceCategory = id
+                    danceDisplayCount = 12
+                }
+            }
+    }
+
+    // MARK: Step 2 - select dance (cards are pre-rendered art, see DanceThumb)
+    private var danceStep: some View {
+        VStack(spacing: 0) {
+            if !remoteAssets.danceCategories.isEmpty {
+                danceCategoryPicker
+            }
+
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
+                    ForEach(Array(displayedDances.enumerated()), id: \.element.id) { i, d in
+                        let isSelected = dance == d.id
+                        VStack(alignment: .leading, spacing: 10) {
+                            ZStack(alignment: .bottomLeading) {
+                                Group {
+                                    if isSelected && DeviceTier.allowsLiveDanceCards {
+                                        // The same aspect the static card carries, and for the same
+                                        // reason: `CardBackdrop` is a GeometryReader and `LiveDanceView`
+                                        // is a UIViewRepresentable, so neither offers an intrinsic
+                                        // height. Without this the selected cell collapsed to a sliver
+                                        // and the live dance read as "selection stopped the card".
+                                        CardBackdrop(style: i)
+                                            .overlay(LiveDanceView(character: previewCharacter, dance: d.id,
+                                                                   accent: CardBackdrop.accent(for: i)))
+                                            .aspectRatio(3.0/4.0, contentMode: .fill)
+                                    } else {
+                                        DanceCardView(character: previewCharacter, dance: d.id, style: i,
+                                                      animated: true)
+                                            .aspectRatio(3.0/4.0, contentMode: .fill)
+                                    }
+                                }
+                                .background(Color(.secondarySystemBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .stroke(isSelected ? CardBackdrop.accent(for: i).opacity(0.95)
+                                                           : .white.opacity(0.12),
+                                                lineWidth: isSelected ? 2.5 : 0.5)
+                                )
+                                // Selection reads as stage light, not as a form control: the card lifts
+                                // and glows, in its own accent rather than the system blue.
+                                .shadow(color: isSelected ? CardBackdrop.accent(for: i).opacity(0.4)
+                                                          : .black.opacity(0.25),
+                                        radius: isSelected ? 15 : 8, x: 0, y: isSelected ? 8 : 4)
+                                .scaleEffect(isSelected ? 1.04 : 1)
+                                .animation(.spring(response: 0.32, dampingFraction: 0.7), value: isSelected)
+
+                                // Light, and low: `CardBackdrop` already ends in a darkened floor, so
+                                // this only has to cover the live preview, which brings its own
+                                // lighting. Heavier than this and it crushed the render's lower half
+                                // twice over - once in the backdrop, once here.
+                                LinearGradient(colors: [.clear, .black.opacity(0.32)],
+                                               startPoint: .init(x: 0.5, y: 0.55), endPoint: .bottom)
+                                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    // Two lines: "Booty Hip Hop Dance" and "Dancing Maraschino Step" do
+                                    // not fit on one at this size, and a truncated dance name is the
+                                    // one thing on this card the user is actually reading.
+                                    Text(d.name)
+                                        .font(.system(size: 15, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(2)
+                                        .minimumScaleFactor(0.85)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Text(danceMeta(d)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.85))
+                                }
+                                .padding(12)
+                            }
+                        }
+                        .onTapGesture {
+                            HapticManager.light()
+                            dance = d.id
+                            Track.log(.danceSelected, ["dance": d.id, "character": character])
+                        }
+                        .onAppear {
+                            // Infinite scroll batching: append 12 more cards when near the bottom
+                            if i >= displayedDances.count - 4 && displayedDances.count < filteredDances.count {
+                                danceDisplayCount = min(danceDisplayCount + 12, filteredDances.count)
+                            }
+                        }
+                    }
+                }
+                // Top padding is not decoration: a card's selection stroke, its shadow and (on the
+                // dance grid) its 1.03 scale all extend past its own bounds, and with the grid flush
+                // against the scroll view's top edge the first row had all three clipped off.
+                .padding(.horizontal).padding(.top, 12).padding(.bottom, 20)
+            }
         }
     }
 
