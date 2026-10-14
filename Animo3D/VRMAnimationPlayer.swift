@@ -216,9 +216,7 @@ final class VRMAnimationPlayer {
                     let v = transform * simd_float4(value, 1)
                     return simd_float3(v.x, v.y, v.z)
                 }
-                let reference = simd_float3(mapped[0].x,
-                                            mapped.map(\.y).min() ?? mapped[0].y,
-                                            mapped[0].z)
+                let reference = mapped[0]
                 translation = Hips(track: track, transform: transform,
                                    reference: reference, rest: node.simdPosition)
             }
@@ -273,6 +271,7 @@ final class VRMAnimationPlayer {
     func start() {
         stop()
         startTime = 0
+        plantOffsetY = 0
         isPaused = false
         let link = DisplayLinkProxy.create(target: self) { [weak self] l in
             self?.tick(l)
@@ -373,14 +372,18 @@ final class VRMAnimationPlayer {
 
         let lowestSole = soleOffsets.map { $0.node.simdWorldPosition.y - $0.offset }.min() ?? ground
         let sole = lowestSole - ground
-        let tolerance = torsoLength * 0.02
-        let error: Float = sole > tolerance ? sole - tolerance : (sole < 0 ? sole : 0)
-        guard error != 0 else { return }
 
-        hips.simdWorldPosition.y -= error
-        plantOffsetY += error
-        let limit = torsoLength * 0.5
-        plantOffsetY = min(max(plantOffsetY, -limit), limit)
+        // Correct foot penetration below floor (sole < 0) so soles stay above ground level
+        if sole < 0 {
+            hips.simdWorldPosition.y -= sole
+            plantOffsetY += sole
+            let limit = torsoLength * 0.5
+            plantOffsetY = min(max(plantOffsetY, -limit), limit)
+        } else if plantOffsetY < 0 {
+            let decay = min(-plantOffsetY, sole * 0.1)
+            hips.simdWorldPosition.y += decay
+            plantOffsetY += decay
+        }
     }
 
     /// Re-measure the soles against the floor the character is standing on now, and drop the
