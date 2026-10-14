@@ -56,17 +56,22 @@ struct DanceCardView: View {
                 // Showing static signature frame exclusively when loops is false.
                 // This prevents the semi-transparent overlay "ghosting" or "artifacting"
                 // between the static and moving layers during animation transitions.
-                Image(uiImage: image).resizable().scaledToFit()
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .transition(.opacity)
             } else {
-                ProgressView().tint(.white).scaleEffect(1.2)
+                ProgressView()
+                    .tint(.white)
+                    .scaleEffect(1.1)
             }
         }
+        .animation(.easeInOut(duration: 0.25), value: image != nil)
         .animation(.none, value: loops) // Disable container interpolation which bleeds transparency.
         .onAppear { onScreen = true }
         .onDisappear { onScreen = false }
         .task(id: character + "|" + dance + "|\(style)|\(animated)") {
-            // A memory hit displays synchronously: no loading flash and no disk access, which is
-            // the path that matters while the list scrolls.
+            // Step 1: Render and display static 3D pose cover image first (one by one across cards)
             if let m = ThumbRenderer.shared.memoryCached(character: character, dance: dance, style: style) {
                 image = m
             } else {
@@ -74,15 +79,19 @@ struct DanceCardView: View {
                 frames = []
                 let img = await ThumbRenderer.shared.danceCard(character: character, dance: dance, style: style)
                 guard !Task.isCancelled else { return }
-                image = img
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    image = img
+                }
             }
 
             guard animated, DeviceTier.allowsLiveDanceCards else { return }
 
-            // One frame at a time, and the task is cancelled the moment this cell is recycled - so a
-            // card the user scrolled straight past costs one or two drawings, not ten. They are
-            // handed over as they arrive, which is why the loop starts at three rather than waiting
-            // for the set.
+            // Step 2: Yield so all visible cards in the viewport get their static covers rendered FIRST
+            // before any cell starts queuing 10 consecutive loop frame renders.
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else { return }
+
+            // Step 3: Stream loop frames incrementally
             var built: [UIImage] = []
             for i in 0..<ThumbRenderer.loopFrames {
                 guard !Task.isCancelled else { return }
