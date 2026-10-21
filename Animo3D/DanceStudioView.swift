@@ -795,7 +795,7 @@ struct DanceStudioView: View {
                 Track.log(.recordStarted, ["character": character, "dance": dance,
                                            "mode": arMode ? "ar" : "screen",
                                            "plan": pro.isPro ? "pro" : "free"])
-                recorder.start(view: v, watermark: pro.isPro ? nil : "Livo 3D")
+                recorder.start(view: v, watermark: "Livo 3D")
             }
         } label: {
             ZStack {

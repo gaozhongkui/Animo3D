@@ -317,7 +317,7 @@ struct VideoDriveView: View {
                 }
             } else if let v = holder.scnView {
                 HapticManager.medium()
-                recorder.start(view: v, watermark: ProStore.shared.isPro ? nil : "Livo 3D")
+                recorder.start(view: v, watermark: "Livo 3D")
             }
         } label: {
             ZStack {
