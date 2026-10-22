@@ -70,7 +70,7 @@ final class ProfileViewController: UIViewController {
     private func setupCollectionView() {
         let layout = UICollectionViewCompositionalLayout { [weak self] index, env in
             guard let self = self else { return nil }
-            let section = self.dataSource?.sectionIdentifier(for: index) ?? Section(rawValue: index) ?? .works
+            let section = Section(rawValue: index)!
 
             let containerWidth = env.container.effectiveContentSize.width
             let maxContentWidth: CGFloat = 720
@@ -171,8 +171,8 @@ final class ProfileViewController: UIViewController {
             }
         }
 
-        let titleReg = UICollectionView.SupplementaryRegistration<TitleHeader>(elementKind: UICollectionView.elementKindSectionHeader) { [weak self] h, _, ip in
-            let sec = self?.dataSource?.sectionIdentifier(for: ip.section)
+        let titleReg = UICollectionView.SupplementaryRegistration<TitleHeader>(elementKind: UICollectionView.elementKindSectionHeader) { h, _, ip in
+            let sec = Section(rawValue: ip.section)
             h.label.text = (sec == .works) ? L("My Creations") : ""
         }
         dataSource.supplementaryViewProvider = { cv, kind, ip in
@@ -182,8 +182,9 @@ final class ProfileViewController: UIViewController {
 
     @objc private func reload() {
         var snap = NSDiffableDataSourceSnapshot<Section, Item>()
-        snap.appendSections([.header, .works])
+        snap.appendSections([.header, .pro, .works])
         snap.appendItems([.header(name: L("Livo Creator"), bio: L("Exploring the infinity of 3D motion ✨"), avatar: "")], toSection: .header)
+        snap.appendItems([.pro], toSection: .pro)
         let works = WorksStore.shared.works
         snap.appendItems(works.isEmpty ? [.empty] : works.map { .work($0) }, toSection: .works)
         dataSource.apply(snap, animatingDifferences: false)
@@ -200,7 +201,9 @@ final class ProfileViewController: UIViewController {
         present(host, animated: true)
     }
     private func openPaywall() {
-        // Paywall disabled for App Store review
+        let host = UIHostingController(rootView: PaywallView(
+            onClose: { [weak self] in self?.dismiss(animated: true) }, source: "profile"))
+        present(host, animated: true)
     }
 
     @objc private func openSettings() {
@@ -223,6 +226,7 @@ extension ProfileViewController: UICollectionViewDelegate {
         cv.deselectItem(at: ip, animated: true)
         guard let item = dataSource.itemIdentifier(for: ip) else { return }
         switch item {
+        case .pro: openPaywall()
         case .work(let url): openWork(url)
         default: break
         }

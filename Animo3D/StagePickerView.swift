@@ -36,13 +36,20 @@ struct StagePickerView: View {
 
     private let columns = [GridItem(.adaptive(minimum: 150), spacing: 12)]
 
-    /// All stages are unlocked.
+    /// The one stage anyone can use. Changing where you dance is what Pro buys here, so the stage
+    /// the app opens in stays free - a locked default would mean a paywall between the user and the
+    /// screen they were already on.
     private var isLocked: (String) -> Bool {
-        { _ in false }
+        { id in !store.isPro && id != CharacterSceneController.Stage.plaza.id }
     }
 
     private func choose(_ id: String) {
-        onPick(id)
+        if isLocked(id) {
+            Track.log(.lockedItemTapped, ["kind": "stage", "id": id])
+            showPaywall = true
+        } else {
+            onPick(id)
+        }
     }
 
     var body: some View {
@@ -83,10 +90,21 @@ struct StagePickerView: View {
                     Button { onClose() } label: { Image(systemName: "xmark") }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    PhotosPicker(selection: $photo, matching: .images, photoLibrary: .shared()) {
-                        if importing { ProgressView() } else { Image(systemName: "plus") }
+                    // A picture imported without Pro would be a stage the user cannot then stand
+                    // in, so the import asks the same question the stages do.
+                    if store.isPro {
+                        PhotosPicker(selection: $photo, matching: .images, photoLibrary: .shared()) {
+                            if importing { ProgressView() } else { Image(systemName: "plus") }
+                        }
+                        .disabled(importing)
+                    } else {
+                        Button {
+                            Track.log(.lockedItemTapped, ["kind": "stage_import"])
+                            showPaywall = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
                     }
-                    .disabled(importing)
                 }
             }
         }
@@ -115,6 +133,9 @@ struct StagePickerView: View {
                     importError = error.localizedDescription
                 }
             }
+        }
+        .fullScreenCover(isPresented: $showPaywall) {
+            PaywallView(onClose: { showPaywall = false }, source: "stage")
         }
         .alert("Rename", isPresented: Binding(get: { renaming != nil },
                                               set: { if !$0 { renaming = nil } })) {

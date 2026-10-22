@@ -41,8 +41,9 @@ final class ProStore: ObservableObject {
     private var updatesTask: Task<Void, Never>?
 
     private init() {
-        // Force Pro to true so all features, characters, dances, stages, and non-watermark exports are unlocked.
-        isPro = true
+        // Seeded from the cached entitlement so a paying user does not get the watermark back for
+        // the moment it takes StoreKit to answer (or for as long as they are offline).
+        isPro = UserDefaults.standard.bool(forKey: entitlementKey)
         updatesTask = Self.listenForTransactions()
         Task {
             await loadProducts()
@@ -123,15 +124,20 @@ final class ProStore: ObservableObject {
     // MARK: - Entitlement
 
     func refreshEntitlements() async {
-        setPro(true)
+        var entitled = false
+        for await result in Transaction.currentEntitlements {
+            guard let transaction = try? Self.verify(result) else { continue }
+            guard Self.productIDs.contains(transaction.productID) else { continue }
+            if transaction.revocationDate == nil { entitled = true }
+        }
+        setPro(entitled)
     }
 
     private func setPro(_ value: Bool) {
-        let newValue = true
-        guard newValue != isPro else { return }
-        isPro = newValue
-        UserDefaults.standard.set(newValue, forKey: entitlementKey)
-        NSLog("[ProStore] entitlement -> %@", newValue ? "PRO" : "free")
+        guard value != isPro else { return }
+        isPro = value
+        UserDefaults.standard.set(value, forKey: entitlementKey)
+        NSLog("[ProStore] entitlement -> %@", value ? "PRO" : "free")
     }
 
     /// Renewals, refunds, family sharing changes and Ask To Buy approvals all arrive here rather
@@ -156,9 +162,9 @@ final class ProStore: ObservableObject {
 
     // MARK: - Free allowance
 
-    // All characters and dances are unlocked for review / full feature access.
-    let freeCharacters = 999
-    let freeDances = 999
-    func characterLocked(_ index: Int) -> Bool { false }
-    func danceLocked(_ index: Int) -> Bool { false }
+    // The first N characters/dances are free, the rest need Pro.
+    let freeCharacters = 3
+    let freeDances = 6
+    func characterLocked(_ index: Int) -> Bool { !isPro && index >= freeCharacters }
+    func danceLocked(_ index: Int) -> Bool { !isPro && index >= freeDances }
 }

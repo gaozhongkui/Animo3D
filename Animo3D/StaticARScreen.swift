@@ -221,7 +221,7 @@ struct StaticARScreen: View {
                     finished = FinishedWork(url: saved)
                 }
             } else if let v = holder.scnView {
-                recorder.start(view: v, watermark: "Livo 3D")
+                recorder.start(view: v, watermark: pro.isPro ? nil : "Livo 3D")
             }
         } label: {
             ZStack {
