@@ -28,7 +28,7 @@ import UIKit
 struct UserStage: Identifiable, Codable, Hashable {
     let id: String
     let name: String
-    /// File name inside the caches directory, not a path: the container moves between launches.
+    /// File name inside the user-content directory, not a container-dependent absolute path.
     let file: String
 }
 
@@ -38,28 +38,26 @@ final class StageLibrary: ObservableObject {
 
     @Published private(set) var userStages: [UserStage] = []
 
-    private var cacheDir: URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("stages", isDirectory: true)
-    }
-    private var indexURL: URL { cacheDir.appendingPathComponent("_user_stages.json") }
+    private lazy var userStorage = UserContentStorage<UserStage>(
+        directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("UserContent/stages", isDirectory: true),
+        legacyDirectory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("stages", isDirectory: true),
+        indexName: "_user_stages.json",
+        fileName: { $0.file }
+    )
 
     /// Specs are kept once built: measuring is cheap but decoding a 2048x1024 JPEG is not, and the
     /// picker asks for the same handful of stages every time it opens.
     private var specs: [String: CharacterSceneController.StageSpec] = [:]
 
     private init() {
-        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-        if let data = try? Data(contentsOf: indexURL),
-           let list = try? JSONDecoder().decode([UserStage].self, from: data) {
-            // A file the user deleted from under us, or a cache the system reclaimed, is not a
-            // stage any more. Dropping it here keeps a dead card out of the picker.
-            userStages = list.filter { FileManager.default.fileExists(atPath: fileURL($0).path) }
-            if userStages.count != list.count { save() }
-        }
+        userStages = userStorage.load()
     }
 
-    private func fileURL(_ stage: UserStage) -> URL { cacheDir.appendingPathComponent(stage.file) }
+    private func fileURL(_ stage: UserStage) -> URL {
+        userStorage.existingURL(for: stage.file) ?? userStorage.storedURL(for: stage.file)
+    }
 
     // MARK: - Resolving
 
@@ -214,13 +212,19 @@ final class StageLibrary: ObservableObject {
         guard let data = StageImage.bounded(photo, longEdge: 2048).jpegData(compressionQuality: 0.9)
         else { throw ImportError.writeFailed }
 
-        let id = "user_\(Int(Date().timeIntervalSince1970))"
+        let id = "user_\(UUID().uuidString)"
         let stage = UserStage(id: id, name: unique(name), file: "\(id).jpg")
-        do { try data.write(to: fileURL(stage), options: .atomic) }
-        catch { throw ImportError.writeFailed }
-
-        userStages.insert(stage, at: 0)
-        save()
+        let destination = userStorage.storedURL(for: stage.file)
+        let updated = [stage] + userStages
+        do {
+            try userStorage.prepareDirectory()
+            try data.write(to: destination, options: .atomic)
+            try userStorage.save(updated)
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw ImportError.writeFailed
+        }
+        userStages = updated
         return stage
     }
 
@@ -231,17 +235,30 @@ final class StageLibrary: ObservableObject {
     func rename(_ stage: UserStage, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let i = userStages.firstIndex(where: { $0.id == stage.id }) else { return }
-        userStages[i] = UserStage(id: stage.id, name: trimmed, file: stage.file)
+        var updated = userStages
+        updated[i] = UserStage(id: stage.id, name: trimmed, file: stage.file)
+        do {
+            try userStorage.save(updated)
+        } catch {
+            NSLog("[StageLibrary] could not rename stage: %@", error.localizedDescription)
+            return
+        }
+        userStages = updated
         specs[stage.id] = nil       // the spec carries the name it was built with
-        save()
     }
 
     func delete(_ stage: UserStage) {
-        try? FileManager.default.removeItem(at: fileURL(stage))
-        userStages.removeAll { $0.id == stage.id }
+        let updated = userStages.filter { $0.id != stage.id }
+        do {
+            try userStorage.save(updated)
+        } catch {
+            NSLog("[StageLibrary] could not delete stage: %@", error.localizedDescription)
+            return
+        }
+        userStages = updated
+        userStorage.removeFile(named: stage.file)
         specs[stage.id] = nil
         thumbs[stage.id] = nil
-        save()
     }
 
     /// "My Scene", then "My Scene 2". A list of cards all called the same thing is a list the
@@ -251,12 +268,6 @@ final class StageLibrary: ObservableObject {
         var n = 2
         while userStages.contains(where: { $0.name == "\(name) \(n)" }) { n += 1 }
         return "\(name) \(n)"
-    }
-
-    private func save() {
-        if let data = try? JSONEncoder().encode(userStages) {
-            try? data.write(to: indexURL, options: .atomic)
-        }
     }
 }
 

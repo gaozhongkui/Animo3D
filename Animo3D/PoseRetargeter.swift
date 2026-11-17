@@ -74,6 +74,15 @@ final class PoseRetargeter {
     private var leftLegIK: SCNIKConstraint?
     private var rightLegIK: SCNIKConstraint?
 
+    /// Foot-Lock state for anti-sliding IK logic
+    private struct FootLockState {
+        var isLocked: Bool = false
+        var lockedWorldPos: simd_float3 = .zero
+        var currentInfluence: Float = 0.0
+    }
+    private var leftFootLock = FootLockState()
+    private var rightFootLock = FootLockState()
+
     // Hip translation: lets the body sink naturally as the legs bend, giving weight and footing (otherwise the limbs move while the torso stays nailed down, which looks stiff)
     private var hipsNode: SCNNode?
     private var charHipsRestWorld = simd_float3(repeating: 0)
@@ -150,6 +159,8 @@ final class PoseRetargeter {
         controller.boneNodes[s.rightFoot]?.constraints = controller.boneNodes[s.rightFoot]?.constraints?.filter { !($0 is SCNIKConstraint) }
         leftLegIK = nil
         rightLegIK = nil
+        leftFootLock = FootLockState()
+        rightFootLock = FootLockState()
     }
 
     /// Builds an orthonormal torso frame from an "up" and a "right" direction (columns: right, up, forward).
@@ -439,31 +450,69 @@ final class PoseRetargeter {
         updateFootIK(left: false, ground: ground)
     }
 
+    /// Anti-sliding Foot-Lock IK logic:
+    /// Pins the 3D world position (X, Y, Z) of the foot when it touches the floor, preventing horizontal sliding.
+    /// Smoothly blends in/out during steps or jumps to eliminate snapping.
     private func updateFootIK(left: Bool, ground: Float) {
         let s = controller.scheme
         let footName = left ? s.leftFoot : s.rightFoot
         let toeName = left ? s.leftToe : s.rightToe
         guard let foot = controller.boneNodes[footName],
               let toe = controller.boneNodes[toeName],
-              let ik = left ? leftLegIK : rightLegIK else { return }
+              let ik = left ? leftLegIK : rightLegIK,
+              let hips = hipsNode else { return }
 
         let footOffset = soleOffsets.first { $0.node === foot }?.offset ?? 0
         let toeOffset = soleOffsets.first { $0.node === toe }?.offset ?? 0
+
+        var lockState = left ? leftFootLock : rightFootLock
+        defer {
+            if left { leftFootLock = lockState }
+            else { rightFootLock = lockState }
+        }
 
         // Calculate current sole heights (lowest point of foot/toe)
         let footSoleY = foot.simdWorldPosition.y - footOffset
         let toeSoleY = toe.simdWorldPosition.y - toeOffset
         let lowestSoleY = min(footSoleY, toeSoleY)
 
-        // If the sole is through the ground, or very close to it, enable IK to lock it.
-        // We use a small buffer to avoid flickering.
-        if lowestSoleY < ground + 0.005 {
-            var targetPos = foot.simdWorldPosition
-            targetPos.y += (ground - lowestSoleY)
-            ik.targetPosition = SCNVector3(targetPos)
-            ik.influenceFactor = 1.0
+        let currentFootPos = foot.simdWorldPosition
+        let plantThreshold = ground + 0.015  // Grounded threshold (1.5 cm above floor)
+        let releaseThreshold = ground + 0.035 // Lift threshold (3.5 cm above floor)
+        let maxReach = charTorsoLen * 1.5      // Prevents over-stretching if hips move too far
+
+        if !lockState.isLocked {
+            // Check if foot landed near ground level
+            if lowestSoleY <= plantThreshold {
+                lockState.isLocked = true
+                lockState.lockedWorldPos = simd_float3(currentFootPos.x, ground + footOffset, currentFootPos.z)
+            }
         } else {
-            ik.influenceFactor = 0.0
+            // While locked, release if the foot is lifted up or hips over-stretch
+            let overStretched = simd_distance(hips.simdWorldPosition, lockState.lockedWorldPos) > maxReach
+            let liftedUp = lowestSoleY > releaseThreshold
+            if liftedUp || overStretched {
+                lockState.isLocked = false
+            }
+        }
+
+        if lockState.isLocked {
+            // Keep locked Y level aligned with current ground height
+            lockState.lockedWorldPos.y = ground + footOffset
+            // Smoothly ramp up influence factor (anti-flicker)
+            lockState.currentInfluence = simd_mix(lockState.currentInfluence, 1.0, 0.35)
+            ik.targetPosition = SCNVector3(lockState.lockedWorldPos)
+            ik.influenceFactor = CGFloat(lockState.currentInfluence)
+        } else {
+            // Smoothly ramp down influence factor when releasing foot
+            lockState.currentInfluence = simd_mix(lockState.currentInfluence, 0.0, 0.25)
+            if lockState.currentInfluence > 0.01 {
+                ik.targetPosition = SCNVector3(lockState.lockedWorldPos)
+                ik.influenceFactor = CGFloat(lockState.currentInfluence)
+            } else {
+                lockState.currentInfluence = 0.0
+                ik.influenceFactor = 0.0
+            }
         }
     }
 }

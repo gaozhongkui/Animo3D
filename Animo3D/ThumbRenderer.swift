@@ -108,10 +108,11 @@ final class ThumbRenderer {
         // v3 -> v4 for the same reason: the motion blur smear is baked into those PNGs. A device
         // that already drew its cards would otherwise keep the ghosts forever, since the fix below
         // only governs images drawn from here on.
-        for old in ["card_art", "card_art_v2", "card_art_v3"] {
+        // v5 restores material and light calibration; previously rendered cards are overexposed.
+        for old in ["card_art", "card_art_v2", "card_art_v3", "card_art_v4"] {
             try? FileManager.default.removeItem(at: caches.appendingPathComponent(old, isDirectory: true))
         }
-        let d = caches.appendingPathComponent("card_art_v4", isDirectory: true)
+        let d = caches.appendingPathComponent("card_art_v5", isDirectory: true)
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }()

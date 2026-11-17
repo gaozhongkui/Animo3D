@@ -204,22 +204,29 @@ final class RemoteAssets: ObservableObject {
             .appendingPathComponent("RemoteAssets")
     }
     private var catalogCacheURL: URL { cacheDir.appendingPathComponent("_index.json") }
-    private var userIndexURL: URL { cacheDir.appendingPathComponent("_user_index.json") }
+
+    private lazy var userStorage = UserContentStorage<CharacterItem>(
+        directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("UserContent/characters", isDirectory: true),
+        legacyDirectory: cacheDir,
+        indexName: "_user_index.json",
+        fileName: { $0.model.assetName }
+    )
 
     private var memoryObserver: NSObjectProtocol?
 
     private init() {
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-        // Load user-imported characters first
-        if let data = try? Data(contentsOf: userIndexURL),
-           let items = try? JSONDecoder().decode([CharacterItem].self, from: data) {
-            userCharacters = items
-        }
+        userCharacters = userStorage.load()
 
         // The last index answers instantly, so a returning user is never blocked on the network. The
         // launch fetch still runs and replaces it when the revision is newer.
         if let cat = decodeCatalog(try? Data(contentsOf: catalogCacheURL), from: "cache") {
             apply(cat, source: .cache)
+        } else if !userCharacters.isEmpty {
+            characters = userCharacters
+            charById = Dictionary(uniqueKeysWithValues: userCharacters.map { ($0.id, $0) })
+            state = .ready
         }
 
         memoryObserver = NotificationCenter.default.addObserver(
@@ -377,11 +384,10 @@ final class RemoteAssets: ObservableObject {
 
     func localCacheURL(for name: String) -> URL { cacheDir.appendingPathComponent(name) }
 
-    /// A usable local copy, if there already is one: bundled first, then the download cache.
+    /// A usable local copy: bundle, persistent user imports, then the download cache.
     func localURL(for name: String) -> URL? {
         if let bundled = bundleURL(for: name) { return bundled }
-        let local = localCacheURL(for: name)
-        return FileManager.default.fileExists(atPath: local.path) ? local : nil
+        return userStorage.existingURL(for: name)
     }
 
     func bundleURL(for name: String) -> URL? {
@@ -529,12 +535,12 @@ final class RemoteAssets: ObservableObject {
         // replace the first one's model while keeping both cards.
         let id = "user_\(UUID().uuidString.prefix(8))"
         let stored = "\(id).vrm"
-        let dest = localCacheURL(for: stored)
+        let dest = userStorage.storedURL(for: stored)
 
         guard url.startAccessingSecurityScopedResource() else { throw ImportError.unreadable }
         defer { url.stopAccessingSecurityScopedResource() }
         do {
-            try? FileManager.default.removeItem(at: dest)
+            try userStorage.prepareDirectory()
             try FileManager.default.copyItem(at: url, to: dest)
         } catch {
             NSLog("[RemoteAssets] could not copy %@: %@", url.lastPathComponent, String(describing: error))
@@ -556,10 +562,16 @@ final class RemoteAssets: ObservableObject {
                                  name: url.deletingPathExtension().lastPathComponent,
                                  model: stored,
                                  thumb: nil)
-        await MainActor.run {
-            userCharacters.insert(item, at: 0)
-            saveUserIndex()
-            republish()
+        do {
+            try await MainActor.run {
+                let updated = [item] + userCharacters
+                try userStorage.save(updated)
+                userCharacters = updated
+                republish()
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: dest)
+            throw ImportError.copyFailed
         }
         return item
     }
@@ -568,10 +580,18 @@ final class RemoteAssets: ObservableObject {
     @MainActor
     func deleteUserCharacter(_ id: String) {
         guard let i = userCharacters.firstIndex(where: { $0.id == id }) else { return }
-        let item = userCharacters.remove(at: i)
-        try? FileManager.default.removeItem(at: localCacheURL(for: item.model.assetName))
+        let item = userCharacters[i]
+        var updated = userCharacters
+        updated.remove(at: i)
+        do {
+            try userStorage.save(updated)
+        } catch {
+            NSLog("[RemoteAssets] could not delete imported character: %@", error.localizedDescription)
+            return
+        }
+        userCharacters = updated
+        userStorage.removeFile(named: item.model.assetName)
         lock.lock(); charById[id] = nil; lock.unlock()
-        saveUserIndex()
         republish()
     }
 
@@ -590,12 +610,6 @@ final class RemoteAssets: ObservableObject {
             lock.lock()
             for c in userCharacters { charById[c.id] = c }
             lock.unlock()
-        }
-    }
-
-    private func saveUserIndex() {
-        if let data = try? JSONEncoder().encode(userCharacters) {
-            try? data.write(to: userIndexURL, options: [.atomic])
         }
     }
 
