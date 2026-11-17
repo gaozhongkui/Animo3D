@@ -213,3 +213,15 @@
 "Purchase unavailable" = "Purchase unavailable";
 "Your purchase is pending approval." = "Your purchase is pending approval.";
 "No active purchase was found for this Apple ID." = "No active purchase was found for this Apple ID.";
+
+/* Compact Pro paywall */
+"All Characters & Dances" = "All Characters & Dances";
+"More Stages & Custom Backgrounds" = "More Stages & Custom Backgrounds";
+"Monthly" = "Monthly";
+"Lifetime" = "Lifetime";
+"Cancel anytime" = "Cancel anytime";
+"One-time purchase" = "One-time purchase";
+"Auto-renews monthly. Cancel in App Store settings." = "Auto-renews monthly. Cancel in App Store settings.";
+"%@ / month · Subscribe" = "%@ / month · Subscribe";
+"%@ · Unlock Forever" = "%@ · Unlock Forever";
+"Close" = "Close";

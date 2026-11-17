@@ -221,21 +221,26 @@ final class ProStoreTests: XCTestCase {
 
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: 550, height: 900)
-        let controller = UIHostingController(rootView: PaywallView(onClose: {}))
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
         defer { window.isHidden = true }
-        // Wait for the view's existing entrance animation, not for a UI automation service.
-        try await Task.sleep(nanoseconds: 1_000_000_000)
-        controller.view.layoutIfNeeded()
-        let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { _ in
-            controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+        let sizes: [(name: String, size: CGSize)] = [
+            ("iPhone", CGSize(width: 375, height: 667)),
+            ("iPadSheet", CGSize(width: 550, height: 640))
+        ]
+        for sample in sizes {
+            window.frame = CGRect(origin: .zero, size: sample.size)
+            let controller = UIHostingController(rootView: PaywallView(onClose: {}))
+            window.rootViewController = controller
+            window.makeKeyAndVisible()
+            try await Task.sleep(nanoseconds: 500_000_000)
+            controller.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { _ in
+                controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+            }
+            XCTAssertGreaterThan(image.size.width, 0)
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "Paywall-Compact-\(sample.name)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
         }
-        XCTAssertGreaterThan(image.size.width, 0)
-        let attachment = XCTAttachment(image: image)
-        attachment.name = "Paywall-Monthly-and-Lifetime"
-        attachment.lifetime = .keepAlways
-        add(attachment)
     }
 }
