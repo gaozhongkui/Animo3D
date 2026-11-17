@@ -223,8 +223,9 @@ final class ProStoreTests: XCTestCase {
         let window = UIWindow(windowScene: scene)
         defer { window.isHidden = true }
         let sizes: [(name: String, size: CGSize)] = [
-            ("iPhone", CGSize(width: 375, height: 667)),
-            ("iPadSheet", CGSize(width: 550, height: 640))
+            ("iPhoneSmall", CGSize(width: 375, height: 667)),
+            ("iPhone", CGSize(width: 393, height: 852)),
+            ("iPadFullScreen", CGSize(width: 1024, height: 1366))
         ]
         for sample in sizes {
             window.frame = CGRect(origin: .zero, size: sample.size)
@@ -238,7 +239,7 @@ final class ProStoreTests: XCTestCase {
             }
             XCTAssertGreaterThan(image.size.width, 0)
             let attachment = XCTAttachment(image: image)
-            attachment.name = "Paywall-Compact-\(sample.name)"
+            attachment.name = "Paywall-FullScreen-\(sample.name)"
             attachment.lifetime = .keepAlways
             add(attachment)
         }

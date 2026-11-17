@@ -10,48 +10,49 @@ struct PaywallView: View {
     @State private var showManageSubscriptions = false
 
     private let accent = Color(rgb: 0x6366F1)
+    private let pink = Color(rgb: 0xA855F7)
     private let benefits: [(icon: String, title: LocalizedStringKey)] = [
-        ("person.2.fill", "All Characters & Dances"),
+        ("person.2.fill", "Characters & Dances"),
         ("video.fill", "No Watermark"),
-        ("photo.on.rectangle.angled", "More Stages & Custom Backgrounds")
+        ("photo.on.rectangle.angled", "Custom Stages")
     ]
 
     private var selectedProduct: Product? { store.product(for: selectedTier) }
     private var isBusy: Bool { store.purchasingID != nil || store.isRestoring }
+    private var brandGradient: LinearGradient {
+        LinearGradient(colors: [accent, pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
 
     var body: some View {
         ZStack {
-            Color(.systemBackground).ignoresSafeArea()
-            LinearGradient(
-                colors: [accent.opacity(0.08), Color(.systemBackground)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
-                    header
-                    benefitsList
-                    if !store.isPro {
-                        VStack(spacing: 10) {
-                            planCard(.monthly)
-                            planCard(.lifetime)
+            background
+            GeometryReader { geometry in
+                let compact = geometry.size.height < 700
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: compact ? 14 : 24) {
+                        header(compact: compact)
+                        benefitsList(compact: compact)
+                        if !store.isPro {
+                            HStack(spacing: 12) {
+                                planCard(.monthly, compact: compact)
+                                planCard(.lifetime, compact: compact)
+                            }
                         }
+                        purchaseArea
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, compact ? 16 : 36)
+                    .frame(maxWidth: 550)
+                    .frame(minHeight: geometry.size.height, alignment: .center)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(20)
-                .frame(maxWidth: 550)
-                .frame(maxWidth: .infinity, alignment: .top)
+                .scrollBounceBehavior(.basedOnSize)
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            purchaseArea
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .frame(maxWidth: 550)
-                .frame(maxWidth: .infinity)
-                .background(.ultraThinMaterial)
+        .overlay(alignment: .topTrailing) {
+            closeButton
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
         }
         .onAppear { Track.log(.paywallShown, ["source": source]) }
         .task {
@@ -70,88 +71,149 @@ struct PaywallView: View {
         .trackScreen("Paywall")
     }
 
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "crown.fill")
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(accent)
-            Text("Livo 3D Pro")
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-            Spacer(minLength: 4)
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 32)
-                    .background(Color(.tertiarySystemFill), in: Circle())
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Close")
+    private var background: some View {
+        ZStack {
+            Color(.systemBackground)
+            LinearGradient(
+                colors: [accent.opacity(0.12), pink.opacity(0.04), Color(.systemBackground)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Circle()
+                .fill(accent.opacity(0.16))
+                .frame(width: 380, height: 380)
+                .blur(radius: 80)
+                .offset(x: -140, y: -220)
+            Circle()
+                .fill(pink.opacity(0.12))
+                .frame(width: 340, height: 340)
+                .blur(radius: 80)
+                .offset(x: 150, y: -120)
         }
+        .ignoresSafeArea()
     }
 
-    private var benefitsList: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private var closeButton: some View {
+        Button(action: onClose) {
+            Image(systemName: "xmark")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, height: 32)
+                .background(.ultraThinMaterial, in: Circle())
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Close")
+    }
+
+    private func header(compact: Bool) -> some View {
+        VStack(spacing: compact ? 8 : 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: compact ? 18 : 23, style: .continuous)
+                    .fill(brandGradient)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: compact ? 18 : 23, style: .continuous)
+                            .strokeBorder(.white.opacity(0.3), lineWidth: 1)
+                    }
+                    .shadow(color: accent.opacity(0.28), radius: 18, x: 0, y: 10)
+                Image(systemName: "crown.fill")
+                    .font(.system(size: compact ? 26 : 34, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: compact ? 48 : 72, height: compact ? 48 : 72)
+
+            VStack(spacing: 5) {
+                Text("Livo 3D Pro")
+                    .font(.system(size: compact ? 28 : 32, weight: .black, design: .rounded))
+                Text(LocalizedStringKey(store.isPro ? "Pro Version Unlocked" : "Choose your Pro plan"))
+                    .font(.system(size: compact ? 13 : 16, weight: .medium))
+                    .foregroundStyle(accent)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func benefitsList(compact: Bool) -> some View {
+        HStack(spacing: 10) {
             ForEach(benefits.indices, id: \.self) { index in
-                HStack(spacing: 10) {
+                VStack(spacing: compact ? 6 : 8) {
                     Image(systemName: benefits[index].icon)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(accent)
-                        .frame(width: 24)
+                        .foregroundStyle(.white)
+                        .frame(width: compact ? 28 : 32, height: compact ? 28 : 32)
+                        .background(brandGradient, in: RoundedRectangle(cornerRadius: 10))
                     Text(benefits[index].title)
-                        .font(.subheadline.weight(.medium))
-                        .fixedSize(horizontal: false, vertical: true)
+                        .font(.system(size: compact ? 11 : 12, weight: .semibold))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
+                        .frame(minHeight: 28)
                 }
-                .frame(minHeight: 20, alignment: .leading)
+                .padding(.horizontal, 6)
+                .padding(.vertical, compact ? 8 : 14)
+                .frame(maxWidth: .infinity)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18)
+                        .strokeBorder(accent.opacity(0.07), lineWidth: 1)
+                }
+                .shadow(color: accent.opacity(0.05), radius: 10, x: 0, y: 5)
             }
         }
     }
 
-    private func planCard(_ tier: ProStore.Tier) -> some View {
+    private func planCard(_ tier: ProStore.Tier, compact: Bool) -> some View {
         let selected = selectedTier == tier
         let product = store.product(for: tier)
         return Button {
-            selectedTier = tier
+            withAnimation(.easeInOut(duration: 0.18)) {
+                selectedTier = tier
+            }
             HapticManager.selection()
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                    .font(.system(size: 20))
-                    .foregroundStyle(selected ? accent : .secondary)
-                VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: compact ? 8 : 12) {
+                HStack {
                     Text(LocalizedStringKey(tier == .monthly ? "Monthly" : "Lifetime"))
                         .font(.subheadline.weight(.semibold))
-                    Text(LocalizedStringKey(tier == .monthly ? "Cancel anytime" : "One-time purchase"))
+                    Spacer(minLength: 4)
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(selected ? accent : Color(.tertiaryLabel))
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    if let product {
+                        Text(product.displayPrice)
+                            .font(.system(size: compact ? 25 : 28, weight: .bold, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    } else if store.isLoadingProducts {
+                        ProgressView().frame(height: 30)
+                    } else {
+                        Text("Unavailable").font(.subheadline)
+                    }
+                    Text(LocalizedStringKey(tier == .monthly ? "per month" : "One-time purchase"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 4)
-                if let product {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(product.displayPrice).font(.headline)
-                        if tier == .monthly {
-                            Text("per month")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+            }
+            .padding(compact ? 12 : 18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color(.secondarySystemGroupedBackground))
+                    .overlay {
+                        if selected {
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(brandGradient.opacity(0.09))
                         }
                     }
-                } else if store.isLoadingProducts {
-                    ProgressView()
-                } else {
-                    Text("Unavailable")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
             }
-            .padding(14)
-            .frame(maxWidth: .infinity)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
             .overlay {
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(selected ? accent : Color(.separator).opacity(0.3), lineWidth: selected ? 2 : 1)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(selected ? accent : accent.opacity(0.12), lineWidth: selected ? 2 : 1)
             }
-            .contentShape(RoundedRectangle(cornerRadius: 14))
+            .shadow(color: accent.opacity(selected ? 0.13 : 0.04), radius: 12, x: 0, y: 6)
+            .contentShape(RoundedRectangle(cornerRadius: 20))
         }
         .buttonStyle(.plain)
         .disabled(isBusy)
@@ -243,6 +305,10 @@ struct PaywallView: View {
                     ))
             )
             .clipShape(Capsule())
+            .overlay {
+                Capsule().strokeBorder(.white.opacity(store.isPro ? 0 : 0.2), lineWidth: 1)
+            }
+            .shadow(color: accent.opacity(store.isPro ? 0 : 0.24), radius: 14, x: 0, y: 7)
         }
         .disabled(store.isPro || selectedProduct == nil || isBusy)
     }

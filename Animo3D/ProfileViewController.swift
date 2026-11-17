@@ -211,7 +211,10 @@ final class ProfileViewController: UIViewController {
     }
     private func openPaywall() {
         let host = UIHostingController(rootView: PaywallView(
-            onClose: { [weak self] in self?.dismiss(animated: true) }, source: "profile"))
+            onClose: { [weak self] in self?.dismiss(animated: true) },
+            source: "profile"
+        ))
+        host.modalPresentationStyle = .fullScreen
         present(host, animated: true)
     }
 
