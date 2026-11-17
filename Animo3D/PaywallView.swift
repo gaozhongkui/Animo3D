@@ -8,62 +8,53 @@ struct PaywallView: View {
     @ObservedObject private var store = ProStore.shared
     @State private var selectedTier = ProStore.Tier.monthly
     @State private var showManageSubscriptions = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    private let accent = Color(rgb: 0x6366F1)
-    private let pink = Color(rgb: 0xA855F7)
+    private let accent = Color(rgb: 0x7555E8)
+    private let stageColor = Color(rgb: 0x201335)
     private let benefits: [(icon: String, title: LocalizedStringKey)] = [
-        ("person.2.fill", "Characters & Dances"),
+        ("person.2.fill", "All Characters & Dances"),
         ("video.fill", "No Watermark"),
-        ("photo.on.rectangle.angled", "Custom Stages")
+        ("photo.on.rectangle.angled", "More Stages & Custom Backgrounds")
     ]
 
     private var selectedProduct: Product? { store.product(for: selectedTier) }
     private var isBusy: Bool { store.purchasingID != nil || store.isRestoring }
     private var brandGradient: LinearGradient {
-        LinearGradient(colors: [accent, pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(
+            colors: [accent, Color(rgb: 0xA16AF0)],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
     }
 
     var body: some View {
-        ZStack {
-            background
-            GeometryReader { geometry in
-                let compact = geometry.size.height < 700
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: compact ? 14 : 24) {
-                        header(compact: compact)
-                        benefitsList(compact: compact)
-                        if !store.isPro {
-                            HStack(spacing: 12) {
-                                planCard(.monthly, compact: compact)
-                                planCard(.lifetime, compact: compact)
-                            }
-                        }
-                        purchaseArea
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, compact ? 16 : 36)
-                    .frame(maxWidth: 550)
-                    .frame(minHeight: geometry.size.height, alignment: .center)
-                    .frame(maxWidth: .infinity)
+        GeometryReader { geometry in
+            Group {
+                if geometry.size.width >= 720 {
+                    wideLayout(size: geometry.size)
+                } else {
+                    phoneLayout(size: geometry.size)
                 }
-                .scrollBounceBehavior(.basedOnSize)
             }
+            .background(Color(.systemBackground).ignoresSafeArea())
         }
-        .overlay(alignment: .topTrailing) {
-            closeButton
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-        }
+        .tint(accent)
         .onAppear { Track.log(.paywallShown, ["source": source]) }
         .task {
-            if store.products.isEmpty { await store.loadProducts() }
+            if store.products.isEmpty {
+                await store.loadProducts()
+            }
             await store.refreshEntitlements()
         }
         .manageSubscriptionsSheet(isPresented: $showManageSubscriptions)
-        .alert("Purchase unavailable", isPresented: Binding(
-            get: { store.lastError != nil },
-            set: { if !$0 { store.lastError = nil } }
-        )) {
+        .alert(
+            "Purchase unavailable",
+            isPresented: Binding(
+                get: { store.lastError != nil },
+                set: { if !$0 { store.lastError = nil } }
+            )
+        ) {
             Button("OK") { store.lastError = nil }
         } message: {
             Text(L(store.lastError ?? ""))
@@ -71,26 +62,126 @@ struct PaywallView: View {
         .trackScreen("Paywall")
     }
 
-    private var background: some View {
-        ZStack {
-            Color(.systemBackground)
-            LinearGradient(
-                colors: [accent.opacity(0.12), pink.opacity(0.04), Color(.systemBackground)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            Circle()
-                .fill(accent.opacity(0.16))
-                .frame(width: 380, height: 380)
-                .blur(radius: 80)
-                .offset(x: -140, y: -220)
-            Circle()
-                .fill(pink.opacity(0.12))
-                .frame(width: 340, height: 340)
-                .blur(radius: 80)
-                .offset(x: 150, y: -120)
+    private func phoneLayout(size: CGSize) -> some View {
+        let compact = size.height < 720
+        return VStack(spacing: 0) {
+            HStack {
+                brandMark(onDark: false)
+                Spacer()
+                closeButton
+            }
+            .padding(.leading, 24)
+            .padding(.trailing, 12)
+            .padding(.vertical, 4)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: compact ? 16 : 22) {
+                    phoneIntroduction(compact: compact)
+                    benefitsList(compact: compact)
+                    planOptions(compact: compact)
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                purchaseArea
+                    .padding(.horizontal, 24)
+                    .padding(.top, 12)
+                    .padding(.bottom, 8)
+                    .frame(maxWidth: 560)
+                    .frame(maxWidth: .infinity)
+                    .background(Color(.systemBackground))
+            }
         }
-        .ignoresSafeArea()
+    }
+
+    @ViewBuilder
+    private func phoneIntroduction(compact: Bool) -> some View {
+        if compact {
+            HStack(spacing: 16) {
+                showcase(height: 76)
+                    .frame(width: 108)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .accessibilityHidden(true)
+                purchaseHeader(wide: false)
+            }
+        } else {
+            showcase(height: 190)
+                .clipShape(RoundedRectangle(cornerRadius: 24))
+                .accessibilityHidden(true)
+            purchaseHeader(wide: false)
+        }
+    }
+
+    private func wideLayout(size: CGSize) -> some View {
+        let short = size.height < 600
+        return HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: short ? 16 : 28) {
+                brandMark(onDark: true)
+                Spacer(minLength: 8)
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Create without limits.")
+                        .font(.system(
+                            size: short ? 28 : (size.width < 1000 ? 42 : 54),
+                            weight: .bold,
+                            design: .rounded
+                        ))
+                        .foregroundStyle(.white)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !short {
+                        Text("Bring your characters to life.")
+                            .font(.title3)
+                            .foregroundStyle(Color(rgb: 0xD4C4EB))
+                    }
+                }
+                showcase(height: short ? 120 : min(460, size.width * 0.36))
+                    .accessibilityHidden(true)
+                Spacer(minLength: 8)
+            }
+            .padding(short ? 20 : (size.width < 1000 ? 32 : 48))
+            .frame(width: size.width * 0.46)
+            .frame(maxHeight: .infinity)
+            .background(stageColor.ignoresSafeArea(edges: [.top, .bottom, .leading]))
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 30) {
+                    purchaseHeader(wide: true)
+                    benefitsList(compact: false)
+                    planOptions(compact: short)
+                    purchaseArea
+                }
+                .padding(.horizontal, size.width < 1000 ? 28 : 44)
+                .padding(.vertical, short ? 28 : 72)
+                .frame(maxWidth: 550)
+                .frame(minHeight: size.height, alignment: .center)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .overlay(alignment: .topTrailing) {
+            closeButton
+                .padding(12)
+        }
+    }
+
+    private func brandMark(onDark: Bool) -> some View {
+        HStack(spacing: 9) {
+            Text("Livo 3D")
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundStyle(onDark ? .white : .primary)
+            Text("PRO")
+                .font(.system(size: 10, weight: .heavy))
+                .tracking(1.2)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .foregroundStyle(onDark ? stageColor : .white)
+                .background(onDark ? AnyShapeStyle(Color(rgb: 0xE6D7FF)) : AnyShapeStyle(brandGradient))
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+        }
     }
 
     private var closeButton: some View {
@@ -98,71 +189,137 @@ struct PaywallView: View {
             Image(systemName: "xmark")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 32, height: 32)
-                .background(.ultraThinMaterial, in: Circle())
+                .frame(width: 30, height: 30)
+                .background(Color(.tertiarySystemFill), in: Circle())
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("Close")
     }
 
-    private func header(compact: Bool) -> some View {
-        VStack(spacing: compact ? 8 : 14) {
+    private func showcase(height: CGFloat) -> some View {
+        GeometryReader { geometry in
+            let cardHeight = min(height * 0.88, geometry.size.width * 0.66)
+            let cardWidth = cardHeight * 0.69
             ZStack {
-                RoundedRectangle(cornerRadius: compact ? 18 : 23, style: .continuous)
-                    .fill(brandGradient)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: compact ? 18 : 23, style: .continuous)
-                            .strokeBorder(.white.opacity(0.3), lineWidth: 1)
-                    }
-                    .shadow(color: accent.opacity(0.28), radius: 18, x: 0, y: 10)
-                Image(systemName: "crown.fill")
-                    .font(.system(size: compact ? 26 : 34, weight: .semibold))
-                    .foregroundStyle(.white)
+                stageColor
+                Ellipse()
+                    .stroke(Color(rgb: 0xBDA2E8).opacity(0.18), lineWidth: 1)
+                    .frame(width: geometry.size.width * 0.9, height: height * 0.28)
+                    .offset(y: height * 0.36)
+                artworkCard(
+                    image: "ProDanceFreestyle",
+                    title: "FREESTYLE",
+                    background: Color(rgb: 0xE9DDF9),
+                    width: cardWidth,
+                    height: cardHeight
+                )
+                .rotationEffect(.degrees(-12))
+                .offset(x: -cardWidth * 0.47, y: height * 0.02)
+                artworkCard(
+                    image: "ProDanceHipHop",
+                    title: "HIP HOP",
+                    background: Color(rgb: 0xF6BCA6),
+                    width: cardWidth,
+                    height: cardHeight
+                )
+                .rotationEffect(.degrees(10))
+                .offset(x: cardWidth * 0.47, y: -height * 0.015)
+                Image(systemName: "sparkle")
+                    .font(.system(size: height < 200 ? 20 : 32, weight: .light))
+                    .foregroundStyle(Color(rgb: 0xE1C5FF))
+                    .offset(x: -geometry.size.width * 0.36, y: -height * 0.28)
+                Image(systemName: "sparkle")
+                    .font(.system(size: 14, weight: .light))
+                    .foregroundStyle(Color(rgb: 0xF4D3A3))
+                    .offset(x: geometry.size.width * 0.37, y: height * 0.23)
             }
-            .frame(width: compact ? 48 : 72, height: compact ? 48 : 72)
+            .frame(width: geometry.size.width, height: height)
+            .clipped()
+        }
+        .frame(height: height)
+    }
 
-            VStack(spacing: 5) {
-                Text("Livo 3D Pro")
-                    .font(.system(size: compact ? 28 : 32, weight: .black, design: .rounded))
-                Text(LocalizedStringKey(store.isPro ? "Pro Version Unlocked" : "Choose your Pro plan"))
-                    .font(.system(size: compact ? 13 : 16, weight: .medium))
-                    .foregroundStyle(accent)
+    private func artworkCard(
+        image: String,
+        title: String,
+        background: Color,
+        width: CGFloat,
+        height: CGFloat
+    ) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            background
+            Image(image)
+                .resizable()
+                .scaledToFit()
+                .padding(.bottom, height * 0.06)
+            if height > 125 {
+                HStack(spacing: 4) {
+                    Image(systemName: "play.fill")
+                    Text(verbatim: title)
+                        .tracking(1)
+                }
+                .font(.system(size: min(11, height * 0.04), weight: .bold))
+                .lineLimit(1)
+                .foregroundStyle(stageColor)
+                .padding(width * 0.1)
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: height * 0.07))
+        .overlay {
+            RoundedRectangle(cornerRadius: height * 0.07)
+                .strokeBorder(.white.opacity(0.4), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.22), radius: 16, x: 0, y: 14)
+    }
+
+    private func purchaseHeader(wide: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if wide {
+                Text("Livo 3D Pro")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(accent)
+            }
+            Text(LocalizedStringKey(
+                store.isPro
+                    ? "Pro Version Unlocked"
+                    : (wide ? "Choose your Pro plan" : "Create without limits.")
+            ))
+            .font(.system(size: wide ? 34 : 28, weight: .bold, design: .rounded))
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func benefitsList(compact: Bool) -> some View {
-        HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: compact ? 8 : 16) {
             ForEach(benefits.indices, id: \.self) { index in
-                VStack(spacing: compact ? 6 : 8) {
+                HStack(alignment: .center, spacing: 12) {
                     Image(systemName: benefits[index].icon)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: compact ? 28 : 32, height: compact ? 28 : 32)
-                        .background(brandGradient, in: RoundedRectangle(cornerRadius: 10))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(accent)
+                        .frame(width: compact ? 24 : 28, height: compact ? 24 : 28)
+                        .background(accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
                     Text(benefits[index].title)
-                        .font(.system(size: compact ? 11 : 12, weight: .semibold))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.85)
-                        .frame(minHeight: 28)
+                        .font(compact ? .footnote.weight(.medium) : .subheadline.weight(.medium))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, compact ? 8 : 14)
-                .frame(maxWidth: .infinity)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 18)
-                        .strokeBorder(accent.opacity(0.07), lineWidth: 1)
-                }
-                .shadow(color: accent.opacity(0.05), radius: 10, x: 0, y: 5)
             }
         }
     }
 
-    private func planCard(_ tier: ProStore.Tier, compact: Bool) -> some View {
+    @ViewBuilder
+    private func planOptions(compact: Bool) -> some View {
+        if !store.isPro {
+            VStack(spacing: 10) {
+                planRow(.monthly, compact: compact)
+                planRow(.lifetime, compact: compact)
+            }
+        }
+    }
+
+    private func planRow(_ tier: ProStore.Tier, compact: Bool) -> some View {
         let selected = selectedTier == tier
         let product = store.product(for: tier)
         return Button {
@@ -171,53 +328,78 @@ struct PaywallView: View {
             }
             HapticManager.selection()
         } label: {
-            VStack(alignment: .leading, spacing: compact ? 8 : 12) {
-                HStack {
-                    Text(LocalizedStringKey(tier == .monthly ? "Monthly" : "Lifetime"))
-                        .font(.subheadline.weight(.semibold))
-                    Spacer(minLength: 4)
-                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(selected ? accent : Color(.tertiaryLabel))
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    if let product {
-                        Text(product.displayPrice)
-                            .font(.system(size: compact ? 25 : 28, weight: .bold, design: .rounded))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                    } else if store.isLoadingProducts {
-                        ProgressView().frame(height: 30)
-                    } else {
-                        Text("Unavailable").font(.subheadline)
+            HStack(spacing: 12) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(selected ? accent : Color(.tertiaryLabel))
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                        planDescription(tier)
+                        planPrice(product, tier: tier, alignment: .leading)
                     }
-                    Text(LocalizedStringKey(tier == .monthly ? "per month" : "One-time purchase"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                } else {
+                    HStack(spacing: 12) {
+                        planDescription(tier)
+                            .layoutPriority(1)
+                        Spacer(minLength: 4)
+                        planPrice(product, tier: tier, alignment: .trailing)
+                    }
                 }
             }
-            .padding(compact ? 12 : 18)
+            .padding(compact ? 12 : 16)
+            .frame(minHeight: compact ? 64 : 76)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
-                    .overlay {
-                        if selected {
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .fill(brandGradient.opacity(0.09))
-                        }
-                    }
-            }
+            .background(
+                selected ? accent.opacity(0.07) : Color(.secondarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: 16)
+            )
             .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(selected ? accent : accent.opacity(0.12), lineWidth: selected ? 2 : 1)
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(
+                        selected ? accent : Color(.separator).opacity(0.25),
+                        lineWidth: selected ? 1.5 : 1
+                    )
             }
-            .shadow(color: accent.opacity(selected ? 0.13 : 0.04), radius: 12, x: 0, y: 6)
-            .contentShape(RoundedRectangle(cornerRadius: 20))
+            .contentShape(RoundedRectangle(cornerRadius: 16))
         }
         .buttonStyle(.plain)
         .disabled(isBusy)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func planDescription(_ tier: ProStore.Tier) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(LocalizedStringKey(tier == .monthly ? "Monthly" : "Lifetime"))
+                .font(.subheadline.weight(.semibold))
+            Text(LocalizedStringKey(tier == .monthly ? "Cancel anytime" : "One-time purchase"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func planPrice(
+        _ product: Product?,
+        tier: ProStore.Tier,
+        alignment: HorizontalAlignment
+    ) -> some View {
+        VStack(alignment: alignment, spacing: 2) {
+            if let product {
+                Text(product.displayPrice)
+                    .font(.title3.weight(.bold))
+                    .fixedSize()
+            } else if store.isLoadingProducts {
+                ProgressView()
+            } else {
+                Text("Unavailable")
+                    .font(.caption)
+            }
+            if tier == .monthly {
+                Text("per month")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var purchaseArea: some View {
@@ -298,15 +480,12 @@ struct PaywallView: View {
             .background(
                 store.isPro
                     ? AnyShapeStyle(Color(.tertiarySystemFill))
-                    : AnyShapeStyle(LinearGradient(
-                        colors: [accent, Color(rgb: 0xA855F7)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    ))
+                    : AnyShapeStyle(brandGradient)
             )
-            .clipShape(Capsule())
+            .clipShape(RoundedRectangle(cornerRadius: 18))
             .overlay {
-                Capsule().strokeBorder(.white.opacity(store.isPro ? 0 : 0.2), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 18)
+                    .strokeBorder(.white.opacity(store.isPro ? 0 : 0.2), lineWidth: 1)
             }
             .shadow(color: accent.opacity(store.isPro ? 0 : 0.24), radius: 14, x: 0, y: 7)
         }

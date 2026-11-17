@@ -28,6 +28,8 @@ end
 resource = project.main_group.new_file(File.join(repository_dir, 'tools/storekit/Animo3D.storekit'))
 target.resources_build_phase.add_file_reference(resource)
 host.resources_build_phase.add_file_reference(resource)
+artwork = project.main_group.new_file(File.join(repository_dir, 'Animo3D/Assets.xcassets'))
+host.resources_build_phase.add_file_reference(artwork)
 [host, target].each do |build_target|
   build_target.build_configurations.each do |configuration|
     configuration.build_settings['GENERATE_INFOPLIST_FILE'] = 'YES'

@@ -1,113 +1,172 @@
 # Livo 3D Terms of Service
 
 **Effective date:** 2026-08-31
-**Last updated:** 2026-08-31
+
+**Last updated:** 2026-11-17
+
 **Contact email:** hhyteam@zhongkuitech.cn
 
----
+## 1. Eligibility and acceptance
 
-## 1. Eligibility
+These Terms govern your use of Livo 3D for iPhone and iPad. You must be at least 13 years old to use
+the App. If you are under the age of majority where you live, use the App only with the involvement
+of a parent or guardian. Use of the App is also subject to applicable Apple App Store terms.
 
-You must be at least 13 years old to use Livo 3D. If you are under the age of majority where you
-live, you may use the App only with the involvement of a parent or guardian.
+## 2. The service
 
-## 2. The Service
+Livo 3D lets you animate 3D characters, play dance animations, place models in your surroundings
+with AR, drive character motion from a selected video, add background music, create custom stage
+backgrounds, record scenes and share exports. Some content is downloaded on demand. Features may
+depend on device capabilities, operating-system support, permissions, network access and the
+availability of third-party content.
 
-Livo 3D lets you pose and animate 3D characters, play prepared dance animations, place a character
-in your surroundings with AR, drive a character's motion from a video you select, add background
-music, record the result, and share it. Some content is downloaded on demand as you use it.
+No Livo 3D account is required. Information about media processing, analytics, camera use and
+third-party services is set out in the [Privacy Policy](https://sites.google.com/view/livo3dprivacypolicy).
 
 ## 3. Your content and responsibilities
 
-You keep ownership of the videos you record, the media you import, and anything you create with the
-App. You grant us only the limited rights needed to operate the features you use — for example,
-sending a photo you select to our 3D generation partner when you start a generation.
+You retain your rights in the original content you import and create, subject to rights in any
+third-party assets incorporated into it. You must have the permissions needed for imported media,
+music, models and any people depicted in your recordings. Using the App does not grant you rights
+to someone else's work, likeness or trademarks.
 
-You agree not to use the App to break the law, to import or publish content you have no right to
-use, or to create material that is defamatory, hateful, sexually explicit, or that depicts a real
-person without their consent. You are responsible for what you record and where you share it.
+Do not use the App to break the law, infringe rights, harass others or create unlawful, defamatory,
+hateful or sexually exploitative material. You are responsible for the content you record and
+where you share it. In AR mode, recordings may include the camera view of real people and your
+surroundings; obtain any necessary consent before recording or sharing.
 
-## 4. Accounts and data
+## 4. Local storage and backups
 
-No account is required. Everything you create is stored on your device. Keeping your device secure
-is your responsibility, and deleting the App deletes the content it stored.
+Recordings, imported media and custom stages are stored on your device. We do not provide a cloud
+backup or an account-based library sync service. Keep separate copies of work you want to retain.
+Deleting the App can delete its local content, while exported files and device/cloud backups may
+remain in their respective locations. Restoring a purchase restores eligible Pro access; it does
+not recover deleted recordings, imported files or custom stages.
 
-## 5. Purchases and subscriptions (Livo 3D Pro)
+## 5. Livo 3D Pro plans
 
-Livo 3D Pro unlocks the full character, dance and music library and removes the watermark from
-exported videos.
+Pro provides the paid features described on the purchase screen, including watermark-free
+recordings, additional stage access and custom photo backgrounds. The purchase screen describes
+what is included before you buy. Availability of individual downloadable assets may change due to
+licensing or technical reasons. A Pro purchase does not grant unrestricted ownership of the
+underlying character, dance, music or community-model files.
 
-- **Pro is offered as an auto-renewing subscription** (weekly, monthly or yearly) and as a one-time
-  lifetime purchase. Prices are shown in the App before you buy and vary by region.
-- Payment is charged to your Apple ID account at confirmation of purchase.
-- **A subscription renews automatically** at the same price and period unless it is cancelled at
-  least 24 hours before the end of the current period. Your account is charged for renewal within
-  24 hours of the end of the current period.
-- You can manage or cancel a subscription in your Apple ID settings after purchase. Deleting the
-  App does not cancel a subscription.
-- Where a free trial is offered, any unused portion is forfeited if you purchase a subscription
-  during the trial.
-- **Purchases are processed by Apple. Billing, receipts and refunds are handled by Apple** under
-  the terms of the App Store; we cannot issue refunds directly.
-- A previous purchase can be restored on another device signed in with the same Apple ID using
-  "Restore" on the purchase screen.
+The App offers two purchase options:
 
-## 6. Third-party services
+- **Monthly:** an auto-renewing subscription with a one-month billing period. The U.S.
+  reference price is **US$0.99 per month**. Your applicable currency, price and taxes are shown by
+  the App Store before confirmation; that displayed offer controls your purchase. Pro access
+  continues while your subscription entitlement is active.
+- **Lifetime:** a one-time, non-consumable purchase for a Pro entitlement that has no scheduled
+  subscription expiration. It does not renew or incur a monthly charge. Its price is displayed
+  before confirmation. It applies to Livo 3D and the included Pro features, subject to these Terms
+  and your statutory rights; it does not promise perpetual hosting of every third-party asset or
+  access to unrelated future apps or separately sold services.
 
-The App uses Apple StoreKit for purchases, Google MediaPipe for on-device motion analysis, and —
-where you choose to use them — Tripo3D for 3D character generation and Sketchfab for browsing 3D
-models. Your use of those features is also subject to those providers' terms.
+The current offers do not include weekly or annual subscriptions or a free trial. If an offer is
+unavailable, the App may ask you to retry; no payment is completed without Apple's purchase flow.
 
-## 7. Intellectual property
+## 6. Billing, renewal and cancellation
 
-The App, its interface and its code are owned by us and protected by law. You receive a limited,
-personal, non-transferable licence to use the App.
+Apple processes purchases. Payment is charged to the Apple Account used for the purchase when you
+confirm it, subject to Apple's billing terms.
 
-Characters, dance animations and music supplied inside the App are licensed to you for use within
-the App and in videos you export from it. You may not extract, redistribute, resell or repackage
-those assets, or use them outside the App.
+**The monthly subscription renews automatically until cancelled.** You can manage or cancel it on
+iPhone or iPad in **Settings → your name → Subscriptions → Livo 3D**. The App also provides
+"Manage Subscription" when it recognises an active monthly plan. Cancel before the next renewal
+to prevent the following billing period; Apple's subscription screen shows the applicable renewal
+or expiration date. Unless Apple indicates otherwise, cancellation stops future renewals and your
+paid access remains available until the end of the current entitlement period.
 
-## 8. Disclaimer of warranties
+Deleting the App, closing the purchase screen or removing camera permission does **not** cancel a
+subscription. A lifetime purchase has no automatic renewal to cancel. If you have an existing
+monthly subscription and acquire lifetime access through another purchase, check your Apple
+subscription settings and cancel any renewal you no longer want; the App does not cancel an Apple
+subscription on your behalf.
 
-THE APP IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED,
-INCLUDING WITHOUT LIMITATION ANY WARRANTY OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR
-NON-INFRINGEMENT. We do not warrant that the App will be uninterrupted or error-free, or that
-downloaded content will always be available.
+Prices and subscription changes are governed by the offer shown by Apple and Apple's notice and
+consent requirements. We do not promise that renewal prices will remain unchanged forever.
 
-## 9. Limitation of liability
+## 7. Restore, expiration and refunds
 
-To the maximum extent permitted by law, our total liability arising out of or relating to the App is
-limited to the greater of the amount you paid us in the 12 months before the claim, or the minimum
-amount required by applicable law. We are not liable for indirect, incidental, special or
-consequential damages, or for loss of recordings or other content.
+Use **Restore** on the Pro screen while signed in to the Apple Account used for the original
+purchase to restore an eligible monthly or lifetime entitlement, including on another supported
+iPhone or iPad. StoreKit may require an internet connection or authentication. Restore does not
+create a new subscription or charge by itself.
 
-## 10. Indemnification
+Monthly access ends when its verified entitlement expires, unless Apple grants a recognised
+billing grace period. Refunds, revocations and other changes reported by Apple can remove Pro
+access. Previously purchased lifetime access remains eligible for restoration unless the
+transaction has been refunded, revoked or is otherwise invalid.
 
-You agree to indemnify and hold us harmless from claims arising out of the content you create or
-import, your breach of these Terms, or your violation of any law or third-party right.
+Refund requests for purchases billed by Apple can be submitted at
+[reportaproblem.apple.com](https://reportaproblem.apple.com). Apple determines eligibility and
+processes refunds under its policies and applicable law. Contact us for App support; we do not
+operate Apple's payment system. Nothing in these Terms excludes mandatory consumer rights.
 
-## 11. Termination
+## 8. Third-party services and content
 
-You may stop using the App at any time by deleting it. We may suspend or terminate your access if
-you materially breach these Terms.
+The App uses Apple StoreKit for purchases, Google Analytics for Firebase for usage analytics,
+Google MediaPipe for on-device pose analysis, Supabase infrastructure for content delivery and
+Sketchfab for optional community browsing, previews and downloads. Those services have their own
+terms and privacy policies. You may need an internet connection to access them, and they may
+change or become unavailable independently of the App.
 
-## 12. Governing law and disputes
+Community models remain subject to the licence selected by their authors, including any
+attribution, non-commercial or redistribution restrictions. Pro does not override those licences
+or remove third-party attribution requirements or embedded-viewer branding.
 
-These Terms are governed by the laws of [JURISDICTION], and any dispute will be resolved in the
-courts of [VENUE], without regard to conflict-of-law rules.
+## 9. App and asset licences
 
-## 13. Apple App Store (EULA)
+The App's interface, code and assets are protected by intellectual-property laws. Except for rights
+granted by applicable open-source or third-party licences, you receive a limited, personal,
+non-transferable licence to use the App on Apple devices as permitted by the App Store usage
+rules.
 
-If you downloaded the App from the App Store, Apple's Licensed Application End User License
-Agreement also applies, and prevails over these Terms where the two conflict. Apple is not
-responsible for the App or for providing support for it.
+App-supplied assets may be used within the App and in permitted exports, subject to any specific
+licence provided with an asset. You may not extract, redistribute, resell or repackage those asset
+files except where the relevant licence expressly permits it. No additional commercial-use rights
+are implied for community or imported content.
 
-## 14. Changes to these Terms
+## 10. Availability and warranties
 
-We may update these Terms. Material changes will be reflected by updating the "Last updated" date
-above and, where appropriate, by notice inside the App. Continuing to use the App after a change
-means you accept the updated Terms.
+We aim to keep the App working, but cannot guarantee uninterrupted operation, compatibility with
+every device or permanent availability of downloadable content. Keep backups of important work.
+To the extent permitted by law, the App is provided "as is" and "as available" without additional
+warranties. This does not limit warranties, remedies or consumer protections that cannot legally
+be excluded.
 
-## 15. Contact
+## 11. Liability
 
-Questions about these Terms: **hhyteam@zhongkuitech.cn**
+To the extent permitted by law, we are not liable for indirect or consequential loss arising from
+use of the App, including loss caused by third-party service interruptions. Any limitation applies
+only where lawful and does not exclude liability that cannot legally be excluded or limit your
+mandatory rights to remedies for paid digital content and services.
+
+## 12. Ending use and disputes
+
+You may stop using the App at any time. Cancel any monthly subscription separately through Apple
+if you do not want it to renew. We may restrict use that materially violates these Terms, subject
+to applicable law and any rights associated with a paid purchase.
+
+Contact **hhyteam@zhongkuitech.cn** first about a dispute or support issue. Applicable law and court
+jurisdiction are determined by the rules that apply to your purchase and residence, including
+mandatory consumer protections and the Apple Standard EULA where applicable. These Terms do not
+require you to give up a right to use a court or regulator available under those protections.
+
+## 13. Apple App Store terms
+
+For the App distributed through the App Store,
+[Apple's Standard End User License Agreement](https://www.apple.com/legal/internet-services/itunes/dev/stdeula/)
+also applies, unless a valid custom EULA is supplied for the App. Apple is not responsible for
+developing the App or providing our App support. Apple's applicable purchase and subscription
+terms govern its billing services. If there is a conflict, mandatory law and the applicable Apple
+agreement take precedence to the extent required.
+
+## 14. Changes and contact
+
+We may update these Terms as features or offers change. The date above identifies the latest
+revision. Material changes will be communicated where required by law; an update does not remove
+rights that cannot legally be waived.
+
+Questions about these Terms or Pro access: **hhyteam@zhongkuitech.cn**.
