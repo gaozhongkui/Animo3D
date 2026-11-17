@@ -9,6 +9,7 @@ import SafariServices
 import UIKit
 import SwiftUI
 import AVFoundation
+import Combine
 
 /// The status-bar height the profile header has to leave clear.
 ///
@@ -43,6 +44,7 @@ final class ProfileViewController: UIViewController {
 
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Section, Item>!
+    private var proObserver: AnyCancellable?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -50,6 +52,10 @@ final class ProfileViewController: UIViewController {
         setupCollectionView()
         setupDataSource()
         reload()
+        proObserver = ProStore.shared.$entitlement
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.reload() }
 
         NotificationCenter.default.addObserver(self, selector: #selector(reload),
                                                name: UIApplication.didBecomeActiveNotification, object: nil)
@@ -152,7 +158,7 @@ final class ProfileViewController: UIViewController {
         let proReg = UICollectionView.CellRegistration<ModernProCell, Item> { cell, _, _ in
             // reload() runs from viewWillAppear, so buying inside the paywall and coming back
             // re-evaluates this and the row stops advertising an upgrade the user already has.
-            cell.apply(isPro: ProStore.shared.isPro)
+            cell.apply(plan: ProStore.shared.activeTier)
             cell.onTap = { [weak self] in self?.openPaywall() }
         }
         let workReg = UICollectionView.CellRegistration<GalleryWorkCell, URL> { cell, _, url in
@@ -187,6 +193,9 @@ final class ProfileViewController: UIViewController {
         snap.appendItems([.pro], toSection: .pro)
         let works = WorksStore.shared.works
         snap.appendItems(works.isEmpty ? [.empty] : works.map { .work($0) }, toSection: .works)
+        if dataSource.snapshot().indexOfItem(.pro) != nil {
+            snap.reconfigureItems([.pro])
+        }
         dataSource.apply(snap, animatingDifferences: false)
     }
 
@@ -421,9 +430,13 @@ private final class ModernProCell: UICollectionViewCell {
 
     /// Copy depends on whether the user already owns Pro. It stays tappable either way: the paywall
     /// is also where an owner finds Terms and Privacy.
-    func apply(isPro: Bool) {
-        title.text = isPro ? "Livo 3D Pro" : L("Upgrade Livo 3D Pro")
-        sub.text = isPro ? L("Lifetime Access") : L("Unlock 4K exports and all characters")
+    func apply(plan: ProStore.Tier?) {
+        title.text = plan != nil ? "Livo 3D Pro" : L("Upgrade Livo 3D Pro")
+        switch plan {
+        case .lifetime: sub.text = L("Lifetime Access")
+        case .monthly: sub.text = L("Monthly Subscription")
+        case nil: sub.text = L("Unlock All Characters")
+        }
     }
     override init(frame: CGRect) {
         super.init(frame: frame)

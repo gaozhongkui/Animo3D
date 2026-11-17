@@ -2,7 +2,7 @@
 //  PaywallView.swift
 //  Animo3D
 //
-//  Pro Paywall: Simplified for a single Lifetime Unlock.
+//  Pro Paywall: Monthly subscription or lifetime unlock.
 //
 
 import SwiftUI
@@ -15,10 +15,11 @@ struct PaywallView: View {
     var source: String = "unknown"
     @ObservedObject private var store = ProStore.shared
     @State private var animateItems = false
+    @State private var selectedTier = ProStore.Tier.monthly
+    @State private var showManageSubscriptions = false
 
-    private var lifetimeProduct: Product? {
-        store.products.first { $0.id == ProStore.Tier.lifetime.productID }
-    }
+    private var selectedProduct: Product? { store.product(for: selectedTier) }
+    private var isBusy: Bool { store.purchasingID != nil || store.isRestoring }
 
     private let benefits: [(String, LocalizedStringKey, LocalizedStringKey)] = [
         ("person.2.fill", "Unlock All Characters", "Access to all current and future 3D models"),
@@ -48,7 +49,7 @@ struct PaywallView: View {
                 }.padding(20)
 
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 30) {
+                    VStack(spacing: 20) {
                         // Icon & Title
                         VStack(spacing: 14) {
                             ZStack {
@@ -61,87 +62,151 @@ struct PaywallView: View {
 
                             VStack(spacing: 6) {
                                 Text("Livo 3D Pro").font(.system(size: 30, weight: .black, design: .rounded))
-                                Text("Lifetime Access").font(.headline).foregroundStyle(Color(rgb: 0x6366F1))
+                                Text(LocalizedStringKey(store.isPro ? "Pro Version Unlocked" : "Choose your Pro plan"))
+                                    .font(.headline)
+                                    .foregroundStyle(Color(rgb: 0x6366F1))
                             }
                         }
 
-                        // Benefits
+                        if !store.isPro {
+                            VStack(spacing: 12) {
+                                planCard(.monthly)
+                                planCard(.lifetime)
+                            }
+                            .padding(.horizontal, 24)
+                        }
+
                         VStack(spacing: 12) {
                             ForEach(0..<benefits.count, id: \.self) { i in
-                                let b = benefits[i]
-                                benefitRow(icon: b.0, title: b.1, subtitle: b.2)
-                                    .offset(y: animateItems ? 0 : 20).opacity(animateItems ? 1 : 0)
+                                let benefit = benefits[i]
+                                benefitRow(icon: benefit.0, title: benefit.1, subtitle: benefit.2)
+                                    .offset(y: animateItems ? 0 : 20)
+                                    .opacity(animateItems ? 1 : 0)
                                     .animation(.spring(response: 0.5).delay(Double(i) * 0.1), value: animateItems)
                             }
-                        }.padding(.horizontal, 24)
-
+                        }
+                        .padding(.horizontal, 24)
                     }
-                    .padding(.bottom, 210)
+                    .padding(.bottom, 24)
                 }
             }
             .frame(maxWidth: 550)
             .frame(maxWidth: .infinity)
 
-            // Bottom CTA
-            VStack {
-                Spacer()
-                purchaseArea
-                    .padding(.horizontal, 24).padding(.bottom, 20).padding(.top, 30)
-                    .background(
-                        Rectangle().fill(.ultraThinMaterial)
-                            .mask(LinearGradient(colors: [.clear, .white, .white], startPoint: .top, endPoint: .bottom))
-                            .ignoresSafeArea()
-                    )
-            }
-            .frame(maxWidth: 550)
-            .frame(maxWidth: .infinity)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            purchaseArea
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+                .frame(maxWidth: 550)
+                .frame(maxWidth: .infinity)
+                .background(.ultraThinMaterial)
         }
         .onAppear {
             animateItems = true
             Track.log(.paywallShown, ["source": source])
         }
+        .task {
+            if store.products.isEmpty { await store.loadProducts() }
+            await store.refreshEntitlements()
+        }
+        .manageSubscriptionsSheet(isPresented: $showManageSubscriptions)
+        .alert("Purchase unavailable", isPresented: Binding(
+            get: { store.lastError != nil },
+            set: { if !$0 { store.lastError = nil } }
+        )) {
+            Button("OK") { store.lastError = nil }
+        } message: {
+            Text(L(store.lastError ?? ""))
+        }
         .trackScreen("Paywall")
+    }
+
+    private func planCard(_ tier: ProStore.Tier) -> some View {
+        let selected = selectedTier == tier
+        let product = store.product(for: tier)
+        return Button {
+            selectedTier = tier
+            HapticManager.selection()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .font(.title2)
+                    .foregroundStyle(selected ? Color(rgb: 0x6366F1) : .secondary)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(LocalizedStringKey(tier == .monthly ? "Monthly Subscription" : "Lifetime Access"))
+                        .font(.headline)
+                    Text(LocalizedStringKey(
+                        tier == .monthly ? "Renews monthly · Cancel anytime" : "One-time payment · Forever yours"
+                    ))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                if let product {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(product.displayPrice).font(.title3.bold())
+                        if tier == .monthly {
+                            Text("per month").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                } else if store.isLoadingProducts {
+                    ProgressView()
+                } else {
+                    Text("Unavailable").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(selected ? Color(rgb: 0x6366F1) : .clear, lineWidth: 2)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var purchaseArea: some View {
         VStack(spacing: 14) {
-            // The price sits in the pinned bar rather than at the end of the scroll. It used to be
-            // the last thing in the list, below four benefit cards and a 100pt crown, which on a
-            // small phone put it under the bar's own scrim - the one number the screen exists to
-            // show was the one thing the user had to scroll for. Shown only to someone who could
-            // still buy: an owner has no price, and no "App Store unavailable" error, to read.
-            if !store.isPro {
-                if let product = lifetimeProduct {
-                    VStack(spacing: 2) {
-                        Text(product.displayPrice)
-                            .font(.system(size: 30, weight: .black, design: .rounded))
-                        Text("One-time payment · Forever yours")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                } else if store.loadFailed {
-                    VStack(spacing: 8) {
-                        Text("App Store unavailable").font(.footnote).foregroundStyle(.secondary)
-                        Button {
-                            Task { await store.loadProducts() }
-                        } label: {
-                            Label("Tap to Retry", systemImage: "arrow.clockwise")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(Color(rgb: 0x6366F1))
-                        }
-                    }
-                } else {
-                    ProgressView()
+            if let tier = store.activeTier {
+                Text(LocalizedStringKey(tier == .monthly ? "Monthly Subscription Active" : "Lifetime Access"))
+                    .font(.headline)
+                if tier == .monthly, let expiration = store.entitlement?.expirationDate {
+                    Text("Access through \(expiration.formatted(date: .abbreviated, time: .omitted))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+            } else if let product = selectedProduct {
+                Group {
+                    if selectedTier == .monthly {
+                        Text("\(product.displayPrice) / month")
+                    } else {
+                        Text(product.displayPrice)
+                    }
+                }
+                .font(.system(size: 28, weight: .black, design: .rounded))
+            } else if store.isLoadingProducts {
+                ProgressView()
             }
 
-            // One button in both states rather than a button swapped for a label. An owner who
-            // opens this screen should see the thing they would have tapped, greyed out and inert -
-            // that reads as "already yours". Replacing it with a differently shaped badge left
-            // people looking for the button, and the gradient CTA sitting next to a purple
-            // "unlocked" notice looked like it was still selling something.
+            if !store.isPro, store.loadFailed {
+                Button {
+                    Task { await store.loadProducts() }
+                } label: {
+                    Label("App Store unavailable · Tap to Retry", systemImage: "arrow.clockwise")
+                        .font(.footnote)
+                }
+                .disabled(store.isLoadingProducts || isBusy)
+            }
+
             Button {
-                guard !store.isPro, let p = lifetimeProduct else { return }
-                Task { await store.purchase(p) }
+                guard !store.isPro, let product = selectedProduct else { return }
+                Task { await store.purchase(product) }
             } label: {
                 ZStack {
                     if store.purchasingID != nil {
@@ -150,7 +215,10 @@ struct PaywallView: View {
                         Label("Pro Version Unlocked", systemImage: "checkmark.seal.fill")
                             .font(.headline)
                     } else {
-                        Text("Unlock Everything Forever").font(.headline)
+                        Text(LocalizedStringKey(
+                            selectedTier == .monthly ? "Subscribe Monthly" : "Unlock Everything Forever"
+                        ))
+                        .font(.headline)
                     }
                 }
                 .foregroundStyle(store.isPro ? Color.secondary : Color.white)
@@ -163,16 +231,32 @@ struct PaywallView: View {
                 // No glow on the grey state: a shadow is what makes a control look pressable.
                 .shadow(color: store.isPro ? .clear : Color(rgb: 0x6366F1).opacity(0.4), radius: 15, y: 8)
             }
-            .disabled(store.isPro || lifetimeProduct == nil || store.purchasingID != nil)
+            .disabled(store.isPro || selectedProduct == nil || isBusy)
 
-            // Terms and Privacy stay reachable in both states - App Store review expects them on
-            // the purchase screen whether or not this particular user has bought yet. Restore is
-            // the only part that goes: there is nothing left to restore.
+            if !store.isPro, selectedTier == .monthly {
+                Text("Monthly subscription renews automatically until canceled. Manage or cancel in App Store settings.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            if store.activeTier == .monthly {
+                Button("Manage Subscription") { showManageSubscriptions = true }
+                    .font(.footnote.weight(.semibold))
+            }
+
             HStack(spacing: 20) {
-                if !store.isPro {
-                    Button("Restore") { Task { await store.restore() } }.disabled(store.isRestoring)
-                    Text("•")
+                Button {
+                    Task { await store.restore() }
+                } label: {
+                    if store.isRestoring {
+                        ProgressView()
+                    } else {
+                        Text("Restore")
+                    }
                 }
+                .disabled(isBusy)
+                Text("•")
                 Link("Terms", destination: URL(string: "https://sites.google.com/view/livo3dtermsofservice")!)
                 Text("•")
                 Link("Privacy", destination: URL(string: "https://sites.google.com/view/livo3dprivacypolicy")!)

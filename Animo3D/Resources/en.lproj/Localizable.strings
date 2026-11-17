@@ -196,3 +196,20 @@
 "Rename" = "Rename";
 "Save" = "Save";
 "Name" = "Name";
+
+/* Monthly Pro subscription */
+"Choose your Pro plan" = "Choose your Pro plan";
+"Monthly Subscription" = "Monthly Subscription";
+"Renews monthly · Cancel anytime" = "Renews monthly · Cancel anytime";
+"per month" = "per month";
+"Unavailable" = "Unavailable";
+"Monthly Subscription Active" = "Monthly Subscription Active";
+"Access through %@" = "Access through %@";
+"%@ / month" = "%@ / month";
+"App Store unavailable · Tap to Retry" = "App Store unavailable · Tap to Retry";
+"Subscribe Monthly" = "Subscribe Monthly";
+"Monthly subscription renews automatically until canceled. Manage or cancel in App Store settings." = "Monthly subscription renews automatically until canceled. Manage or cancel in App Store settings.";
+"Manage Subscription" = "Manage Subscription";
+"Purchase unavailable" = "Purchase unavailable";
+"Your purchase is pending approval." = "Your purchase is pending approval.";
+"No active purchase was found for this Apple ID." = "No active purchase was found for this Apple ID.";

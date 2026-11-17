@@ -1,0 +1,68 @@
+{
+  "identifier": "D661C28B-7F7E-42A3-9D61-E5D4145F26E1",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "39.99",
+      "familyShareable": false,
+      "internalID": "6001",
+      "localizations": [
+        {
+          "description": "Unlock Livo 3D Pro forever with a one-time purchase.",
+          "displayName": "Livo 3D Pro Lifetime",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.animar.ar.companion.animo.lifetime",
+      "referenceName": "Pro Lifetime (local test price only)",
+      "type": "NonConsumable"
+    }
+  ],
+  "settings": {
+    "_applicationInternalID": "",
+    "_developerTeamID": "",
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA"
+  },
+  "subscriptionGroups": [
+    {
+      "id": "B4E119A4-10FE-4C21-9884-079BD7A6E299",
+      "localizations": [
+        {
+          "description": "Full access to Livo 3D Pro.",
+          "displayName": "Livo 3D Pro",
+          "locale": "en_US"
+        }
+      ],
+      "name": "Livo 3D Pro",
+      "subscriptions": [
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "0.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "6002",
+          "introductoryOffer": null,
+          "localizations": [
+            {
+              "description": "Full Pro access for one month. Automatically renews until canceled.",
+              "displayName": "Livo 3D Pro Monthly",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "com.animar.ar.companion.animo.monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "Pro Monthly",
+          "subscriptionGroupID": "B4E119A4-10FE-4C21-9884-079BD7A6E299",
+          "type": "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version": {
+    "major": 4,
+    "minor": 0
+  }
+}

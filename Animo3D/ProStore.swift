@@ -1,102 +1,98 @@
-//
-//  ProStore.swift
-//  Animo3D
-//
-//  In-app purchases (StoreKit 2). Pro unlocks every character, dance and track, and drops the
-//  watermark from exported video.
-//
-//  Sold as a non-consumable lifetime unlock.
-//
-//  Local testing: Product > Scheme > Edit Scheme > Run > Options > StoreKit Configuration >
-//  Animo3D.storekit.
-//
-
 import Foundation
 import Combine
 import StoreKit
 
+/// StoreKit 2: monthly auto-renewing Pro and the existing non-consumable lifetime unlock.
 @MainActor
 final class ProStore: ObservableObject {
     static let shared = ProStore()
+    typealias Tier = ProPlan
 
-    enum Tier: String, CaseIterable {
-        case lifetime
-        var productID: String { "com.animar.ar.companion.animo.lifetime" }
-    }
-
-    /// Every product that grants Pro.
-    static let productIDs: [String] = [Tier.lifetime.productID]
+    static let productIDs = Tier.allCases.map(\.productID)
 
     @Published private(set) var products: [Product] = []
-    @Published private(set) var isPro: Bool
-    /// The product currently being bought, so its own button can show a spinner.
+    @Published private(set) var entitlement: ProEntitlement?
     @Published private(set) var purchasingID: String?
     @Published private(set) var isRestoring = false
-    /// True once a product load has come back empty - the paywall shows a retry instead of prices
-    /// that never arrive.
+    @Published private(set) var isLoadingProducts = false
     @Published private(set) var loadFailed = false
     @Published var lastError: String?
 
-    private let entitlementKey = "pro_no_watermark"
-    private var updatesTask: Task<Void, Never>?
+    var isPro: Bool { entitlement?.isActive() == true }
+    var activeTier: Tier? { isPro ? entitlement?.plan : nil }
+    var monthly: Product? { product(for: .monthly) }
+    var lifetime: Product? { product(for: .lifetime) }
 
-    private init() {
-        // Seeded from the cached entitlement so a paying user does not get the watermark back for
-        // the moment it takes StoreKit to answer (or for as long as they are offline).
-        isPro = UserDefaults.standard.bool(forKey: entitlementKey)
-        updatesTask = Self.listenForTransactions()
-        Task {
-            await loadProducts()
-            await refreshEntitlements()
+    private static let entitlementKey = "pro_entitlement"
+    private static let legacyEntitlementKey = "pro_no_watermark"
+    private let defaults: UserDefaults
+    private var updatesTask: Task<Void, Never>?
+    private var expirationTask: Task<Void, Never>?
+    private var refreshGeneration = 0
+
+    init(defaults: UserDefaults = .standard, startsAutomatically: Bool = true) {
+        self.defaults = defaults
+        entitlement = ProEntitlement.cached(
+            data: defaults.data(forKey: Self.entitlementKey),
+            legacyIsPro: defaults.bool(forKey: Self.legacyEntitlementKey)
+        )
+        listenForTransactions()
+        scheduleExpirationRefresh()
+        guard startsAutomatically else { return }
+        Task { [weak self] in
+            await self?.loadProducts()
+            await self?.refreshEntitlements()
         }
     }
 
-    deinit { updatesTask?.cancel() }
+    deinit {
+        updatesTask?.cancel()
+        expirationTask?.cancel()
+    }
 
     // MARK: - Catalog
 
+    func product(for tier: Tier) -> Product? {
+        products.first { $0.id == tier.productID }
+    }
+
     func loadProducts() async {
+        guard !isLoadingProducts else { return }
+        isLoadingProducts = true
         loadFailed = false
+        defer { isLoadingProducts = false }
         do {
             let fetched = try await Product.products(for: Self.productIDs)
-            // Keep the declared order; StoreKit returns them in whatever order it likes.
             products = Self.productIDs.compactMap { id in fetched.first { $0.id == id } }
-            loadFailed = products.isEmpty
-            if loadFailed { NSLog("[ProStore] no products returned for %d IDs", Self.productIDs.count) }
+            loadFailed = products.count != Self.productIDs.count
         } catch {
             loadFailed = true
             NSLog("[ProStore] product load failed: %@", error.localizedDescription)
         }
     }
 
-    var lifetime: Product? { products.first { $0.id == Tier.lifetime.productID } }
-
-    // MARK: - Buying
+    // MARK: - Buying and restoring
 
     @discardableResult
     func purchase(_ product: Product) async -> Bool {
-        guard purchasingID == nil else { return false }
+        guard !isPro, purchasingID == nil, !isRestoring,
+              Self.productIDs.contains(product.id) else { return false }
         purchasingID = product.id
+        lastError = nil
         defer { purchasingID = nil }
         Track.log(.purchaseStarted, ["product": product.id])
         do {
             switch try await product.purchase() {
             case .success(let verification):
-                guard let transaction = try? Self.verify(verification) else {
-                    lastError = "That purchase could not be verified."
-                    Track.log(.purchaseFailed, ["product": product.id, "reason": "unverified"])
-                    return false
-                }
+                let transaction = try Self.verify(verification)
                 await transaction.finish()
                 await refreshEntitlements()
                 Track.log(.purchaseSucceeded, ["product": product.id])
-                Track.setPro(true)
                 return isPro
             case .userCancelled:
                 Track.log(.purchaseFailed, ["product": product.id, "reason": "cancelled"])
                 return false
             case .pending:
-                // Ask To Buy, or a payment method awaiting approval. Transaction.updates delivers it later.
                 lastError = "Your purchase is pending approval."
                 return false
             @unknown default:
@@ -104,65 +100,108 @@ final class ProStore: ObservableObject {
             }
         } catch {
             lastError = error.localizedDescription
+            Track.log(.purchaseFailed, ["product": product.id, "reason": "error"])
             return false
         }
     }
 
-    /// Required by App Review for any app with a paywall: an existing purchase must be recoverable
-    /// on a new device without paying again.
     func restore() async {
-        guard !isRestoring else { return }
+        guard !isRestoring, purchasingID == nil else { return }
         isRestoring = true
+        lastError = nil
         defer { isRestoring = false }
-        try? await AppStore.sync()
-        await refreshEntitlements()
-        Track.log(.purchaseRestored, ["ok": isPro ? "yes" : "no"])
-        if isPro { Track.setPro(true) }
-        if !isPro { lastError = "No previous purchase was found for this Apple ID." }
+        do {
+            try await AppStore.sync()
+            await refreshEntitlements()
+            Track.log(.purchaseRestored, ["ok": isPro ? "yes" : "no"])
+            if !isPro { lastError = "No active purchase was found for this Apple ID." }
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
-    // MARK: - Entitlement
+    // MARK: - Entitlements
 
     func refreshEntitlements() async {
-        var entitled = false
+        refreshGeneration += 1
+        let generation = refreshGeneration
+        var current: ProEntitlement?
         for await result in Transaction.currentEntitlements {
-            guard let transaction = try? Self.verify(result) else { continue }
-            guard Self.productIDs.contains(transaction.productID) else { continue }
-            if transaction.revocationDate == nil { entitled = true }
-        }
-        setPro(entitled)
-    }
+            guard let transaction = try? Self.verify(result),
+                  transaction.revocationDate == nil,
+                  !transaction.isUpgraded else { continue }
 
-    private func setPro(_ value: Bool) {
-        guard value != isPro else { return }
-        isPro = value
-        UserDefaults.standard.set(value, forKey: entitlementKey)
-        NSLog("[ProStore] entitlement -> %@", value ? "PRO" : "free")
-    }
-
-    /// Renewals, refunds, family sharing changes and Ask To Buy approvals all arrive here rather
-    /// than through `purchase()`, including while the app was not running.
-    private static func listenForTransactions() -> Task<Void, Never> {
-        Task(priority: .background) {
-            for await update in Transaction.updates {
-                if let transaction = try? verify(update) {
-                    await transaction.finish()
-                }
-                await ProStore.shared.refreshEntitlements()
+            if transaction.productID == Tier.lifetime.productID {
+                current = ProEntitlement(plan: .lifetime, expirationDate: nil)
+                break
             }
+            if transaction.productID == Tier.monthly.productID,
+               let expiration = await monthlyExpiration(for: transaction) {
+                current = ProEntitlement(plan: .monthly, expirationDate: expiration)
+            }
+        }
+        guard generation == refreshGeneration else { return }
+        entitlement = current
+        // An explicit inactive value prevents an expired month from falling back to the old
+        // Boolean flag and accidentally becoming lifetime access on the next launch.
+        let cache = current ?? ProEntitlement(plan: .monthly, expirationDate: nil)
+        if let data = try? JSONEncoder().encode(cache) {
+            defaults.set(data, forKey: Self.entitlementKey)
+        }
+        defaults.set(current?.plan == .lifetime, forKey: Self.legacyEntitlementKey)
+        Track.setPro(isPro)
+        scheduleExpirationRefresh()
+    }
+
+    private func monthlyExpiration(for transaction: Transaction) async -> Date? {
+        if let expiration = transaction.expirationDate, expiration > Date() { return expiration }
+        guard let groupID = transaction.subscriptionGroupID,
+              let statuses = try? await Product.SubscriptionInfo.status(for: groupID) else { return nil }
+        for status in statuses where status.state == .inGracePeriod {
+            guard let renewal = try? Self.verify(status.renewalInfo),
+                  let renewalTransaction = try? Self.verify(status.transaction),
+                  renewalTransaction.productID == Tier.monthly.productID,
+                  renewalTransaction.revocationDate == nil,
+                  let expiration = renewal.gracePeriodExpirationDate,
+                  expiration > Date() else { continue }
+            return expiration
+        }
+        return nil
+    }
+
+    private func listenForTransactions() {
+        updatesTask = Task { [weak self] in
+            for await update in Transaction.updates {
+                guard !Task.isCancelled else { return }
+                guard let transaction = try? Self.verify(update),
+                      Self.productIDs.contains(transaction.productID) else { continue }
+                await transaction.finish()
+                await self?.refreshEntitlements()
+            }
+        }
+    }
+
+    private func scheduleExpirationRefresh() {
+        expirationTask?.cancel()
+        guard let expiration = entitlement?.expirationDate, isPro else { return }
+        let delay = max(0, expiration.timeIntervalSinceNow)
+        expirationTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            } catch {
+                return
+            }
+            await self?.refreshEntitlements()
         }
     }
 
     private nonisolated static func verify<T>(_ result: VerificationResult<T>) throws -> T {
         switch result {
+        case .verified(let value): return value
         case .unverified(_, let error): throw error
-        case .verified(let safe):       return safe
         }
     }
 
-    // MARK: - Free allowance
-
-    // The first N characters/dances are free, the rest need Pro.
     let freeCharacters = 3
     let freeDances = 6
     func characterLocked(_ index: Int) -> Bool { !isPro && index >= freeCharacters }
