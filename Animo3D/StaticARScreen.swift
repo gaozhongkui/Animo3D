@@ -41,7 +41,7 @@ struct StaticARScreen: View {
     /// Which way the model is being shown. AR by default; the turntable is one tap away, and works
     /// on devices and in situations where AR does not.
     @State private var mode: StaticViewMode = ARWorldTrackingConfiguration.isSupported ? .ar : .turntable
-    @State private var finished: FinishedWork?
+    @StateObject private var recordingOutput = RecordingOutput()
     @State private var showMiss = false
     @State private var missTask: Task<Void, Never>?
 
@@ -167,7 +167,7 @@ struct StaticARScreen: View {
             VStack {
                 HStack {
                     CircleButton(system: "xmark") {
-                        if recorder.isRecording { recorder.stop { _ in } }
+                        if recorder.isRecording { stopRecording() }
                         dismiss()
                     }
                     // Also hidden under the scanning overlay, which draws its own full-screen UI.
@@ -198,16 +198,20 @@ struct StaticARScreen: View {
                     .padding(.bottom, 34)
             }
         }
-        .fullScreenCover(item: $finished) { work in
-            WorkDetailView(url: work.url, justSaved: true) { finished = nil }
-        }
+        .recordingFeedback(output: recordingOutput)
         .task {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             overdue = true
         }
         .onDisappear {
             missTask?.cancel()
-            if recorder.isRecording { recorder.stop { _ in } }
+            if recorder.isRecording { stopRecording() }
+        }
+    }
+
+    private func stopRecording() {
+        recorder.stop { result in
+            Task { await recordingOutput.process(result) }
         }
     }
 
@@ -215,25 +219,34 @@ struct StaticARScreen: View {
         Button {
             HapticManager.medium()
             if recorder.isRecording {
-                recorder.stop { out in
-                    guard let out, let saved = WorksStore.shared.add(from: out) else { return }
-                    HapticManager.success()
-                    finished = FinishedWork(url: saved)
+                stopRecording()
+            } else if let view = holder.scnView {
+                do {
+                    try recorder.start(view: view, watermark: pro.isPro ? nil : "Livo 3D")
+                } catch {
+                    recordingOutput.reportRecordingError(error)
                 }
-            } else if let v = holder.scnView {
-                recorder.start(view: v, watermark: pro.isPro ? nil : "Livo 3D")
+            } else {
+                recordingOutput.reportRecordingError(RecordingError.sceneUnavailable)
             }
         } label: {
             ZStack {
                 Circle().stroke(.white, lineWidth: 4).frame(width: 74, height: 74)
-                RoundedRectangle(cornerRadius: recorder.isRecording ? 7 : 30, style: .continuous)
-                    .fill(Color.red)
-                    .frame(width: recorder.isRecording ? 30 : 60,
-                           height: recorder.isRecording ? 30 : 60)
+                if recordingOutput.isProcessing || recorder.isFinishing {
+                    ProgressView().tint(.white)
+                } else {
+                    RoundedRectangle(cornerRadius: recorder.isRecording ? 7 : 30, style: .continuous)
+                        .fill(Color.red)
+                        .frame(
+                            width: recorder.isRecording ? 30 : 60,
+                            height: recorder.isRecording ? 30 : 60
+                        )
+                }
             }
             .frame(width: 80, height: 80)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: recorder.isRecording)
         }
+        .disabled(recordingOutput.isProcessing || recorder.isFinishing)
     }
 
     /// The panel is instruction, and one tap is proof it was read. It also does not come back in

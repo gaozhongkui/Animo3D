@@ -27,7 +27,17 @@ final class SceneHolder: ObservableObject {
 
 final class SceneViewRecorder: ObservableObject {
 
-    @Published var isRecording = false
+    @Published private(set) var isRecording = false
+    @Published private(set) var isFinishing = false
+
+    private let outputDirectory: URL
+    // Accessed on encodeQueue; stop reads these only after all queued frames have drained.
+    private var framesWritten = 0
+    private var encodingError: Error?
+
+    init(outputDirectory: URL = RecordingStorage.draftsDirectory) {
+        self.outputDirectory = outputDirectory
+    }
 
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
@@ -61,8 +71,11 @@ final class SceneViewRecorder: ObservableObject {
     /// The view's own frame rate before recording lowered it, or nil if it was left alone.
     private var previousViewFPS: Int?
 
-    func start(view: SCNView, watermark: String? = nil) {
-        guard !isRecording else { return }
+    func start(view: SCNView, watermark: String? = nil) throws {
+        guard !isRecording, !isFinishing else { throw RecordingError.busy }
+        guard view.scene != nil, view.bounds.width > 0, view.bounds.height > 0 else {
+            throw RecordingError.sceneUnavailable
+        }
         self.view = view
         self.watermark = watermark
         // Capture scale is capped, not taken straight from the screen.
@@ -83,10 +96,12 @@ final class SceneViewRecorder: ObservableObject {
         let w = max(2, even(view.bounds.width)), h = max(2, even(view.bounds.height))
         size = CGSize(width: w, height: h)
 
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cap_\(UUID().uuidString).mp4")
-        outURL = url
-        guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mp4) else { return }
+        let url = try RecordingStorage.makeCaptureURL(in: outputDirectory)
+        var captureStarted = false
+        defer {
+            if !captureStarted { try? FileManager.default.removeItem(at: url) }
+        }
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         // An explicit bitrate. Without AVVideoCompressionPropertiesKey the encoder picks its own
         // default for the dimensions, and for a frame this size that default is low enough to show
         // as mush on the character's face and banding across the stage floor - the "quality is bad"
@@ -115,11 +130,16 @@ final class SceneViewRecorder: ObservableObject {
                 kCVPixelBufferWidthKey as String: w,
                 kCVPixelBufferHeightKey as String: h
             ])
-        guard writer.canAdd(input) else { return }
+        guard writer.canAdd(input) else { throw RecordingError.couldNotStart }
         writer.add(input)
-        writer.startWriting()
+        guard writer.startWriting() else { throw writer.error ?? RecordingError.couldNotStart }
         writer.startSession(atSourceTime: .zero)
-        self.writer = writer; self.input = input; self.adaptor = adaptor
+        self.writer = writer
+        self.input = input
+        self.adaptor = adaptor
+        outURL = url
+        framesWritten = 0
+        encodingError = nil
         startTimestamp = 0
         lastPTS = .zero
         prepareWatermark()
@@ -162,6 +182,7 @@ final class SceneViewRecorder: ObservableObject {
         l.add(to: .main, forMode: .common)
         link = l
         isRecording = true
+        captureStarted = true
     }
 
     deinit {
@@ -211,9 +232,21 @@ final class SceneViewRecorder: ObservableObject {
             defer {
                 self.pendingLock.lock(); self.pending -= 1; self.pendingLock.unlock()
             }
-            guard let pb = self.pixelBuffer(from: image, size: frameSize,
-                                            pool: adaptor.pixelBufferPool) else { return }
-            adaptor.append(pb, withPresentationTime: pts)
+            // Readiness can change between the display-link tick and this queued append.
+            guard self.encodingError == nil, input.isReadyForMoreMediaData else { return }
+            guard let pixelBuffer = self.pixelBuffer(
+                from: image,
+                size: frameSize,
+                pool: adaptor.pixelBufferPool
+            ) else {
+                self.encodingError = RecordingError.encodingFailed
+                return
+            }
+            if adaptor.append(pixelBuffer, withPresentationTime: pts) {
+                self.framesWritten += 1
+            } else {
+                self.encodingError = self.writer?.error ?? RecordingError.encodingFailed
+            }
         }
     }
 
@@ -257,23 +290,60 @@ final class SceneViewRecorder: ObservableObject {
                                   y: size.height - boxSize.height - margin + pad)
     }
 
-    func stop(completion: @escaping (URL?) -> Void) {
-        guard isRecording else { completion(nil); return }
+    func stop(completion: @escaping (Result<URL, Error>) -> Void) {
+        guard isRecording, let writer, let input, let url = outURL else {
+            completion(.failure(RecordingError.noFrames))
+            return
+        }
         isRecording = false
-        link?.invalidate(); link = nil
+        isFinishing = true
+        link?.invalidate()
+        link = nil
         offscreen = nil
-        if let fps = previousViewFPS { view?.preferredFramesPerSecond = fps; previousViewFPS = nil }
-        let url = outURL
-        // Through the same serial queue the appends go through, so every frame already handed over
-        // is written before the input is closed. Calling markAsFinished() straight from here would
-        // race the last frame or two and truncate the clip.
-        encodeQueue.async { [weak self] in
-            guard let self else { return }
-            self.input?.markAsFinished()
-            self.writer?.finishWriting {
-                let ok = self.writer?.status == .completed
-                DispatchQueue.main.async { completion(ok ? url : nil) }
+        if let fps = previousViewFPS {
+            view?.preferredFramesPerSecond = fps
+            previousViewFPS = nil
+        }
+        // Retain this session's writer until it finishes. A new capture cannot replace its state.
+        encodeQueue.async {
+            if let error = self.encodingError ?? writer.error {
+                if writer.status == .writing { writer.cancelWriting() }
+                try? FileManager.default.removeItem(at: url)
+                self.complete(.failure(error), completion: completion)
+                return
             }
+            guard self.framesWritten > 0 else {
+                writer.cancelWriting()
+                try? FileManager.default.removeItem(at: url)
+                self.complete(.failure(RecordingError.noFrames), completion: completion)
+                return
+            }
+            input.markAsFinished()
+            writer.finishWriting {
+                let result: Result<URL, Error>
+                if writer.status == .completed {
+                    result = .success(RecordingStorage.markCompleted(url))
+                } else {
+                    try? FileManager.default.removeItem(at: url)
+                    result = .failure(writer.error ?? RecordingError.encodingFailed)
+                }
+                self.complete(result, completion: completion)
+            }
+        }
+    }
+
+    private func complete(
+        _ result: Result<URL, Error>,
+        completion: @escaping (Result<URL, Error>) -> Void
+    ) {
+        DispatchQueue.main.async {
+            self.writer = nil
+            self.input = nil
+            self.adaptor = nil
+            self.outURL = nil
+            self.view = nil
+            self.isFinishing = false
+            completion(result)
         }
     }
 

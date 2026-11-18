@@ -41,8 +41,7 @@ struct VideoDriveView: View {
     @State private var arMode = false
     @State private var shareURL: URL?
     @State private var showShare = false
-    @State private var finished: FinishedWork?      // Completion page after a recording
-    @State private var processing = false        // Exporting the recording
+    @StateObject private var recordingOutput = RecordingOutput()
     @State private var videoRect: CGRect = .zero
 
 
@@ -74,9 +73,7 @@ struct VideoDriveView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)   // The wizard ships its own header and back button
         .sheet(isPresented: $showShare) { if let url = shareURL { ShareSheet(items: [url]) } }
-        .fullScreenCover(item: $finished) { work in
-            WorkDetailView(url: work.url, justSaved: true) { finished = nil }
-        }
+        .recordingFeedback(output: recordingOutput)
         .fullScreenCover(item: $zoomChar) { c in
             let idx = remoteAssets.characters.firstIndex { $0.id == c.id } ?? 0
             CharacterPreviewPage(key: c.id, name: c.name, style: idx)
@@ -86,6 +83,7 @@ struct VideoDriveView: View {
             Task { await loadPicked(item) }
         }
         .onDisappear {
+            if recorder.isRecording { stopRecording() }
             // The loop observer and the preview player both used to outlive this screen, so the
             // preview kept playing (and holding the file) after leaving.
             if let obs = loopObserver { NotificationCenter.default.removeObserver(obs) }
@@ -301,28 +299,30 @@ struct VideoDriveView: View {
         .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
     }
 
+    private func stopRecording() {
+        recorder.stop { result in
+            Task { await recordingOutput.process(result) }
+        }
+    }
+
     private var recordButton: some View {
         Button {
+            HapticManager.medium()
             if recorder.isRecording {
-                HapticManager.medium()
-                // Same deal as the dance stage: free exports carry the watermark, so the video-drive
-                // path is not a way to get clean exports for free. It is burned in at record time
-                // now, so there is nothing left to export here - this path has no music to mix.
-                recorder.stop { url in
-                    guard let url else { return }
-                    if let saved = WorksStore.shared.add(from: url) {
-                        HapticManager.success()
-                        finished = FinishedWork(url: saved)
-                    }
+                stopRecording()
+            } else if let view = holder.scnView {
+                do {
+                    try recorder.start(view: view, watermark: ProStore.shared.isPro ? nil : "Livo 3D")
+                } catch {
+                    recordingOutput.reportRecordingError(error)
                 }
-            } else if let v = holder.scnView {
-                HapticManager.medium()
-                recorder.start(view: v, watermark: ProStore.shared.isPro ? nil : "Livo 3D")
+            } else {
+                recordingOutput.reportRecordingError(RecordingError.sceneUnavailable)
             }
         } label: {
             ZStack {
                 Circle().stroke(.white, lineWidth: 4).frame(width: 74, height: 74)
-                if processing {
+                if recordingOutput.isProcessing || recorder.isFinishing {
                     ProgressView().tint(.white)
                 } else {
                     RoundedRectangle(cornerRadius: recorder.isRecording ? 7 : 30, style: .continuous)
@@ -334,7 +334,7 @@ struct VideoDriveView: View {
             .frame(width: 80, height: 80)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: recorder.isRecording)
         }
-        .disabled(processing)
+        .disabled(recordingOutput.isProcessing || recorder.isFinishing)
     }
 
     // MARK: Bottom button
@@ -390,7 +390,7 @@ struct VideoDriveView: View {
         case .perform:
             // Back from the result page leaves the studio outright, the same as the dance stage:
             // returning to the picker with a live detector running just burns the CPU.
-            if recorder.isRecording { recorder.stop { _ in } }
+            if recorder.isRecording { stopRecording() }
             vm.stop()
             dismiss()
         }

@@ -45,10 +45,8 @@ struct DanceStudioView: View {
     @State private var placementMissTask: Task<Void, Never>?
     @State private var shareURL: URL?
     @State private var showShare = false
-    @State private var finished: FinishedWork?      // Completion page after a recording
+    @StateObject private var recordingOutput = RecordingOutput()
     @State private var showAudioDoc = false
-    @State private var processing = false   // Mixing music
-    @State private var exportProgress: Float = 0.0
     /// When the current take started, so `record_finished` can carry its length.
     @State private var recordStartedAt: Date?
     /// When Start Performance was pressed, so `stage_ready` can carry how long the user waited for
@@ -113,8 +111,8 @@ struct DanceStudioView: View {
         .overlay {
             if loading {
                 StageLoadingHUD(progress: remoteAssets.activeDownloadProgress)
-            } else if processing {
-                ExportingHUD(progress: exportProgress)
+            } else if recordingOutput.isProcessing || recorder.isFinishing {
+                ExportingHUD(progress: recordingOutput.progress)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -126,9 +124,7 @@ struct DanceStudioView: View {
                             onClose: { showStagePicker = false })
         }
         // Recording used to end on a bare share sheet, with nothing saying the clip had been kept.
-        .fullScreenCover(item: $finished) { work in
-            WorkDetailView(url: work.url, justSaved: true) { finished = nil }
-        }
+        .recordingFeedback(output: recordingOutput)
         .sheet(isPresented: $showAudioDoc) {
             AudioDoc { url in
                 if let t = localMusic.importFile(from: url) { select(music: t) }
@@ -163,6 +159,7 @@ struct DanceStudioView: View {
             }
         }
         .onDisappear {
+            if recorder.isRecording { stopRecording() }
             music.stop(); vfx.remove(); stage.unload()
             // Leaving before performing is the drop-off. Step counts alone cannot separate "went
             // back a step" from "gave up here"; this can.
@@ -212,7 +209,7 @@ struct DanceStudioView: View {
         case .dance:     step = .character
         case .music:     step = .dance
         case .perform:                      // Back from performance page = return directly to home, don't return to music selection
-            if recorder.isRecording { recorder.stop { _ in } }   // Discard if recording, don't leave the writer hanging
+            if recorder.isRecording { stopRecording() }
             music.stop(); vfx.remove()
             dismiss()
         }
@@ -750,57 +747,55 @@ struct DanceStudioView: View {
         .buttonStyle(.plain)
     }
 
+    private func startRecording() {
+        guard let view = holder.scnView else {
+            recordingOutput.reportRecordingError(RecordingError.sceneUnavailable)
+            return
+        }
+        do {
+            try recorder.start(view: view, watermark: pro.isPro ? nil : "Livo 3D")
+            recordStartedAt = Date()
+            Track.log(.recordStarted, [
+                "character": character,
+                "dance": dance,
+                "mode": arMode ? "ar" : "screen",
+                "plan": pro.isPro ? "pro" : "free"
+            ])
+        } catch {
+            recordingOutput.reportRecordingError(error)
+        }
+    }
+
+    private func stopRecording() {
+        let seconds = recordStartedAt.map { Int(Date().timeIntervalSince($0)) } ?? 0
+        recordStartedAt = nil
+        let audio = selectedMusic?.url
+        recorder.stop { result in
+            let succeeded: Bool
+            if case .success = result { succeeded = true } else { succeeded = false }
+            Track.log(.recordFinished, [
+                "character": character,
+                "dance": dance,
+                "mode": arMode ? "ar" : "screen",
+                "seconds": seconds,
+                "ok": succeeded ? "yes" : "no"
+            ])
+            Task { await recordingOutput.process(result, audio: audio) }
+        }
+    }
+
     private var recordButton: some View {
         Button {
+            HapticManager.medium()
             if recorder.isRecording {
-                HapticManager.medium()
-                let seconds = recordStartedAt.map { Int(Date().timeIntervalSince($0)) } ?? 0
-                recordStartedAt = nil
-                recorder.stop { url in
-                    Track.log(.recordFinished, ["character": character, "dance": dance,
-                                                "mode": arMode ? "ar" : "screen",
-                                                "seconds": seconds,
-                                                "ok": url == nil ? "no" : "yes"])
-                    guard let url else { return }
-                    // The watermark is already in the frames, so only music still needs an export pass.
-                    if let audio = selectedMusic?.url {
-                        processing = true
-                        exportProgress = 0.0
-                        Task {
-                            let exportStart = CFAbsoluteTimeGetCurrent()
-                            let final = await VideoAudioMixer.export(video: url, audio: audio) { p in
-                                Task { @MainActor in exportProgress = p }
-                            } ?? url
-                            await MainActor.run {
-                                Track.log(.exportFinished, ["ms": Track.ms(since: exportStart),
-                                                            "ok": final == url ? "no" : "yes"])
-                                HapticManager.success()
-                                processing = false
-                                exportProgress = 0.0
-                                if let saved = WorksStore.shared.add(from: final) {
-                                    Track.log(.workSaved, ["music": "yes"])
-                                    finished = FinishedWork(url: saved)
-                                }
-                            }
-                        }
-                    } else if let saved = WorksStore.shared.add(from: url) {
-                        Track.log(.workSaved, ["music": "no"])
-                        HapticManager.success()
-                        finished = FinishedWork(url: saved)
-                    }
-                }
-            } else if let v = holder.scnView {
-                HapticManager.medium()
-                recordStartedAt = Date()
-                Track.log(.recordStarted, ["character": character, "dance": dance,
-                                           "mode": arMode ? "ar" : "screen",
-                                           "plan": pro.isPro ? "pro" : "free"])
-                recorder.start(view: v, watermark: pro.isPro ? nil : "Livo 3D")
+                stopRecording()
+            } else {
+                startRecording()
             }
         } label: {
             ZStack {
                 Circle().stroke(.white, lineWidth: 4).frame(width: 74, height: 74)
-                if processing {
+                if recordingOutput.isProcessing || recorder.isFinishing {
                     ProgressView().tint(.white)
                 } else {
                     RoundedRectangle(cornerRadius: recorder.isRecording ? 7 : 30, style: .continuous)
@@ -812,7 +807,7 @@ struct DanceStudioView: View {
             .frame(width: 80, height: 80)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: recorder.isRecording)
         }
-        .disabled(processing)
+        .disabled(recordingOutput.isProcessing || recorder.isFinishing)
         .onChange(of: recorder.isRecording) { recording in
             // The camera move runs the whole time now, in preview as well as in the recording, so
             // the user is not surprised by motion that only appears in the exported clip. All this

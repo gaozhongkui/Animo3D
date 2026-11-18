@@ -16,46 +16,67 @@ import AVFoundation
 import UIKit
 
 enum VideoAudioMixer {
-    /// Mix background music into a recorded clip. Returns nil if anything fails, so the caller can
-    /// fall back to the original recording.
+    /// Require the selected audio to be usable; never report a silent export as music success.
     static func export(
         video videoURL: URL,
         audio audioURL: URL?,
         onProgress: ((Float) -> Void)? = nil
-    ) async -> URL? {
+    ) async throws -> URL {
         let comp = AVMutableComposition()
         let videoAsset = AVURLAsset(url: videoURL)
 
+        var outputURL: URL?
         do {
-            guard let vSrc = try await videoAsset.loadTracks(withMediaType: .video).first else { return nil }
+            guard let vSrc = try await videoAsset.loadTracks(withMediaType: .video).first else {
+                throw RecordingError.noFrames
+            }
             let vDur = try await videoAsset.load(.duration)
-            guard vDur.seconds > 0 else { return nil }
+            guard vDur.seconds.isFinite, vDur.seconds > 0 else { throw RecordingError.noFrames }
             let transform = try await vSrc.load(.preferredTransform)
 
             guard let vTrack = comp.addMutableTrack(withMediaType: .video,
-                                                    preferredTrackID: kCMPersistentTrackID_Invalid) else { return nil }
+                                                    preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                NSLog("[Export] could not create the video composition track")
+                throw RecordingError.encodingFailed
+            }
             try vTrack.insertTimeRange(CMTimeRange(start: .zero, duration: vDur), of: vSrc, at: .zero)
             vTrack.preferredTransform = transform
 
-            // Background music (loop to fill)
             if let audioURL {
                 let audioAsset = AVURLAsset(url: audioURL)
-                if let aSrc = try await audioAsset.loadTracks(withMediaType: .audio).first {
-                    let aDur = try await audioAsset.load(.duration)
-                    if aDur.seconds > 0,
-                       let aTrack = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-                        var cursor = CMTime.zero
-                        while cursor < vDur {
-                            let chunk = CMTimeMinimum(aDur, vDur - cursor)
-                            try aTrack.insertTimeRange(CMTimeRange(start: .zero, duration: chunk), of: aSrc, at: cursor)
-                            cursor = cursor + chunk
-                        }
-                    }
+                guard let source = try await audioAsset.loadTracks(withMediaType: .audio).first else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                let audioDuration = try await audioAsset.load(.duration)
+                guard audioDuration.seconds.isFinite, audioDuration.seconds > 0,
+                      let track = comp.addMutableTrack(
+                        withMediaType: .audio,
+                        preferredTrackID: kCMPersistentTrackID_Invalid
+                      ) else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                var cursor = CMTime.zero
+                while cursor < vDur {
+                    try Task.checkCancellation()
+                    let chunk = CMTimeMinimum(audioDuration, vDur - cursor)
+                    try track.insertTimeRange(
+                        CMTimeRange(start: .zero, duration: chunk),
+                        of: source,
+                        at: cursor
+                    )
+                    cursor = cursor + chunk
                 }
             }
 
             let out = FileManager.default.temporaryDirectory.appendingPathComponent("out_\(UUID().uuidString).mp4")
-            guard let export = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetHighestQuality) else { return nil }
+            outputURL = out
+            guard let export = AVAssetExportSession(
+                asset: comp,
+                presetName: AVAssetExportPresetHighestQuality
+            ) else {
+                NSLog("[Export] export session unavailable for video duration %.3f", vDur.seconds)
+                throw RecordingError.encodingFailed
+            }
             export.outputURL = out
             export.outputFileType = .mp4
 
@@ -67,9 +88,15 @@ enum VideoAudioMixer {
                     if export.status == .completed || export.status == .failed || export.status == .cancelled {
                         break
                     }
-                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    do {
+                        try await Task.sleep(nanoseconds: 50_000_000)
+                    } catch {
+                        return
+                    }
                 }
             }
+
+            defer { progressTask.cancel() }
 
             // 使用标准 Swift 现代并发方案，配合一个带锁的原子隔离闭包隔离处理，彻底杜绝底层多线程并发状态导致的 Continuation 多次 Resume Crash 隐患。
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
@@ -87,17 +114,19 @@ enum VideoAudioMixer {
                 }
             }
 
-            progressTask.cancel()
-
             if export.status == .completed {
                 onProgress?(1.0)
                 return out
             }
-            print("[Export] failed: \(export.error?.localizedDescription ?? "unknown")")
-            return nil
+            NSLog(
+                "[Export] did not complete, status %ld: %@",
+                export.status.rawValue,
+                export.error?.localizedDescription ?? "No underlying export error"
+            )
+            throw export.error ?? RecordingError.encodingFailed
         } catch {
-            print("[Export] error: \(error.localizedDescription)")
-            return nil
+            if let outputURL { try? FileManager.default.removeItem(at: outputURL) }
+            throw error
         }
     }
 

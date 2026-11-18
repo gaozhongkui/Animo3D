@@ -21,17 +21,21 @@ final class WorksStore: ObservableObject {
     static let shared = WorksStore()
     @Published var works: [URL] = []
 
-    private var dir: URL {
-        guard let d = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            // Extremely unlikely: the documents directory is unreachable. Fall back to the temporary directory instead of crashing.
-            return FileManager.default.temporaryDirectory.appendingPathComponent("works")
-        }
-        let worksDir = d.appendingPathComponent("works", isDirectory: true)
-        try? FileManager.default.createDirectory(at: worksDir, withIntermediateDirectories: true)
-        return worksDir
-    }
+    private let directory: URL
+    private let draftsDirectory: URL
+    private let fileManager: FileManager
 
-    init() { reload() }
+    init(
+        directory: URL? = nil,
+        draftsDirectory: URL = RecordingStorage.draftsDirectory,
+        fileManager: FileManager = .default
+    ) {
+        self.directory = directory ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("works", isDirectory: true)
+        self.draftsDirectory = draftsDirectory
+        self.fileManager = fileManager
+        reload()
+    }
 
     func reload() {
         // Make sure UI properties are updated on the main thread
@@ -40,8 +44,11 @@ final class WorksStore: ObservableObject {
             return
         }
 
-        let items = (try? FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: [.creationDateKey])) ?? []
+        recoverCompletedRecordings()
+        let items = (try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.creationDateKey]
+        )) ?? []
 
         // Sort first and assign afterwards, so works cannot be modified externally mid-sort
         let sortedWorks = items.filter { $0.pathExtension == "mp4" }.sorted {
@@ -53,10 +60,46 @@ final class WorksStore: ObservableObject {
     }
 
     @discardableResult
-    func add(from tmp: URL) -> URL? {
-        let dest = dir.appendingPathComponent("work_\(UUID().uuidString).mp4")
-        do { try FileManager.default.moveItem(at: tmp, to: dest); reload(); return dest }
-        catch { return nil }
+    func add(from source: URL) throws -> URL {
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let name = source.lastPathComponent.hasPrefix("work_")
+            ? source.deletingPathExtension().lastPathComponent + ".mp4"
+            : "work_\(UUID().uuidString).mp4"
+        let destination = directory.appendingPathComponent(name)
+        if source.standardizedFileURL == destination.standardizedFileURL {
+            guard fileManager.fileExists(atPath: destination.path) else {
+                throw CocoaError(.fileNoSuchFile)
+            }
+            reload()
+            return destination
+        }
+        // Recovery may already have moved this same completed capture during the first reload.
+        if !fileManager.fileExists(atPath: source.path), fileManager.fileExists(atPath: destination.path) {
+            reload()
+            return destination
+        }
+        try fileManager.moveItem(at: source, to: destination)
+        reload()
+        return destination
+    }
+
+    private func recoverCompletedRecordings() {
+        guard let drafts = try? fileManager.contentsOfDirectory(
+            at: draftsDirectory,
+            includingPropertiesForKeys: nil
+        ) else { return }
+        for draft in drafts where draft.pathExtension == "mp4" {
+            do {
+                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+                try fileManager.moveItem(
+                    at: draft,
+                    to: directory.appendingPathComponent(draft.lastPathComponent)
+                )
+            } catch {
+                // A full disk or unavailable directory must never delete the only recorded copy.
+                NSLog("[WorksStore] recording recovery failed: %@", error.localizedDescription)
+            }
+        }
     }
 
     func delete(_ url: URL) {

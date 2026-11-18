@@ -233,3 +233,23 @@
 /* Pro creative showcase */
 "Create without limits." = "Create without limits.";
 "Bring your characters to life." = "Bring your characters to life.";
+
+/* Recording failure recovery */
+"The previous recording is still being saved." = "The previous recording is still being saved.";
+"The scene is not ready. Please try again." = "The scene is not ready. Please try again.";
+"Recording could not start. Please try again." = "Recording could not start. Please try again.";
+"No video frames were recorded. Record for a little longer and try again." = "No video frames were recorded. Record for a little longer and try again.";
+"The recording could not be completed. Please try again." = "The recording could not be completed. Please try again.";
+"The recording could not be completed. Check available storage and try again." = "The recording could not be completed. Check available storage and try again.";
+"Recording failed" = "Recording failed";
+"Could not save video" = "Could not save video";
+"Could not add music" = "Could not add music";
+"Retry" = "Retry";
+"Keep Original Video" = "Keep Original Video";
+"Your original video is saved without music. Retry adding music, or keep the original video." = "Your original video is saved without music. Retry adding music, or keep the original video.";
+"Your recorded file is kept on this device. Check available storage and retry saving." = "Your recorded file is kept on this device. Check available storage and retry saving.";
+"The video with music could not be saved. Your original video is still saved. Retry, or keep the original video." = "The video with music could not be saved. Your original video is still saved. Retry, or keep the original video.";
+"There is not enough free space to record. Free up storage and try again." = "There is not enough free space to record. Free up storage and try again.";
+"There is not enough free space to add music. Your original video is saved. Free up storage and retry, or keep the original video." = "There is not enough free space to add music. Your original video is saved. Free up storage and retry, or keep the original video.";
+"There is not enough free space to save. Your recorded file is kept on this device. Free up storage and retry." = "There is not enough free space to save. Your recorded file is kept on this device. Free up storage and retry.";
+"There is not enough free space to save the video with music. Your original video is still saved. Free up storage and retry, or keep the original video." = "There is not enough free space to save the video with music. Your original video is still saved. Free up storage and retry, or keep the original video.";
