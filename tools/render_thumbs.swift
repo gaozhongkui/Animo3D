@@ -18,7 +18,7 @@
 //  is exactly what the device will draw.
 //
 //  Build & run:
-//      swiftc -O tools/render_thumbs.swift Animo3D/PoseRetargeter.swift Animo3D/MixamoBoneMap.swift \
+//      swiftc -O tools/render_thumbs.swift Animo3D/Core/Motion/PoseRetargeter.swift Animo3D/Rendering/Characters/MixamoBoneMap.swift \
 //          -o /tmp/render_thumbs
 //      /tmp/render_thumbs characters <out-dir> <model.scn> [more models...]
 //      /tmp/render_thumbs dances <out-dir> <showcase.scn> <clip.json> [more clips...]

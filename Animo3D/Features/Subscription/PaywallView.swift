@@ -8,6 +8,7 @@ struct PaywallView: View {
     @ObservedObject private var store = ProStore.shared
     @State private var selectedTier = ProStore.Tier.monthly
     @State private var showManageSubscriptions = false
+    @State private var hasCheckedEntitlements = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private let accent = Color(rgb: 0x7555E8)
@@ -42,10 +43,11 @@ struct PaywallView: View {
         .tint(accent)
         .onAppear { Track.log(.paywallShown, ["source": source]) }
         .task {
+            await store.refreshEntitlements()
+            hasCheckedEntitlements = true
             if store.products.isEmpty {
                 await store.loadProducts()
             }
-            await store.refreshEntitlements()
         }
         .manageSubscriptionsSheet(isPresented: $showManageSubscriptions)
         .alert(
@@ -309,18 +311,16 @@ struct PaywallView: View {
         }
     }
 
-    @ViewBuilder
     private func planOptions(compact: Bool) -> some View {
-        if !store.isPro {
-            VStack(spacing: 10) {
-                planRow(.monthly, compact: compact)
-                planRow(.lifetime, compact: compact)
-            }
+        VStack(spacing: 10) {
+            planRow(.monthly, compact: compact)
+            planRow(.lifetime, compact: compact)
         }
     }
 
     private func planRow(_ tier: ProStore.Tier, compact: Bool) -> some View {
-        let selected = selectedTier == tier
+        let purchased = store.activeTier == tier
+        let selected = store.activeTier.map { $0 == tier } ?? (selectedTier == tier)
         let product = store.product(for: tier)
         return Button {
             withAnimation(.easeInOut(duration: 0.18)) {
@@ -329,9 +329,9 @@ struct PaywallView: View {
             HapticManager.selection()
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                Image(systemName: purchased ? "checkmark.seal.fill" : (selected ? "checkmark.circle.fill" : "circle"))
                     .font(.system(size: 22, weight: .regular))
-                    .foregroundStyle(selected ? accent : Color(.tertiaryLabel))
+                    .foregroundStyle(purchased ? .green : (selected ? accent : Color(.tertiaryLabel)))
                 if dynamicTypeSize.isAccessibilitySize {
                     VStack(alignment: .leading, spacing: 8) {
                         planDescription(tier)
@@ -363,7 +363,8 @@ struct PaywallView: View {
             .contentShape(RoundedRectangle(cornerRadius: 16))
         }
         .buttonStyle(.plain)
-        .disabled(isBusy)
+        .disabled(isBusy || store.isPro || !hasCheckedEntitlements || store.isRefreshingEntitlements)
+        .accessibilityIdentifier("paywall.plan.\(tier.rawValue)")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -371,9 +372,15 @@ struct PaywallView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(LocalizedStringKey(tier == .monthly ? "Monthly" : "Lifetime"))
                 .font(.subheadline.weight(.semibold))
-            Text(LocalizedStringKey(tier == .monthly ? "Cancel anytime" : "One-time purchase"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if store.activeTier == tier {
+                Text(LocalizedStringKey(tier == .monthly ? "Current Plan" : "Purchased"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.green)
+            } else {
+                Text(LocalizedStringKey(tier == .monthly ? "Cancel anytime" : "One-time purchase"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -450,14 +457,16 @@ struct PaywallView: View {
 
     private var purchaseButton: some View {
         Button {
-            guard !store.isPro, let product = selectedProduct else { return }
+            guard hasCheckedEntitlements, !store.isRefreshingEntitlements,
+                  !store.isPro, !isBusy, let product = selectedProduct else { return }
             Task { await store.purchase(product) }
         } label: {
             Group {
-                if store.purchasingID != nil || (store.isLoadingProducts && selectedProduct == nil) {
-                    ProgressView().tint(.white)
-                } else if store.isPro {
+                if store.isPro {
                     Label("Pro Version Unlocked", systemImage: "checkmark.seal.fill")
+                } else if !hasCheckedEntitlements || store.isRefreshingEntitlements
+                    || store.purchasingID != nil || (store.isLoadingProducts && selectedProduct == nil) {
+                    ProgressView().tint(.white)
                 } else if let product = selectedProduct {
                     if selectedTier == .monthly {
                         Text("\(product.displayPrice) / month · Subscribe")
@@ -489,7 +498,9 @@ struct PaywallView: View {
             }
             .shadow(color: accent.opacity(store.isPro ? 0 : 0.24), radius: 14, x: 0, y: 7)
         }
-        .disabled(store.isPro || selectedProduct == nil || isBusy)
+        .disabled(store.isPro || !hasCheckedEntitlements || store.isRefreshingEntitlements
+                  || selectedProduct == nil || isBusy)
+        .accessibilityIdentifier("paywall.purchase")
     }
 
     private var legalLinks: some View {

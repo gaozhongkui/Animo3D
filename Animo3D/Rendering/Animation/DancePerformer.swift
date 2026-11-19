@@ -33,6 +33,8 @@ final class DancePerformer: ObservableObject {
 
     /// True once the character is mounted and the scene is worth showing.
     @Published private(set) var isReady = false
+    @Published private(set) var loadFailure: AssetLoadingFailure?
+    private var loadGeneration = UUID()
 
     /// Built for every character whether or not a take is playing: the video-drive screen feeds it
     /// MediaPipe landmarks instead of a stored take.
@@ -89,68 +91,118 @@ final class DancePerformer: ObservableObject {
 
     /// Mount `character` and, when a dance is given, start driving it.
     ///
-    /// Returns false when the scene could not be assembled, so the caller can drop its loading mask
-    /// instead of leaving it up forever.
+    /// Failures are published for interactive pages; decorative card previews may simply ignore them.
     @discardableResult
     func load(character: String, dance: String? = nil) async -> Bool {
-        guard !character.isEmpty else { return false }
+        guard !Task.isCancelled else { return false }
+        let generation = UUID()
+        loadGeneration = generation
+        loadFailure = nil
+        isReady = false
         stop()
 
-        if character != loadedCharacter || !controller.isLoaded {
-            guard let scene = await scene(for: character) else { return false }
-            // A parsed scene can only be installed once - install() reparents its root node - so
-            // the prewarmed copy is consumed here rather than left for a second Start.
-            controller.install(scene)
-            guard controller.isLoaded else {
-                NSLog("[Performer] model %@ mounted with no skeleton", character)
-                return false
+        do {
+            guard !character.isEmpty else {
+                throw AssetLoadingFailure(resource: .character, reason: .unavailable)
             }
-            loadedCharacter = character
-        }
-        // The retargeter is built whether or not there is a clip: the video-drive screen feeds it
-        // MediaPipe landmarks instead of a stored take, and that used to be a fifth private copy
-        // of this same setup.
-        let rt = PoseRetargeter(controller: controller)
-        rt.resetCapture()
-        retargeter = rt
-        isReady = true
-        loadedDance = ""
+            if character != loadedCharacter || !controller.isLoaded {
+                let scene = try await scene(for: character, generation: generation)
+                guard isCurrent(generation) else { return false }
+                controller.install(scene)
+                guard controller.isLoaded else {
+                    evictCharacter(character)
+                    throw AssetLoadingFailure(resource: .character, reason: .invalid)
+                }
+                loadedCharacter = character
+            }
+            guard isCurrent(generation) else { return false }
+            let retargeter = PoseRetargeter(controller: controller)
+            retargeter.resetCapture()
+            self.retargeter = retargeter
+            loadedDance = ""
 
-        guard let dance, !dance.isEmpty else { return true }
-        guard let path = RemoteAssets.shared.dance(dance)?.clip else {
-            NSLog("[Performer] %@ is not in the catalog", dance)
+            if let dance, !dance.isEmpty {
+                guard let path = RemoteAssets.shared.dance(dance)?.clip else {
+                    throw AssetLoadingFailure(resource: .dance, reason: .unavailable)
+                }
+                let url: URL
+                do {
+                    url = try await RemoteAssets.shared.resolve(path)
+                } catch {
+                    try Task.checkCancellation()
+                    throw AssetLoadingFailure.download(error, resource: .dance)
+                }
+                guard isCurrent(generation) else { return false }
+                guard await playVRMA(url) else {
+                    guard isCurrent(generation) else { return false }
+                    RemoteAssets.shared.evict(path)
+                    throw AssetLoadingFailure(resource: .dance, reason: .invalid)
+                }
+                guard isCurrent(generation) else { return false }
+                loadedDance = dance
+            }
+            guard isCurrent(generation) else { return false }
+            isReady = true
+            return true
+        } catch {
+            guard isCurrent(generation), !(error is CancellationError) else { return false }
+            stop()
+            retargeter = nil
+            loadFailure = (error as? AssetLoadingFailure)
+                ?? AssetLoadingFailure.download(error, resource: .character)
+            NSLog("[Performer] %@ failed: %@", owner, String(describing: error))
             return false
         }
-        guard let url = try? await RemoteAssets.shared.resolve(path) else {
-            NSLog("[Performer] failed to download/locate clip %@", path)
-            return false
-        }
-        guard await playVRMA(url) else {
-            // Whatever is cached under that name does not parse. Drop it so the next attempt
-            // re-downloads instead of failing identically on every launch.
-            RemoteAssets.shared.evict(path)
-            return false
-        }
-        loadedDance = dance
-        NSLog("[Performer] %@: %@ performing %@", owner, character, dance)
-        return true
     }
 
-    private func scene(for character: String) async -> SCNScene? {
+    private func isCurrent(_ generation: UUID) -> Bool {
+        !Task.isCancelled && loadGeneration == generation
+    }
+
+    private func evictCharacter(_ character: String) {
+        if let path = RemoteAssets.shared.character(character)?.model {
+            // Only the disposable download cache is evicted; bundled and imported files stay intact.
+            RemoteAssets.shared.evict(path)
+        }
+    }
+
+    private func scene(for character: String, generation: UUID) async throws -> SCNScene {
         if prewarmKey == character, let task = prewarmTask {
             prewarmKey = ""
             prewarmTask = nil
-            if let scene = await task.value { return scene }
+            let scene = await task.value
+            guard isCurrent(generation) else { throw CancellationError() }
+            if let scene { return scene }
         }
         prewarmKey = ""
         prewarmTask = nil
-        guard let url = try? await RemoteAssets.shared.resolveCharacterModel(character) else {
-            NSLog("[Performer] failed to download/locate model for %@", character)
-            return nil
+        guard RemoteAssets.shared.character(character) != nil else {
+            throw AssetLoadingFailure(resource: .character, reason: .unavailable)
         }
-        return await Task.detached(priority: .userInitiated) {
+        let url: URL
+        do {
+            url = try await RemoteAssets.shared.resolveCharacterModel(character)
+        } catch {
+            try Task.checkCancellation()
+            throw AssetLoadingFailure.download(error, resource: .character)
+        }
+        guard isCurrent(generation) else { throw CancellationError() }
+        let scene = await Task.detached(priority: .userInitiated) {
             CharacterSceneController.loadSceneFile(at: url, warmUp: true)
         }.value
+        guard isCurrent(generation) else { throw CancellationError() }
+        guard let scene else {
+            evictCharacter(character)
+            throw AssetLoadingFailure(resource: .character, reason: .invalid)
+        }
+        return scene
+    }
+
+    func reportRenderFailure() {
+        stop()
+        controller.pause()
+        isReady = false
+        loadFailure = AssetLoadingFailure(resource: .character, reason: .rendering)
     }
 
     // MARK: - Control
@@ -210,6 +262,8 @@ final class DancePerformer: ObservableObject {
 
     /// Unload mounted character and release SceneKit resources.
     func unload() {
+        loadGeneration = UUID()
+        loadFailure = nil
         stop()
         controller.tearDown()
         isReady = false
@@ -282,6 +336,7 @@ final class DancePerformer: ObservableObject {
     @discardableResult
     func playVRMA(_ url: URL) async -> Bool {
         guard let root = controller.characterRoot else { return false }
+        let generation = loadGeneration
         vrmaPlayer?.stop()
         vrmaPlayer = nil
         // The next player reads the skeleton's current pose as the rest it retargets against, so
@@ -297,6 +352,7 @@ final class DancePerformer: ObservableObject {
             return false
         }
 
+        guard isCurrent(generation), controller.characterRoot === root else { return false }
         loadedClip = clip
         vrmaPlayer = VRMAnimationPlayer(clip: clip, root: root,
                                         groundY: { [weak controller] in controller?.groundY }) {

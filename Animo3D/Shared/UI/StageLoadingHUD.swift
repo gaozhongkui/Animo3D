@@ -26,6 +26,7 @@ import SwiftUI
 struct StageLoadingHUD: View {
     /// Download progress of the slowest asset in flight, or nil when nothing is downloading.
     let progress: Double?
+    var onCancel: (() -> Void)? = nil
 
     @State private var pulse = false
 
@@ -48,6 +49,12 @@ struct StageLoadingHUD: View {
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.55))
                     }
+                }
+                if let onCancel {
+                    Button("Cancel", action: onCancel)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(minHeight: 44)
                 }
             }
             .padding(40)

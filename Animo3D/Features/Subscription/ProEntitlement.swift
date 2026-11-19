@@ -6,7 +6,7 @@ nonisolated enum ProPlan: String, CaseIterable, Codable {
 
     var productID: String {
         switch self {
-        case .monthly: return "com.animar.ar.companion.animo.monthly"
+        case .monthly: return "com.animar.ar.companion.animo3d.monthly"
         case .lifetime: return "com.animar.ar.companion.animo.lifetime"
         }
     }

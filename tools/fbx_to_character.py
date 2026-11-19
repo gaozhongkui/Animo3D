@@ -124,8 +124,8 @@ def main_outer():
     print()
     print("next:  swiftc -O tools/compress_textures.swift -o /tmp/compress_textures")
     print(f"       /tmp/compress_textures {args.out} {args.out}/*.scn")
-    print("       swiftc -O tools/render_thumbs.swift Animo3D/PoseRetargeter.swift "
-          "Animo3D/MixamoBoneMap.swift -o /tmp/render_thumbs")
+    print("       swiftc -O tools/render_thumbs.swift Animo3D/Core/Motion/PoseRetargeter.swift "
+          "Animo3D/Rendering/Characters/MixamoBoneMap.swift -o /tmp/render_thumbs")
     print(f"       /tmp/render_thumbs characters assets_src/thumbs {args.out}/*.scn")
     print("       python3 tools/make_catalog.py --base-url <bucket>/")
     return 1 if failures else 0

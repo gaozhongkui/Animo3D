@@ -15,6 +15,7 @@ final class ProStore: ObservableObject {
     @Published private(set) var purchasingID: String?
     @Published private(set) var isRestoring = false
     @Published private(set) var isLoadingProducts = false
+    @Published private(set) var isRefreshingEntitlements = false
     @Published private(set) var loadFailed = false
     @Published var lastError: String?
 
@@ -80,6 +81,10 @@ final class ProStore: ObservableObject {
         purchasingID = product.id
         lastError = nil
         defer { purchasingID = nil }
+        // The paywall may open before the transaction listener delivers an existing purchase.
+        // Recheck the receipt while holding the purchase lock before starting another order.
+        await refreshEntitlements()
+        guard !isPro, !isRefreshingEntitlements else { return false }
         Track.log(.purchaseStarted, ["product": product.id])
         do {
             switch try await product.purchase() {
@@ -125,6 +130,10 @@ final class ProStore: ObservableObject {
     func refreshEntitlements() async {
         refreshGeneration += 1
         let generation = refreshGeneration
+        isRefreshingEntitlements = true
+        defer {
+            if generation == refreshGeneration { isRefreshingEntitlements = false }
+        }
         var current: ProEntitlement?
         for await result in Transaction.currentEntitlements {
             guard let transaction = try? Self.verify(result),

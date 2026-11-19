@@ -31,6 +31,7 @@ struct VideoDriveView: View {
     enum Step: Int, CaseIterable { case video, character, perform }
     @State private var step: Step = .video
     @State private var loadingStage = false
+    @State private var preparationTask: Task<Void, Never>?
 
     // Step 1 - source clip
     @State private var pickerItem: PhotosPickerItem?
@@ -80,7 +81,20 @@ struct VideoDriveView: View {
             }
         }
         .animation(.default, value: step)
-        .overlay { if loadingStage { StageLoadingHUD(progress: RemoteAssets.shared.activeDownloadProgress) } }
+        .overlay {
+            if let failure = stage.loadFailure {
+                AssetLoadingFailureView(
+                    failure: failure,
+                    onRetry: startPerform,
+                    onClose: cancelPreparation
+                )
+            } else if loadingStage {
+                StageLoadingHUD(
+                    progress: remoteAssets.activeDownloadProgress,
+                    onCancel: cancelPreparation
+                )
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)   // The wizard ships its own header and back button
         .sheet(isPresented: $showShare) { if let url = shareURL { ShareSheet(items: [url]) } }
@@ -110,6 +124,12 @@ struct VideoDriveView: View {
         }
         .onDisappear {
             if recorder.isRecording { stopRecording() }
+            preparationTask?.cancel()
+            preparationTask = nil
+            if loadingStage {
+                loadingStage = false
+                stage.unload()
+            }
             // The loop observer and the preview player both used to outlive this screen, so the
             // preview kept playing (and holding the file) after leaving.
             if let obs = loopObserver { NotificationCenter.default.removeObserver(obs) }
@@ -482,12 +502,20 @@ struct VideoDriveView: View {
         loadingStage = true
         previewPlayer?.pause()
         vm.onWorld = { [weak stage] world in stage?.drive(world) }
-        Task {
-            defer { loadingStage = false }
-            guard await stage.load(character: character), requireCharacterAccess(for: .perform) else { return }
+        preparationTask = Task {
+            defer { if !Task.isCancelled { loadingStage = false } }
+            guard await stage.load(character: character), !Task.isCancelled,
+                  requireCharacterAccess(for: .perform) else { return }
             vm.load(url: url)     // Detection only starts once there is something to drive
             step = .perform
         }
+    }
+
+    private func cancelPreparation() {
+        preparationTask?.cancel()
+        preparationTask = nil
+        loadingStage = false
+        stage.unload()
     }
 
     private func loadPicked(_ item: PhotosPickerItem) async {

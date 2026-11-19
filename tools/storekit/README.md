@@ -4,7 +4,7 @@
 
 | 方案 | 商品 ID | 类型 | 正式价格配置 |
 | --- | --- | --- | --- |
-| 月付 | `com.animar.ar.companion.animo.monthly` | 自动续期订阅，周期 1 个月 | 美国区 USD 0.99/月 |
+| 月付 | `com.animar.ar.companion.animo3d.monthly` | 自动续期订阅，周期 1 个月 | 美国区 USD 0.99/月 |
 | 永久 | `com.animar.ar.companion.animo.lifetime` | 非消耗型内购 | 保留已有配置 |
 
 在 App Store Connect 的当前 App 中创建订阅组 `Livo 3D Pro`，加入上述月付商品，设置周期、价格、销售地区及审核信息。取消自动续期后，用户仍可使用至已付费周期结束；到期或退款后撤销对应权益。已购买永久解锁的用户不会被要求再订阅。

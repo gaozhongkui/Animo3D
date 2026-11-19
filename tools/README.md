@@ -190,7 +190,7 @@ Mixamo 下载回来的贴图是原尺寸,而角色模型**约 93% 的体积是�
 ### 第 5 步 · 渲角色卡图
 
 ```bash
-swiftc -O tools/render_thumbs.swift Animo3D/PoseRetargeter.swift Animo3D/MixamoBoneMap.swift \
+swiftc -O tools/render_thumbs.swift Animo3D/Core/Motion/PoseRetargeter.swift Animo3D/Rendering/Characters/MixamoBoneMap.swift \
     -o /tmp/render_thumbs
 /tmp/render_thumbs characters assets_src/thumbs assets_src/characters/*.scn
 ```
@@ -492,3 +492,21 @@ python3 tools/make_sky.py data/source/sky_sunset.jpg -o Animo3D/Res/sky_dome_sun
 - `--sun-elevation 6.5`：相机是按跳舞的人取景的，**地平线以上只看得到约 10° 天空**。照实摆太阳在 22.5°，整个在画面上沿之外。这个参数自动找最亮点再整体下移，照片里的城市和水面沉到地平线以下，被舞台地面挡住。
 
 改完 dome 记得同步 `CharacterSceneController.Stage` 里那个场景的 `horizon`（脚本会打印 `horizon colour`），它就是雾色——不同步的话地面远端会淡入一个和天空不同的颜色，地平线上出现一条硬边。
+
+
+## 应用代码目录
+
+应用 Swift 文件按职责组织，Xcode 会通过文件系统同步分组自动显示这些目录：
+
+| 目录 | 内容 |
+| --- | --- |
+| `Animo3D/App` | 应用入口、导航、启动页 |
+| `Animo3D/Features` | 首页、角色库、工作室、视频驱动、社区、个人页、作品、预览、订阅、录制和 AR 页面 |
+| `Animo3D/Core/Assets` | 素材目录、下载、导入存储、场景素材和加载错误 |
+| `Animo3D/Core/Motion` | 姿态识别、骨架和动作映射 |
+| `Animo3D/Rendering` | 3D 场景、动画、角色解析、AR 视图和缩略图 |
+| `Animo3D/Shared` | 公共 UI、工具、设备性能分级和统计 |
+| `tools/tests` | 独立回归测试与测试替身 |
+| `tools/storekit/Animo3D.storekit` | 本地月付与永久版购买配置 |
+
+业务文件名和 Swift 类型名保留，资源仍位于 `Animo3D/Res`、`Animo3D/Resources` 和 `Animo3D/Assets.xcassets`。测试脚本中的源文件路径已同步到新目录。

@@ -248,3 +248,17 @@
 
 /* Pro-only content */
 "Requires Pro" = "Proが必要です";
+
+/* Asset loading recovery */
+"Couldn't load this dance" = "ダンスを読み込めませんでした";
+"You're offline. Connect to the internet and try again." = "オフラインです。インターネットに接続して、もう一度お試しください。";
+"The download took too long. Please try again." = "ダウンロードがタイムアウトしました。もう一度お試しください。";
+"This content is unavailable. Try again later or choose something else." = "このコンテンツは利用できません。後でもう一度試すか、別のものを選んでください。";
+"The assets couldn't be downloaded. Check your connection and try again." = "素材をダウンロードできませんでした。接続を確認して、もう一度お試しください。";
+"This model couldn't be opened. Try again or choose another character." = "このモデルを開けませんでした。もう一度試すか、別のキャラクターを選んでください。";
+"This dance couldn't be opened. Try again or choose another dance." = "このダンスを開けませんでした。もう一度試すか、別のダンスを選んでください。";
+"The scene didn't finish loading. Try again or choose another character." = "シーンの読み込みが完了しませんでした。もう一度試すか、別のキャラクターを選んでください。";
+
+/* Purchased plan status */
+"Current Plan" = "現在のプラン";
+"Purchased" = "購入済み";

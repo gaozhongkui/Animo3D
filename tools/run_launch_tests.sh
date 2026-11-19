@@ -22,8 +22,8 @@ host.source_build_phase.add_file_reference(project.main_group.new_file(host_sour
 target = project.new_target(:unit_test_bundle, 'LaunchTests', :ios, '17.0')
 target.add_dependency(host)
 %w[
-  Animo3D/SplashView.swift
-  Animo3D/SharedUI.swift
+  Animo3D/App/SplashView.swift
+  Animo3D/Shared/UI/SharedUI.swift
   tools/tests/LaunchTests.swift
   tools/tests/LaunchTestSupport.swift
 ].each do |path|

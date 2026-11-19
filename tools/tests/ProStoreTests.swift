@@ -187,6 +187,7 @@ final class ProStoreTests: XCTestCase {
         XCTAssertFalse(store.loadFailed)
         XCTAssertEqual(store.products.count, 2)
         let monthly = try XCTUnwrap(store.monthly)
+        XCTAssertEqual(monthly.id, "com.animar.ar.companion.animo3d.monthly")
         XCTAssertEqual(monthly.type, .autoRenewable)
         XCTAssertEqual(monthly.price, Decimal(string: "0.99"))
         XCTAssertEqual(monthly.subscription?.subscriptionPeriod.unit, .month)
@@ -303,6 +304,118 @@ final class ProStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testMonthlyCannotBePurchasedTwice() async throws {
+        let session = try makeSession()
+        defer { session.clearTransactions() }
+        let store = makeStore()
+        await store.loadProducts()
+        let product = try XCTUnwrap(store.monthly)
+        let first = await store.purchase(product)
+        let repeated = await store.purchase(product)
+        XCTAssertTrue(first)
+        XCTAssertFalse(repeated)
+        XCTAssertEqual(session.allTransactions().count, 1)
+        XCTAssertEqual(store.activeTier, .monthly)
+    }
+
+    @MainActor
+    func testLifetimeCannotBePurchasedTwice() async throws {
+        let session = try makeSession()
+        defer { session.clearTransactions() }
+        let store = makeStore()
+        await store.loadProducts()
+        let product = try XCTUnwrap(store.lifetime)
+        let first = await store.purchase(product)
+        let repeated = await store.purchase(product)
+        XCTAssertTrue(first)
+        XCTAssertFalse(repeated)
+        XCTAssertEqual(session.allTransactions().count, 1)
+        XCTAssertEqual(store.activeTier, .lifetime)
+    }
+
+    @MainActor
+    func testExistingReceiptPreventsAnotherOrderBeforeExplicitRefresh() async throws {
+        let session = try makeSession()
+        defer { session.clearTransactions() }
+        _ = try await session.buyProduct(identifier: ProPlan.monthly.productID)
+        let store = makeStore()
+        await store.loadProducts()
+        let product = try XCTUnwrap(store.monthly)
+        // This fresh client has not explicitly refreshed the receipt yet.
+        let purchased = await store.purchase(product)
+        XCTAssertFalse(purchased)
+        XCTAssertEqual(store.activeTier, .monthly)
+        XCTAssertEqual(session.allTransactions().count, 1)
+    }
+
+    @MainActor
+    func testConcurrentPurchaseTapsCreateOnlyOneOrder() async throws {
+        let session = try makeSession()
+        defer { session.clearTransactions() }
+        let store = makeStore()
+        await store.loadProducts()
+        let product = try XCTUnwrap(store.monthly)
+        let first = Task { await store.purchase(product) }
+        let second = Task { await store.purchase(product) }
+        let results = await [first.value, second.value]
+        XCTAssertEqual(results.filter { $0 }.count, 1)
+        XCTAssertEqual(session.allTransactions().count, 1)
+        XCTAssertNil(store.purchasingID)
+        XCTAssertFalse(store.isRefreshingEntitlements)
+    }
+
+    @MainActor
+    func testPaywallMonthlyPurchasedSnapshot() async throws {
+        try await capturePurchasedPaywall(tier: .monthly)
+    }
+
+    @MainActor
+    func testPaywallLifetimePurchasedSnapshot() async throws {
+        try await capturePurchasedPaywall(tier: .lifetime)
+    }
+
+    @MainActor
+    private func capturePurchasedPaywall(tier: ProPlan) async throws {
+        let session = try makeSession()
+        defer { session.clearTransactions() }
+        let store = ProStore.shared
+        await store.refreshEntitlements()
+        await store.loadProducts()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: PaywallView(onClose: {}))
+        window.frame = CGRect(
+            origin: .zero,
+            size: UIDevice.current.userInterfaceIdiom == .pad
+                ? CGSize(width: 768, height: 1024)
+                : CGSize(width: 393, height: 852)
+        )
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        try await Task.sleep(nanoseconds: 150_000_000)
+        let product = try XCTUnwrap(store.product(for: tier))
+        let purchased = await store.purchase(product)
+        XCTAssertTrue(purchased)
+        XCTAssertEqual(store.activeTier, tier)
+        try await Task.sleep(nanoseconds: 250_000_000)
+        host.view.layoutIfNeeded()
+        let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+            host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "Paywall-Purchased-\(tier.rawValue)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let repeated = await store.purchase(product)
+        XCTAssertFalse(repeated)
+        XCTAssertEqual(session.allTransactions().count, 1)
+    }
+
+    @MainActor
     func testPaywallMonthlySnapshot() async throws {
         let session = try makeSession()
         defer { session.clearTransactions() }
@@ -316,6 +429,7 @@ final class ProStoreTests: XCTestCase {
         let window = UIWindow(windowScene: scene)
         defer { window.isHidden = true }
         let sizes: [(name: String, size: CGSize)] = [
+            ("IAPReview", CGSize(width: 414, height: 896)),
             ("iPhoneSmall", CGSize(width: 375, height: 667)),
             ("iPhone", CGSize(width: 393, height: 852)),
             ("iPhoneLarge", CGSize(width: 430, height: 932)),
@@ -340,10 +454,18 @@ final class ProStoreTests: XCTestCase {
             window.makeKeyAndVisible()
             try await Task.sleep(nanoseconds: 500_000_000)
             controller.view.layoutIfNeeded()
-            let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { _ in
+            let format = UIGraphicsImageRendererFormat()
+            format.opaque = true
+            format.preferredRange = .standard
+            if sample.name == "IAPReview" { format.scale = 3 }
+            let image = UIGraphicsImageRenderer(bounds: controller.view.bounds, format: format).image { _ in
                 controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
             }
             XCTAssertGreaterThan(image.size.width, 0)
+            if sample.name == "IAPReview" {
+                XCTAssertEqual(image.cgImage?.width, 1242)
+                XCTAssertEqual(image.cgImage?.height, 2688)
+            }
             let attachment = XCTAttachment(image: image)
             attachment.name = "Paywall-FullScreen-\(sample.name)"
             attachment.lifetime = .keepAlways

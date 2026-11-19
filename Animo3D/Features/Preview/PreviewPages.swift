@@ -64,6 +64,7 @@ private struct PreviewShell: View {
     @State private var arMode = false
     @State private var showPaywall = false
     @State private var didRequestPro = false
+    @State private var loadAttempt = 0
 
     private var canPreview: Bool {
         let access = assets.proContentAccess
@@ -96,7 +97,7 @@ private struct PreviewShell: View {
                 Spacer()
                 Picker("", selection: $arMode) { Text("3D").tag(false); Text("AR").tag(true) }
                     .pickerStyle(.segmented).frame(width: 120)
-                    .disabled(!canPreview)
+                    .disabled(!canPreview || !stage.isReady)
             }
             .padding(.horizontal, 16).padding(.top, 8)
 
@@ -117,11 +118,21 @@ private struct PreviewShell: View {
                     Button("Choose your Pro plan") { showPaywall = true }
                         .buttonStyle(.borderedProminent)
                 }
+            } else if let failure = stage.loadFailure {
+                AssetLoadingFailureView(
+                    failure: failure,
+                    closeTitle: "Close",
+                    onRetry: { loadAttempt += 1 },
+                    onClose: { dismiss() }
+                )
             } else if !stage.isReady {
-                ProgressView().tint(.white).scaleEffect(1.3)
+                StageLoadingHUD(
+                    progress: assets.activeDownloadProgress,
+                    onCancel: { dismiss() }
+                )
             }
         }
-        .task(id: pro.isPro) {
+        .task(id: "\(pro.isPro)-\(loadAttempt)") {
             guard canPreview else {
                 stage.unload()
                 if !didRequestPro {

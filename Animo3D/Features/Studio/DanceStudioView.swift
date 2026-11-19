@@ -68,6 +68,7 @@ struct DanceStudioView: View {
     /// When AR was entered, so `ar_plane_found` can say how long the room took.
     @State private var arEnteredAt: CFAbsoluteTime = 0
     @State private var loading = false      // Loading character/dance (model + animation parsing in background)
+    @State private var preparationTask: Task<Void, Never>?
     @State private var stageWatchdog: Task<Void, Never>?
     @State private var vfx = DanceVFX()         // Stage VFX
     /// Effects default on where they are available at all - on low-end the row is hidden and
@@ -121,8 +122,17 @@ struct DanceStudioView: View {
         // Use one simple standard animation throughout and drop all the nested withAnimation calls
         .animation(.default, value: step)
         .overlay {
-            if loading {
-                StageLoadingHUD(progress: remoteAssets.activeDownloadProgress)
+            if let failure = stage.loadFailure {
+                AssetLoadingFailureView(
+                    failure: failure,
+                    onRetry: retryPreparation,
+                    onClose: cancelPreparation
+                )
+            } else if loading {
+                StageLoadingHUD(
+                    progress: remoteAssets.activeDownloadProgress,
+                    onCancel: cancelPreparation
+                )
             } else if recordingOutput.isProcessing || recorder.isFinishing {
                 ExportingHUD(progress: recordingOutput.progress)
             }
@@ -191,6 +201,9 @@ struct DanceStudioView: View {
             }
         }
         .onDisappear {
+            preparationTask?.cancel()
+            stageWatchdog?.cancel()
+            loading = false
             if recorder.isRecording { stopRecording() }
             music.stop(); vfx.remove(); stage.unload()
             // Leaving before performing is the drop-off. Step counts alone cannot separate "went
@@ -1043,11 +1056,16 @@ struct DanceStudioView: View {
         loading = true
         performStartedAt = CFAbsoluteTimeGetCurrent()
         let ch = character, dc = dance
-        Task {
-            guard await stage.load(character: ch, dance: dc) else { loading = false; return }
+        preparationTask = Task {
+            guard await stage.load(character: ch, dance: dc) else {
+                if !Task.isCancelled { loading = false }
+                return
+            }
+            guard !Task.isCancelled else { return }
             // Before .perform, so the scene is built once in the stage the user last chose rather
             // than built as the daylight one and then rebuilt.
             let specification = await StageLibrary.shared.spec(for: effectiveStageID)
+            guard !Task.isCancelled else { return }
             guard requireCurrentAccess(for: .perform) else { loading = false; return }
             stage.controller.stage = pro.isPro ? specification : CharacterSceneController.Stage.plaza
             if let m = selectedMusic { music.play(m) } else { music.stop() }
@@ -1066,13 +1084,34 @@ struct DanceStudioView: View {
             stageWatchdog = Task {
                 try? await Task.sleep(nanoseconds: 8_000_000_000)
                 guard !Task.isCancelled else { return }
-                NSLog("[Stage] first frame never arrived; dropping the mask anyway")
+                NSLog("[Stage] first frame never arrived")
                 loading = false
+                music.stop()
+                stage.reportRenderFailure()
             }
         }
     }
 
+    private func retryPreparation() {
+        cancelPreparation()
+        startPerform()
+    }
+
+    private func cancelPreparation() {
+        preparationTask?.cancel()
+        preparationTask = nil
+        stageWatchdog?.cancel()
+        stageWatchdog = nil
+        loading = false
+        performStartedAt = 0
+        music.stop()
+        vfx.remove()
+        stage.unload()
+        if step == .perform { step = .music }
+    }
+
     private func stageDidRender() {
+        guard loading, step == .perform, stage.isReady, stage.loadFailure == nil else { return }
         stageWatchdog?.cancel()
         stageWatchdog = nil
         // Only the first frame of a performance counts; this also fires when AR re-attaches.

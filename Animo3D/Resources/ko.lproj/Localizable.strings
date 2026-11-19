@@ -248,3 +248,17 @@
 
 /* Pro-only content */
 "Requires Pro" = "Pro 필요";
+
+/* Asset loading recovery */
+"Couldn't load this dance" = "이 춤을 불러올 수 없습니다";
+"You're offline. Connect to the internet and try again." = "오프라인 상태입니다. 인터넷에 연결한 후 다시 시도해 주세요.";
+"The download took too long. Please try again." = "다운로드 시간이 초과되었습니다. 다시 시도해 주세요.";
+"This content is unavailable. Try again later or choose something else." = "이 콘텐츠를 사용할 수 없습니다. 나중에 다시 시도하거나 다른 콘텐츠를 선택해 주세요.";
+"The assets couldn't be downloaded. Check your connection and try again." = "리소스를 다운로드할 수 없습니다. 연결을 확인한 후 다시 시도해 주세요.";
+"This model couldn't be opened. Try again or choose another character." = "이 모델을 열 수 없습니다. 다시 시도하거나 다른 캐릭터를 선택해 주세요.";
+"This dance couldn't be opened. Try again or choose another dance." = "이 춤을 열 수 없습니다. 다시 시도하거나 다른 춤을 선택해 주세요.";
+"The scene didn't finish loading. Try again or choose another character." = "장면 로딩이 완료되지 않았습니다. 다시 시도하거나 다른 캐릭터를 선택해 주세요.";
+
+/* Purchased plan status */
+"Current Plan" = "현재 요금제";
+"Purchased" = "구매 완료";

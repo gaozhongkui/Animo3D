@@ -193,7 +193,8 @@ final class RemoteAssets: ObservableObject {
     private lazy var session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 30
-        c.waitsForConnectivity = true
+        c.waitsForConnectivity = false
+        c.timeoutIntervalForResource = 120
         return URLSession(configuration: c, delegate: self.downloader, delegateQueue: nil)
     }()
 
@@ -443,7 +444,7 @@ final class RemoteAssets: ObservableObject {
             inFlight[key] = t
             return t
         }()
-        return try await task.value
+        return try await AssetDownloadWaiter().value(of: task)
     }
 
     private func download(_ path: AssetPath) async throws -> URL {

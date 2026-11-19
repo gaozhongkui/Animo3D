@@ -22,14 +22,14 @@ host.source_build_phase.add_file_reference(project.main_group.new_file(host_sour
 target = project.new_target(:unit_test_bundle, 'RecordingTests', :ios, '17.0')
 target.add_dependency(host)
 %w[
-  Animo3D/RecordingStorage.swift
-  Animo3D/Recorder.swift
-  Animo3D/RecordingOutput.swift
-  Animo3D/RecordingFeedback.swift
-  Animo3D/SceneViewRecorder.swift
-  Animo3D/VideoAudioMixer.swift
-  Animo3D/DeviceTier.swift
-  Animo3D/Extensions.swift
+  Animo3D/Features/Recording/RecordingStorage.swift
+  Animo3D/Features/Works/Recorder.swift
+  Animo3D/Features/Recording/RecordingOutput.swift
+  Animo3D/Features/Recording/RecordingFeedback.swift
+  Animo3D/Features/Recording/SceneViewRecorder.swift
+  Animo3D/Features/Recording/VideoAudioMixer.swift
+  Animo3D/Shared/Utilities/DeviceTier.swift
+  Animo3D/Shared/Utilities/Extensions.swift
   tools/tests/RecordingTests.swift
   tools/tests/RecordingTestSupport.swift
 ].each do |path|

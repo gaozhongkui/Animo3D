@@ -17,7 +17,7 @@ xcrun swiftc \
     -Xlinker "$test_frameworks" \
     -Xlinker -rpath \
     -Xlinker "$test_libraries" \
-    "$repository_dir/Animo3D/UserContentStorage.swift" \
+    "$repository_dir/Animo3D/Core/Assets/UserContentStorage.swift" \
     "$repository_dir/tools/tests/UserContentStorageTests.swift" \
     -o "$test_build_dir/user-content-tests"
 

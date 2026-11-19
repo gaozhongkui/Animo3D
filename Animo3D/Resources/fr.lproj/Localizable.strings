@@ -248,3 +248,17 @@
 
 /* Pro-only content */
 "Requires Pro" = "Nécessite Pro";
+
+/* Asset loading recovery */
+"Couldn't load this dance" = "Impossible de charger cette danse";
+"You're offline. Connect to the internet and try again." = "Vous êtes hors ligne. Connectez-vous à Internet et réessayez.";
+"The download took too long. Please try again." = "Le téléchargement a pris trop de temps. Réessayez.";
+"This content is unavailable. Try again later or choose something else." = "Ce contenu est indisponible. Réessayez plus tard ou choisissez-en un autre.";
+"The assets couldn't be downloaded. Check your connection and try again." = "Impossible de télécharger les ressources. Vérifiez votre connexion et réessayez.";
+"This model couldn't be opened. Try again or choose another character." = "Impossible d’ouvrir ce modèle. Réessayez ou choisissez un autre personnage.";
+"This dance couldn't be opened. Try again or choose another dance." = "Impossible d’ouvrir cette danse. Réessayez ou choisissez-en une autre.";
+"The scene didn't finish loading. Try again or choose another character." = "Le chargement de la scène n’a pas abouti. Réessayez ou choisissez un autre personnage.";
+
+/* Purchased plan status */
+"Current Plan" = "Offre actuelle";
+"Purchased" = "Acheté";

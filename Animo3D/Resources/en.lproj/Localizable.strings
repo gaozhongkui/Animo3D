@@ -256,3 +256,17 @@
 
 /* Pro-only content */
 "Requires Pro" = "Requires Pro";
+
+/* Asset loading recovery */
+"Couldn't load this dance" = "Couldn't load this dance";
+"You're offline. Connect to the internet and try again." = "You're offline. Connect to the internet and try again.";
+"The download took too long. Please try again." = "The download took too long. Please try again.";
+"This content is unavailable. Try again later or choose something else." = "This content is unavailable. Try again later or choose something else.";
+"The assets couldn't be downloaded. Check your connection and try again." = "The assets couldn't be downloaded. Check your connection and try again.";
+"This model couldn't be opened. Try again or choose another character." = "This model couldn't be opened. Try again or choose another character.";
+"This dance couldn't be opened. Try again or choose another dance." = "This dance couldn't be opened. Try again or choose another dance.";
+"The scene didn't finish loading. Try again or choose another character." = "The scene didn't finish loading. Try again or choose another character.";
+
+/* Purchased plan status */
+"Current Plan" = "Current Plan";
+"Purchased" = "Purchased";
