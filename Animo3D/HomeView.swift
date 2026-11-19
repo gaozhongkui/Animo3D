@@ -145,7 +145,7 @@ struct HomeView: View {
                             } label: {
                                 gridActionCard(icon: "video.fill",
                                                title: "Video Drive",
-                                               subtitle: "Upload video to mimic motions in real-time",
+                                               subtitle: "Animate from a video, processed on your device",
                                                iconFill: Color.blue)
                             }.buttonStyle(CardButtonStyle())
 
@@ -351,7 +351,6 @@ struct HomeView: View {
                 Text(subtitle)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
             }

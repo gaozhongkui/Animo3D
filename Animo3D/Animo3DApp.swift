@@ -18,13 +18,15 @@ struct Animo3DApp: App {
         Track.start()
         Track.setDeviceTier()
         Track.setPro(ProStore.shared.isPro)
+        // A usable cached catalog can open Home immediately; refresh still runs in the background.
+        _showMainView = State(initialValue: RemoteAssets.shared.state == .ready)
     }
 
     var body: some Scene {
         WindowGroup {
             Group {
                 if showMainView {
-                RootTabView()
+                    RootTabView()
                     .transition(.opacity.combined(with: .scale(scale: 1.1)))
                 } else {
                     SplashView(isActive: $showMainView)

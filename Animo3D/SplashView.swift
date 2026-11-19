@@ -9,8 +9,7 @@
 //  flat grey. This holds here until the catalog is ready instead, so there is one loading moment,
 //  it is on brand, and the home screen is already populated when it appears.
 //
-//  Three timings, and each one is there for a reason:
-//    - a minimum, so a warm launch does not flash the brand for two frames
+//  Cached launches bypass this view. A fresh launch leaves as soon as the catalog is usable:
 //    - a maximum, so a dead network cannot trap anyone on the splash; the home screen's own
 //      unavailable state takes over past that, because it is the one with a retry button
 //    - a delay before any progress hint appears, so a normal launch never looks like it is waiting
@@ -22,14 +21,11 @@ struct SplashView: View {
     @Binding var isActive: Bool
     @ObservedObject private var remoteAssets = RemoteAssets.shared
 
-    /// Shortest time the brand stays up, so a fast launch is not a flicker.
-    private let minimumHold: TimeInterval = 1.4
     /// Longest we wait for the catalog before handing over regardless.
     private let maximumHold: TimeInterval = 6.0
     /// How long before admitting we are waiting on something.
     private let hintAfter: TimeInterval = 1.8
 
-    @State private var appeared = Date()
     @State private var logoIn = false
     @State private var titleIn = false
     @State private var subtitleIn = false
@@ -54,8 +50,6 @@ struct SplashView: View {
         }
         .task { await hold() }
         .onAppear {
-            appeared = Date()
-
             // 编排式入场动画
             withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
                 logoIn = true
@@ -143,13 +137,12 @@ struct SplashView: View {
         if showHint { BrandShimmerBar().transition(.opacity) }
     }
 
-    /// Wait for the catalog, bounded at both ends.
+    /// Wait only while the catalog is unavailable, with a bounded network wait.
     private func hold() async {
         RemoteAssets.shared.start()          // idempotent; the app entry point also calls it
 
         let hintDeadline = Date().addingTimeInterval(hintAfter)
         let hardDeadline = Date().addingTimeInterval(maximumHold)
-        let softDeadline = Date().addingTimeInterval(minimumHold)
 
         while !Task.isCancelled {
             let now = Date()
@@ -157,11 +150,12 @@ struct SplashView: View {
                 withAnimation(.easeIn(duration: 0.3)) { showHint = true }
             }
             let ready = remoteAssets.state == .ready
-            if now >= hardDeadline || (ready && now >= softDeadline) { break }
+            if ready || now >= hardDeadline { break }
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
 
-        withAnimation(.easeInOut(duration: 0.45)) { isActive = true }
+        guard !Task.isCancelled else { return }
+        withAnimation(.easeInOut(duration: 0.2)) { isActive = true }
     }
 }
 

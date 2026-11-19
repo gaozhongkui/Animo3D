@@ -15,7 +15,7 @@ enum HapticManager {
     static func selection() {}
 }
 
-func L(_ value: String) -> String { value }
+func L(_ value: String) -> String { NSLocalizedString(value, comment: "") }
 
 extension View {
     func trackScreen(_ name: String) -> some View { self }

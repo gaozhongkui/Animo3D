@@ -11,6 +11,14 @@
 
 `Animo3D-StoreKit` 共享 Scheme 使用本目录的 `Animo3D.storekit`，仅供本机模拟购买，不会修改 App Store Connect。普通 `Animo3D` Scheme 继续使用真实商店 / Sandbox。月付测试价格为 USD 0.99；永久的 USD 39.99 只是沿用历史本地配置的测试价格，不代表或修改正式售价。
 
+在 Xcode 中使用：
+
+1. 打开 `Animo3D.xcworkspace`，在左侧 `StoreKit` 分组中打开 `Animo3D.storekit`。
+2. 顶部 Scheme 选择 `Animo3D-StoreKit`。
+3. 运行 App，进入 Me → Pro，即可用这份配置模拟购买。
+
+如果要在其他 Scheme 中使用，可在 Edit Scheme → Run → Options → StoreKit Configuration 中选择这份文件。无需重复创建商品配置。
+
 本地检查：切换到 `Animo3D-StoreKit` Scheme，进入 Me → Pro，检查月付与永久价格、购买、Restore；通过 Xcode 的 StoreKit Transaction Manager 模拟续期、到期和退款。付费用户可从付费页打开系统订阅管理。
 
 命令行回归（需要 Xcode、CocoaPods 已安装的 `xcodeproj` Ruby gem，以及可用的 iOS 模拟器）：

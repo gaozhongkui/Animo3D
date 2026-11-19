@@ -14,6 +14,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		D661C28B7F7E42A39D61E5D4 /* Animo3D.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Animo3D.storekit; sourceTree = "<group>"; };
 		05E2C0C63025ACE200A42B38 /* Animo3D.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Animo3D.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		05F00DC3307A7D7500F3985C /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		622A83748BF12258BA8CB3BD /* Pods-Animo3D.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Animo3D.release.xcconfig"; path = "Target Support Files/Pods-Animo3D/Pods-Animo3D.release.xcconfig"; sourceTree = "<group>"; };
@@ -54,6 +55,7 @@
 			children = (
 				05D3E53E303BE70E00B8E85A /* data */,
 				05E2C0C83025ACE200A42B38 /* Animo3D */,
+				B4E119A410FE4C219884079B /* StoreKit */,
 				05E2C0C73025ACE200A42B38 /* Products */,
 				61D106D6035FD5FB37627CD6 /* Pods */,
 				D6D172D227076E033C9EE700 /* Frameworks */,
@@ -66,6 +68,15 @@
 				05E2C0C63025ACE200A42B38 /* Animo3D.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B4E119A410FE4C219884079B /* StoreKit */ = {
+			isa = PBXGroup;
+			children = (
+				D661C28B7F7E42A39D61E5D4 /* Animo3D.storekit */,
+			);
+			name = StoreKit;
+			path = tools/storekit;
 			sourceTree = "<group>";
 		};
 		61D106D6035FD5FB37627CD6 /* Pods */ = {

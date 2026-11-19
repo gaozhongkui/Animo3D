@@ -37,6 +37,13 @@ target.add_dependency(host)
 end
 resource = project.main_group.new_file(File.join(repository_dir, 'Animo3D/Res/music/music_sample_beat.m4a'))
 host.resources_build_phase.add_file_reference(resource)
+localizations = project.main_group.new_variant_group('Localizable.strings')
+Dir.glob(File.join(repository_dir, 'Animo3D/Resources/*.lproj/Localizable.strings')).sort.each do |path|
+  reference = localizations.new_file(path)
+  reference.name = File.basename(File.dirname(path), '.lproj')
+end
+host.resources_build_phase.add_file_reference(localizations)
+project.root_object.known_regions = %w[en de es fr ja ko pt]
 [host, target].each do |build_target|
   build_target.build_configurations.each do |configuration|
     configuration.build_settings['GENERATE_INFOPLIST_FILE'] = 'YES'
@@ -56,6 +63,9 @@ scheme.add_build_target(host)
 scheme.add_build_target(target)
 scheme.set_launch_target(host)
 scheme.add_test_target(target)
+if ENV['ANIMO_TEST_LANGUAGE']
+  scheme.test_action.xml_element.add_attribute('language', ENV['ANIMO_TEST_LANGUAGE'])
+end
 scheme.save_as(project.path, 'RecordingTests')
 project.save
 RUBY

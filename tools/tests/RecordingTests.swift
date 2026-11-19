@@ -140,7 +140,10 @@ final class RecordingTests: XCTestCase {
         })
         await output.process(.success(source))
         XCTAssertEqual(output.issue?.stage, .saving)
-        XCTAssertTrue(output.issue?.message.contains("not enough free space") == true)
+        XCTAssertEqual(
+            output.issue?.message,
+            NSLocalizedString("There is not enough free space to save. Your recorded file is kept on this device. Free up storage and retry.", comment: "")
+        )
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
         XCTAssertFalse(output.canKeepOriginal)
         failSave = false
@@ -188,7 +191,10 @@ final class RecordingTests: XCTestCase {
             code: AVError.unknown.rawValue,
             userInfo: [NSUnderlyingErrorKey: CocoaError(.fileWriteOutOfSpace)]
         ))
-        XCTAssertTrue(output.issue?.message.contains("not enough free space to record") == true)
+        XCTAssertEqual(
+            output.issue?.message,
+            NSLocalizedString("There is not enough free space to record. Free up storage and try again.", comment: "")
+        )
     }
 
     func testImmediateStopRejectsEmptyMovieAndBlocksOverlappingCapture() async throws {
