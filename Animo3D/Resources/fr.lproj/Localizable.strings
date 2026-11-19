@@ -245,3 +245,6 @@
 "There is not enough free space to add music. Your original video is saved. Free up storage and retry, or keep the original video." = "L’espace disponible est insuffisant pour ajouter la musique. Votre vidéo originale est sauvegardée. Libérez de l’espace et réessayez, ou conservez la vidéo originale.";
 "There is not enough free space to save. Your recorded file is kept on this device. Free up storage and retry." = "L’espace disponible est insuffisant pour sauvegarder. Votre enregistrement est conservé sur cet appareil. Libérez de l’espace, puis réessayez.";
 "There is not enough free space to save the video with music. Your original video is still saved. Free up storage and retry, or keep the original video." = "L’espace disponible est insuffisant pour sauvegarder la vidéo avec musique. Votre vidéo originale est toujours sauvegardée. Libérez de l’espace et réessayez, ou conservez la vidéo originale.";
+
+/* Pro-only content */
+"Requires Pro" = "Nécessite Pro";

@@ -199,6 +199,9 @@ struct StaticARScreen: View {
             }
         }
         .recordingFeedback(output: recordingOutput)
+        .onChange(of: pro.isPro) { isPro in
+            if !isPro, recorder.isRecording { stopRecording() }
+        }
         .task {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             overdue = true

@@ -22,7 +22,7 @@ SWIFT
 host.source_build_phase.add_file_reference(project.main_group.new_file(host_source))
 target = project.new_target(:unit_test_bundle, 'ProStoreTests', :ios, '17.0')
 target.add_dependency(host)
-%w[Animo3D/ProEntitlement.swift Animo3D/ProStore.swift Animo3D/PaywallView.swift tools/tests/ProStoreTests.swift tools/tests/PaywallTestSupport.swift].each do |path|
+%w[Animo3D/ProContentAccess.swift Animo3D/ProEntitlement.swift Animo3D/ProStore.swift Animo3D/PaywallView.swift tools/tests/ProStoreTests.swift tools/tests/PaywallTestSupport.swift].each do |path|
   target.source_build_phase.add_file_reference(project.main_group.new_file(File.join(repository_dir, path)))
 end
 resource = project.main_group.new_file(File.join(repository_dir, 'tools/storekit/Animo3D.storekit'))

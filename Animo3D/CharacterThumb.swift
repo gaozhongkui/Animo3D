@@ -69,6 +69,7 @@ struct CharacterCard: View {
     let characterKey: String
     /// See `CharacterThumbView.style`.
     var style: Int = 0
+    var isLocked = false
 
     private var accent: Color { CardBackdrop.accent(for: style) }
 
@@ -104,6 +105,9 @@ struct CharacterCard: View {
                 .padding(12)
             }
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(alignment: .topLeading) {
+                if isLocked { ProLockBadge().padding(12) }
+            }
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(.white.opacity(0.12), lineWidth: 0.5))
             .shadow(color: .black.opacity(0.18), radius: 10, y: 5)

@@ -59,14 +59,27 @@ private struct PreviewShell: View {
     let dance: String?
     @Environment(\.dismiss) private var dismiss
     @StateObject private var stage = DancePerformer(owner: "PreviewShell")
+    @ObservedObject private var pro = ProStore.shared
+    @ObservedObject private var assets = RemoteAssets.shared
     @State private var arMode = false
+    @State private var showPaywall = false
+    @State private var didRequestPro = false
+
+    private var canPreview: Bool {
+        let access = assets.proContentAccess
+        if pro.characterLocked(character, in: access) { return false }
+        if let dance, pro.danceLocked(dance, in: access) { return false }
+        return true
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
             CardBackdrop(style: style).ignoresSafeArea()   // Reuse the card's decorative background
 
             Group {
-                if arMode {
+                if !canPreview {
+                    Color.clear
+                } else if arMode {
                     ARCharacterView(controller: stage.controller,
                                     onAttach: { stage.rebaseRetarget() },
                                     onRelocated: { stage.rebaseRetarget() })
@@ -83,6 +96,7 @@ private struct PreviewShell: View {
                 Spacer()
                 Picker("", selection: $arMode) { Text("3D").tag(false); Text("AR").tag(true) }
                     .pickerStyle(.segmented).frame(width: 120)
+                    .disabled(!canPreview)
             }
             .padding(.horizontal, 16).padding(.top, 8)
 
@@ -97,11 +111,32 @@ private struct PreviewShell: View {
             .frame(maxWidth: .infinity)
         }
         .overlay {
-            if !stage.isReady {
+            if !canPreview {
+                VStack(spacing: 16) {
+                    ProLockBadge()
+                    Button("Choose your Pro plan") { showPaywall = true }
+                        .buttonStyle(.borderedProminent)
+                }
+            } else if !stage.isReady {
                 ProgressView().tint(.white).scaleEffect(1.3)
             }
         }
-        .task { await stage.load(character: character, dance: dance) }
+        .task(id: pro.isPro) {
+            guard canPreview else {
+                stage.unload()
+                if !didRequestPro {
+                    didRequestPro = true
+                    showPaywall = true
+                }
+                return
+            }
+            await stage.load(character: character, dance: dance)
+        }
+        .fullScreenCover(isPresented: $showPaywall, onDismiss: {
+            if !canPreview { dismiss() }
+        }) {
+            PaywallView(onClose: { showPaywall = false }, source: "content_preview")
+        }
         .onDisappear { stage.unload() }
     }
 }

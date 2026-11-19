@@ -87,7 +87,12 @@ private struct PickedCharacter: Identifiable { let id: String; let name: String 
 /// My characters: the library of characters that can dance. Tap one to enter the dance studio with it.
 struct MyCharactersView: View {
     @ObservedObject private var remoteAssets = RemoteAssets.shared
+    @ObservedObject private var pro = ProStore.shared
     @State private var picked: PickedCharacter?
+    @State private var pendingPick: PickedCharacter?
+    @State private var showPaywall = false
+
+    private var contentAccess: ProContentAccess { remoteAssets.proContentAccess }
     @State private var showImporter = false
     @State private var importing = false
     @State private var importError: String?
@@ -138,9 +143,20 @@ struct MyCharactersView: View {
                     ForEach(Array(remoteAssets.characters.enumerated()), id: \.element.id) { i, c in
                         Button {
                             HapticManager.light()
-                            picked = PickedCharacter(id: c.id, name: c.name)
+                            if pro.characterLocked(c.id, in: contentAccess) {
+                                Track.log(.lockedItemTapped, ["kind": "character", "id": c.id, "source": "library"])
+                                pendingPick = PickedCharacter(id: c.id, name: c.name)
+                                showPaywall = true
+                            } else {
+                                picked = PickedCharacter(id: c.id, name: c.name)
+                            }
                         } label: {
-                            CharacterCard(name: c.name, characterKey: c.id, style: i)
+                            CharacterCard(
+                                name: c.name,
+                                characterKey: c.id,
+                                style: i,
+                                isLocked: pro.characterLocked(c.id, in: contentAccess)
+                            )
                         }
                         .buttonStyle(CardButtonStyle())
                         .contextMenu {
@@ -189,6 +205,13 @@ struct MyCharactersView: View {
             Button("Cancel", role: .cancel) { pendingDelete = nil }
         } message: {
             Text("\(pendingDelete?.name ?? "") and its model file will be deleted from this device.")
+        }
+        .fullScreenCover(isPresented: $showPaywall, onDismiss: {
+            guard let request = pendingPick else { return }
+            pendingPick = nil
+            if !pro.characterLocked(request.id, in: contentAccess) { picked = request }
+        }) {
+            PaywallView(onClose: { showPaywall = false }, source: "character_library")
         }
         .fullScreenCover(item: $picked) { p in
             NavigationStack {

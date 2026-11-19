@@ -245,3 +245,6 @@
 "There is not enough free space to add music. Your original video is saved. Free up storage and retry, or keep the original video." = "음악 추가에 필요한 저장 공간이 부족합니다. 원본 동영상은 저장되어 있습니다. 공간을 확보한 후 다시 시도하거나 원본 동영상을 유지하세요.";
 "There is not enough free space to save. Your recorded file is kept on this device. Free up storage and retry." = "저장 공간이 부족합니다. 녹화 파일은 이 기기에 보관되어 있습니다. 공간을 확보한 후 다시 시도해 주세요.";
 "There is not enough free space to save the video with music. Your original video is still saved. Free up storage and retry, or keep the original video." = "음악이 포함된 동영상을 저장할 공간이 부족합니다. 원본 동영상은 저장되어 있습니다. 공간을 확보한 후 다시 시도하거나 원본 동영상을 유지하세요.";
+
+/* Pro-only content */
+"Requires Pro" = "Pro 필요";

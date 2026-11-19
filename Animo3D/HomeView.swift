@@ -28,7 +28,12 @@ private var showcaseCharacter: String { BuiltInAssets.characterId }
 
 struct HomeView: View {
     @ObservedObject private var remoteAssets = RemoteAssets.shared
+    @ObservedObject private var pro = ProStore.shared
     @State private var launch: StudioLaunch?
+    @State private var pendingLaunch: StudioLaunch?
+    @State private var showPaywall = false
+
+    private var contentAccess: ProContentAccess { remoteAssets.proContentAccess }
     @State private var showVideo = false
     // 异步 3D 延迟加载状态，用于彻底粉碎冷启动主线程卡顿
     @State private var is3DViewRendered = false
@@ -40,6 +45,36 @@ struct HomeView: View {
     /// edge of the screen stepped in and out as you scrolled past each heading - and the headings
     /// that did use 20 sat visibly proud of "Create" above them.
     private let gutter: CGFloat = 16
+
+    private func openStudio(_ request: StudioLaunch) {
+        if let id = request.character, pro.characterLocked(id, in: contentAccess) {
+            Track.log(.lockedItemTapped, ["kind": "character", "id": id, "source": "home"])
+            pendingLaunch = request
+            showPaywall = true
+            return
+        }
+        if let id = request.dance, pro.danceLocked(id, in: contentAccess) {
+            Track.log(.lockedItemTapped, ["kind": "dance", "id": id, "source": "home"])
+            pendingLaunch = request
+            showPaywall = true
+            return
+        }
+        if let id = request.character {
+            Track.log(.characterSelected, ["character": id, "source": "home_grid"])
+        }
+        if let id = request.dance {
+            Track.log(.danceSelected, ["dance": id, "source": "home_carousel"])
+        }
+        launch = request
+    }
+
+    private func resumePendingLaunch() {
+        guard let request = pendingLaunch else { return }
+        pendingLaunch = nil
+        if let id = request.character, pro.characterLocked(id, in: contentAccess) { return }
+        if let id = request.dance, pro.danceLocked(id, in: contentAccess) { return }
+        openStudio(request)
+    }
 
     // The carousels and banners are their own properties, not inlined in `body`: the whole screen in
     // one result builder is more than the Swift 6.2 type checker can solve (it crashes outright once
@@ -61,10 +96,14 @@ struct HomeView: View {
                     ForEach(Array(remoteAssets.characters.prefix(4).enumerated()), id: \.element.id) { i, c in
                         Button {
                             HapticManager.light()
-                            launch = StudioLaunch(character: c.id)
-                            Track.log(.characterSelected, ["character": c.id, "source": "home_grid"])
+                            openStudio(StudioLaunch(character: c.id))
                         } label: {
-                            CharacterCard(name: c.name, characterKey: c.id, style: i)
+                            CharacterCard(
+                                name: c.name,
+                                characterKey: c.id,
+                                style: i,
+                                isLocked: pro.characterLocked(c.id, in: contentAccess)
+                            )
                         }
                         .buttonStyle(CardButtonStyle())
                     }
@@ -89,10 +128,9 @@ struct HomeView: View {
                     } else {
                         ForEach(Array(remoteAssets.dances.prefix(8).enumerated()), id: \.element.id) { i, d in
                             Button {
-                                launch = StudioLaunch(dance: d.id)
-                                Track.log(.danceSelected, ["dance": d.id, "source": "home_carousel"])
+                                openStudio(StudioLaunch(dance: d.id))
                             } label: {
-                                posterCard(title: d.name) {
+                                posterCard(title: d.name, isLocked: pro.danceLocked(d.id, in: contentAccess)) {
                                     if i == 0 && is3DViewRendered {
                                         CardBackdrop(style: 0)
                                             .overlay(LiveDanceView(character: showcaseCharacter, dance: d.id,
@@ -170,6 +208,9 @@ struct HomeView: View {
             .navigationTitle("Create")
             .navigationBarTitleDisplayMode(.large)
             .trackScreen("Home")
+            .fullScreenCover(isPresented: $showPaywall, onDismiss: resumePendingLaunch) {
+                PaywallView(onClose: { showPaywall = false }, source: "home_content")
+            }
             .fullScreenCover(item: $launch) { l in
                 studioCover(DanceStudioView(initialCharacter: l.character, initialDance: l.dance))
             }
@@ -365,7 +406,11 @@ struct HomeView: View {
     ///
     /// It carried a subtitle that read "Hot Trend" on every single card - a second line of type
     /// that told the user nothing. The section heading already says what these are.
-    private func posterCard<Thumb: View>(title: String, @ViewBuilder thumb: () -> Thumb) -> some View {
+    private func posterCard<Thumb: View>(
+        title: String,
+        isLocked: Bool,
+        @ViewBuilder thumb: () -> Thumb
+    ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             ZStack(alignment: .topTrailing) {
                 thumb()
@@ -373,12 +418,16 @@ struct HomeView: View {
                     .background(Color(.secondarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
-                // Decoration badge
-                Image(systemName: "sparkles")
-                    .font(.caption2)
-                    .padding(6)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .padding(8)
+                if !isLocked {
+                    Image(systemName: "sparkles")
+                        .font(.caption2)
+                        .padding(6)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .padding(8)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if isLocked { ProLockBadge().padding(8) }
             }
             .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
 

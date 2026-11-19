@@ -16,6 +16,17 @@ import simd
 struct VideoDriveView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var remoteAssets = RemoteAssets.shared
+    @ObservedObject private var pro = ProStore.shared
+    @State private var showPaywall = false
+    @State private var pendingProAction: ProAction?
+
+    private enum ProAction {
+        case character(String)
+        case perform
+        case record
+    }
+
+    private var contentAccess: ProContentAccess { remoteAssets.proContentAccess }
 
     enum Step: Int, CaseIterable { case video, character, perform }
     @State private var step: Step = .video
@@ -74,6 +85,21 @@ struct VideoDriveView: View {
         .toolbar(.hidden, for: .navigationBar)   // The wizard ships its own header and back button
         .sheet(isPresented: $showShare) { if let url = shareURL { ShareSheet(items: [url]) } }
         .recordingFeedback(output: recordingOutput)
+        .fullScreenCover(isPresented: $showPaywall, onDismiss: resumeProAction) {
+            PaywallView(onClose: { showPaywall = false }, source: "video_drive_content")
+        }
+        .onChange(of: pro.isPro) { isPro in
+            if !isPro {
+                if recorder.isRecording { stopRecording() }
+                if pro.characterLocked(character, in: contentAccess) {
+                    vm.stop()
+                    stage.pause()
+                }
+            } else if step == .perform, let videoURL {
+                stage.resume()
+                vm.load(url: videoURL)
+            }
+        }
         .fullScreenCover(item: $zoomChar) { c in
             let idx = remoteAssets.characters.firstIndex { $0.id == c.id } ?? 0
             CharacterPreviewPage(key: c.id, name: c.name, style: idx)
@@ -190,6 +216,11 @@ struct VideoDriveView: View {
                                                           : .black.opacity(0.25),
                                         radius: isSelected ? 15 : 8, x: 0, y: isSelected ? 8 : 4)
 
+                            if pro.characterLocked(c.id, in: contentAccess) {
+                                ProLockBadge()
+                                    .padding(12)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            }
                             if isSelected {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(.white, Color.accentColor)
@@ -205,7 +236,7 @@ struct VideoDriveView: View {
                     }
                     .onTapGesture {
                         HapticManager.light()
-                        character = c.id
+                        chooseCharacter(c.id)
                     }
                     .overlay(alignment: .topTrailing) {
                         ZoomButton { zoomChar = c }
@@ -299,6 +330,58 @@ struct VideoDriveView: View {
         .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
     }
 
+    private func requestPro(_ action: ProAction, id: String) {
+        Track.log(.lockedItemTapped, ["kind": "character", "id": id, "source": "video_drive"])
+        pendingProAction = action
+        showPaywall = true
+    }
+
+    private func chooseCharacter(_ id: String) {
+        guard remoteAssets.characters.contains(where: { $0.id == id }) else { return }
+        guard !pro.characterLocked(id, in: contentAccess) else {
+            requestPro(.character(id), id: id)
+            return
+        }
+        character = id
+    }
+
+    private func requireCharacterAccess(for action: ProAction) -> Bool {
+        guard !character.isEmpty,
+              remoteAssets.characters.contains(where: { $0.id == character }) else { return false }
+        guard !pro.characterLocked(character, in: contentAccess) else {
+            requestPro(action, id: character)
+            return false
+        }
+        return true
+    }
+
+    private func resumeProAction() {
+        guard let action = pendingProAction else { return }
+        pendingProAction = nil
+        guard pro.isPro else { return }
+        switch action {
+        case .character(let id): chooseCharacter(id)
+        case .perform: startPerform()
+        case .record:
+            stage.resume()
+            if let videoURL { vm.load(url: videoURL) }
+            startRecording()
+        }
+    }
+
+    private func startRecording() {
+        guard requireCharacterAccess(for: .record) else { return }
+        guard let view = holder.scnView else {
+            recordingOutput.reportRecordingError(RecordingError.sceneUnavailable)
+            return
+        }
+        do {
+            try recorder.start(view: view, watermark: pro.isPro ? nil : "Livo 3D")
+        } catch {
+            recordingOutput.reportRecordingError(error)
+        }
+    }
+
     private func stopRecording() {
         recorder.stop { result in
             Task { await recordingOutput.process(result) }
@@ -310,14 +393,8 @@ struct VideoDriveView: View {
             HapticManager.medium()
             if recorder.isRecording {
                 stopRecording()
-            } else if let view = holder.scnView {
-                do {
-                    try recorder.start(view: view, watermark: ProStore.shared.isPro ? nil : "Livo 3D")
-                } catch {
-                    recordingOutput.reportRecordingError(error)
-                }
             } else {
-                recordingOutput.reportRecordingError(RecordingError.sceneUnavailable)
+                startRecording()
             }
         } label: {
             ZStack {
@@ -372,7 +449,11 @@ struct VideoDriveView: View {
         switch step {
         case .video:
             previewPlayer?.pause()
-            if character.isEmpty { character = remoteAssets.characters.first?.id ?? "Y_Bot" }
+            if character.isEmpty {
+                character = remoteAssets.characters.first {
+                    !pro.characterLocked($0.id, in: contentAccess)
+                }?.id ?? ""
+            }
             step = .character
         case .character:
             startPerform()
@@ -397,13 +478,13 @@ struct VideoDriveView: View {
     }
 
     private func startPerform() {
-        guard let url = videoURL, !loadingStage else { return }
+        guard let url = videoURL, !loadingStage, requireCharacterAccess(for: .perform) else { return }
+        loadingStage = true
         previewPlayer?.pause()
         vm.onWorld = { [weak stage] world in stage?.drive(world) }
         Task {
-            loadingStage = true
             defer { loadingStage = false }
-            guard await stage.load(character: character) else { return }
+            guard await stage.load(character: character), requireCharacterAccess(for: .perform) else { return }
             vm.load(url: url)     // Detection only starts once there is something to drive
             step = .perform
         }

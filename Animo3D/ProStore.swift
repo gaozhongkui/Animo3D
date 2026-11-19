@@ -202,8 +202,11 @@ final class ProStore: ObservableObject {
         }
     }
 
-    let freeCharacters = 3
-    let freeDances = 6
-    func characterLocked(_ index: Int) -> Bool { !isPro && index >= freeCharacters }
-    func danceLocked(_ index: Int) -> Bool { !isPro && index >= freeDances }
+    func characterLocked(_ id: String, in access: ProContentAccess) -> Bool {
+        !access.canUseCharacter(id, isPro: isPro)
+    }
+
+    func danceLocked(_ id: String, in access: ProContentAccess) -> Bool {
+        !access.canUseDance(id, isPro: isPro)
+    }
 }

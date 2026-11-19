@@ -57,6 +57,92 @@ final class ProStoreTests: XCTestCase {
         XCTAssertNil(ProEntitlement.cached(data: nil, legacyIsPro: false, at: now))
     }
 
+    private var accessFixture: ProContentAccess {
+        ProContentAccess(
+            characterIDs: ["my_character"] + (1...8).map { "character_\($0)" },
+            danceIDs: (1...12).map { "dance_\($0)" },
+            importedCharacterIDs: ["my_character"],
+            builtInCharacterID: "character_8",
+            builtInDanceID: "dance_12"
+        )
+    }
+
+    func testFreeLibraryHasExactlyThreeCharactersAndSixDances() {
+        let access = accessFixture
+        XCTAssertEqual(access.freeCharacterIDs.count, 3)
+        XCTAssertEqual(access.freeDanceIDs.count, 6)
+        XCTAssertEqual((1...8).filter { access.canUseCharacter("character_\($0)", isPro: false) }.count, 3)
+        XCTAssertEqual((1...12).filter { access.canUseDance("dance_\($0)", isPro: false) }.count, 6)
+    }
+
+    func testBundledContentRemainsFreeWithinTheQuota() {
+        let access = accessFixture
+        XCTAssertTrue(access.canUseCharacter("character_8", isPro: false))
+        XCTAssertTrue(access.canUseDance("dance_12", isPro: false))
+    }
+
+    func testImportedCharactersDoNotConsumeFreeCatalogSlots() {
+        let catalog = (1...8).map { "character_\($0)" }
+        let original = ProContentAccess(characterIDs: catalog, danceIDs: [])
+        let imported = ProContentAccess(
+            characterIDs: ["mine_a", "mine_b"] + catalog,
+            danceIDs: [],
+            importedCharacterIDs: ["mine_a", "mine_b"]
+        )
+        XCTAssertEqual(original.freeCharacterIDs, imported.freeCharacterIDs)
+        XCTAssertTrue(imported.canUseCharacter("mine_a", isPro: false))
+        XCTAssertTrue(imported.canUseCharacter("mine_b", isPro: false))
+        XCTAssertFalse(imported.canUseCharacter("character_4", isPro: false))
+    }
+
+    func testFilteringOrReorderingTheVisibleListDoesNotUnlockPaidDances() {
+        let access = accessFixture
+        let category = ["dance_7", "dance_9", "dance_12"]
+        XCTAssertFalse(access.canUseDance(category[0], isPro: false))
+        XCTAssertFalse(access.canUseDance(category[1], isPro: false))
+        XCTAssertTrue(access.canUseDance(category[2], isPro: false))
+    }
+
+    func testProUnlocksTheEntireKnownCatalogAndFreeAccessReturnsAfterExpiration() {
+        let access = accessFixture
+        for id in (1...8).map({ "character_\($0)" }) {
+            XCTAssertTrue(access.canUseCharacter(id, isPro: true))
+        }
+        for id in (1...12).map({ "dance_\($0)" }) {
+            XCTAssertTrue(access.canUseDance(id, isPro: true))
+        }
+        XCTAssertFalse(access.canUseCharacter("character_4", isPro: false))
+        XCTAssertFalse(access.canUseDance("dance_7", isPro: false))
+    }
+
+    func testInvalidAndDuplicateCatalogIDsDoNotGrantExtraFreeSlots() {
+        let access = ProContentAccess(
+            characterIDs: ["", "a", "a", "b", "c", "d"],
+            danceIDs: ["x", "x"],
+            builtInCharacterID: "missing"
+        )
+        XCTAssertEqual(access.freeCharacterIDs, ["a", "b", "c"])
+        XCTAssertEqual(access.freeDanceIDs, ["x"])
+        XCTAssertFalse(access.canUseCharacter("missing", isPro: true))
+        XCTAssertFalse(access.canUseDance("missing", isPro: true))
+        XCTAssertFalse(access.canUseCharacter("", isPro: true))
+        XCTAssertFalse(access.canUseDance("", isPro: true))
+    }
+
+    @MainActor
+    private func assertPaidLibraryAccess(
+        _ allowed: Bool,
+        in store: ProStore,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(store.characterLocked("character_4", in: accessFixture), !allowed, file: file, line: line)
+        XCTAssertEqual(store.danceLocked("dance_7", in: accessFixture), !allowed, file: file, line: line)
+        XCTAssertFalse(store.characterLocked("my_character", in: accessFixture), file: file, line: line)
+        XCTAssertFalse(store.characterLocked("character_1", in: accessFixture), file: file, line: line)
+        XCTAssertFalse(store.danceLocked("dance_1", in: accessFixture), file: file, line: line)
+    }
+
     @MainActor
     private func makeSession() throws -> SKTestSession {
         let session = try SKTestSession(configurationFileNamed: "Animo3D")
@@ -118,11 +204,13 @@ final class ProStoreTests: XCTestCase {
         let purchased = await store.purchase(monthly)
         XCTAssertTrue(purchased)
         XCTAssertEqual(store.activeTier, .monthly)
+        assertPaidLibraryAccess(true, in: store)
         XCTAssertNotNil(store.entitlement?.expirationDate)
 
         try session.expireSubscription(productIdentifier: ProPlan.monthly.productID)
         await waitForTier(nil, in: store, refresh: true)
         XCTAssertFalse(store.isPro)
+        assertPaidLibraryAccess(false, in: store)
         XCTAssertNil(store.activeTier)
     }
 
@@ -139,6 +227,7 @@ final class ProStoreTests: XCTestCase {
         try session.expireSubscription(productIdentifier: ProPlan.monthly.productID)
         await store.refreshEntitlements()
         XCTAssertEqual(store.activeTier, .lifetime)
+        assertPaidLibraryAccess(true, in: store)
         XCTAssertNil(store.entitlement?.expirationDate)
     }
 
@@ -154,6 +243,7 @@ final class ProStoreTests: XCTestCase {
         try session.refundTransaction(identifier: UInt(transaction.id))
         await waitForTier(nil, in: store)
         XCTAssertFalse(store.isPro)
+        assertPaidLibraryAccess(false, in: store)
     }
 
     @MainActor
@@ -183,6 +273,7 @@ final class ProStoreTests: XCTestCase {
         await store.refreshEntitlements()
         XCTAssertEqual(store.activeTier, .monthly)
         XCTAssertEqual(store.entitlement?.expirationDate, expiration)
+        assertPaidLibraryAccess(true, in: store)
     }
 
     @MainActor
@@ -194,6 +285,7 @@ final class ProStoreTests: XCTestCase {
         await store.restore()
         XCTAssertNil(store.lastError)
         XCTAssertEqual(store.activeTier, .monthly)
+        assertPaidLibraryAccess(true, in: store)
     }
 
     @MainActor
@@ -206,6 +298,7 @@ final class ProStoreTests: XCTestCase {
         let purchased = await store.purchase(lifetime)
         XCTAssertTrue(purchased)
         XCTAssertEqual(store.activeTier, .lifetime)
+        assertPaidLibraryAccess(true, in: store)
         XCTAssertNil(store.entitlement?.expirationDate)
     }
 

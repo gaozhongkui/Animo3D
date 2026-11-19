@@ -25,6 +25,18 @@ struct DanceStudioView: View {
     @StateObject private var localMusic = LocalMusicStore.shared
     @ObservedObject private var pro = ProStore.shared
     @State private var showPaywall = false
+    @State private var pendingProAction: ProAction?
+    @State private var didSetupInitial = false
+
+    private enum ProAction {
+        case character(String)
+        case dance(String)
+        case initialSelection
+        case perform
+        case record
+    }
+
+    private var contentAccess: ProContentAccess { remoteAssets.proContentAccess }
 
     enum Step: Int, CaseIterable { case character, dance, music, perform }
     @State private var step: Step = .character
@@ -125,6 +137,9 @@ struct DanceStudioView: View {
         }
         // Recording used to end on a bare share sheet, with nothing saying the clip had been kept.
         .recordingFeedback(output: recordingOutput)
+        .fullScreenCover(isPresented: $showPaywall, onDismiss: resumeProAction) {
+            PaywallView(onClose: { showPaywall = false }, source: "studio_content")
+        }
         .sheet(isPresented: $showAudioDoc) {
             AudioDoc { url in
                 if let t = localMusic.importFile(from: url) { select(music: t) }
@@ -151,8 +166,25 @@ struct DanceStudioView: View {
             // The grid only shows pre-rendered art; pull the full take now.
             stage.prewarm(dance: d)
         }
+        .onChange(of: pro.isPro) { isPro in
+            if !isPro {
+                if recorder.isRecording { stopRecording() }
+                stage.controller.stage = CharacterSceneController.Stage.plaza
+                if pro.characterLocked(character, in: contentAccess)
+                    || pro.danceLocked(dance, in: contentAccess) {
+                    music.stop()
+                    stage.pause()
+                }
+            } else if step == .perform {
+                stage.resume()
+                if let selectedMusic { music.play(selectedMusic) }
+                applyStage(stageID)
+            }
+        }
         .onChange(of: scenePhase) { phase in
-            if phase == .active {
+            if phase == .active,
+               !pro.characterLocked(character, in: contentAccess),
+               !pro.danceLocked(dance, in: contentAccess) {
                 stage.resume()
             } else {
                 stage.pause()
@@ -245,6 +277,11 @@ struct DanceStudioView: View {
                                            startPoint: .init(x: 0.5, y: 0.6), endPoint: .bottom)
                                 .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
 
+                            if pro.characterLocked(c.id, in: contentAccess) {
+                                ProLockBadge()
+                                    .padding(12)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            }
                             if isSelected {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(.white, Color.accentColor)
@@ -260,8 +297,7 @@ struct DanceStudioView: View {
                     }
                     .onTapGesture {
                         HapticManager.light()
-                        character = c.id
-                        Track.log(.characterSelected, ["character": c.id])
+                        chooseCharacter(c.id)
                     }
                 }
             }
@@ -405,12 +441,17 @@ struct DanceStudioView: View {
                                     Text(danceMeta(d)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.85))
                                 }
                                 .padding(12)
+
+                                if pro.danceLocked(d.id, in: contentAccess) {
+                                    ProLockBadge()
+                                        .padding(12)
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                                }
                             }
                         }
                         .onTapGesture {
                             HapticManager.light()
-                            dance = d.id
-                            Track.log(.danceSelected, ["dance": d.id, "character": character])
+                            chooseDance(d.id)
                         }
                         .onAppear {
                             // Infinite scroll batching: append 12 more cards when near the bottom
@@ -709,7 +750,12 @@ struct DanceStudioView: View {
     private func applyStage(_ id: String) {
         stageID = id
         Track.log(.stageSelected, ["stage": id])
-        Task { stage.controller.stage = await StageLibrary.shared.spec(for: effectiveStageID) }
+        let target = effectiveStageID
+        Task {
+            let specification = await StageLibrary.shared.spec(for: target)
+            guard target == effectiveStageID else { return }
+            stage.controller.stage = specification
+        }
     }
 
     private var vfxBar: some View {
@@ -748,6 +794,8 @@ struct DanceStudioView: View {
     }
 
     private func startRecording() {
+        guard requireCurrentAccess(for: .record) else { return }
+        if !pro.isPro { stage.controller.stage = CharacterSceneController.Stage.plaza }
         guard let view = holder.scnView else {
             recordingOutput.reportRecordingError(RecordingError.sceneUnavailable)
             return
@@ -869,16 +917,88 @@ struct DanceStudioView: View {
     }
 
     // MARK: Logic
-    private func setupInitial() {
-        if let ic = initialCharacter, remoteAssets.characters.contains(where: { $0.id == ic }) { character = ic }
-        if let id = initialDance, remoteAssets.dances.contains(where: { $0.id == id }) { dance = id }
+    private func requestPro(_ action: ProAction, kind: String, id: String) {
+        Track.log(.lockedItemTapped, ["kind": kind, "id": id, "source": "studio"])
+        pendingProAction = action
+        showPaywall = true
+    }
 
-        // Determine starting step based on what was passed from the entry point
+    private func chooseCharacter(_ id: String) {
+        guard remoteAssets.characters.contains(where: { $0.id == id }) else { return }
+        guard !pro.characterLocked(id, in: contentAccess) else {
+            requestPro(.character(id), kind: "character", id: id)
+            return
+        }
+        character = id
+        Track.log(.characterSelected, ["character": id])
+    }
+
+    private func chooseDance(_ id: String) {
+        guard remoteAssets.dances.contains(where: { $0.id == id }) else { return }
+        guard !pro.danceLocked(id, in: contentAccess) else {
+            requestPro(.dance(id), kind: "dance", id: id)
+            return
+        }
+        dance = id
+        Track.log(.danceSelected, ["dance": id, "character": character])
+    }
+
+    private func requireCurrentAccess(for action: ProAction) -> Bool {
+        guard !character.isEmpty, !dance.isEmpty else { return false }
+        guard remoteAssets.characters.contains(where: { $0.id == character }),
+              remoteAssets.dances.contains(where: { $0.id == dance }) else { return false }
+        if pro.characterLocked(character, in: contentAccess) {
+            requestPro(action, kind: "character", id: character)
+            return false
+        }
+        if pro.danceLocked(dance, in: contentAccess) {
+            requestPro(action, kind: "dance", id: dance)
+            return false
+        }
+        return true
+    }
+
+    private func resumeProAction() {
+        guard let action = pendingProAction else { return }
+        pendingProAction = nil
+        // Closing or cancelling a purchase must never change the current free selection.
+        guard pro.isPro else { return }
+        switch action {
+        case .character(let id): chooseCharacter(id)
+        case .dance(let id): chooseDance(id)
+        case .initialSelection: applyInitialSelection()
+        case .perform: startPerform()
+        case .record:
+            stage.resume()
+            if let selectedMusic { music.play(selectedMusic) }
+            startRecording()
+        }
+    }
+
+    private func setupInitial() {
+        guard !didSetupInitial else { return }
+        didSetupInitial = true
+        applyInitialSelection()
+    }
+
+    private func applyInitialSelection() {
+        if let id = initialCharacter, remoteAssets.characters.contains(where: { $0.id == id }) {
+            guard !pro.characterLocked(id, in: contentAccess) else {
+                requestPro(.initialSelection, kind: "character", id: id)
+                return
+            }
+            character = id
+        }
+        if let id = initialDance, remoteAssets.dances.contains(where: { $0.id == id }) {
+            guard !pro.danceLocked(id, in: contentAccess) else {
+                requestPro(.initialSelection, kind: "dance", id: id)
+                return
+            }
+            dance = id
+        }
         if !character.isEmpty && !dance.isEmpty {
-            // Both picked (e.g. via deep link or future feature) -> straight to music
             step = .music
         } else if !character.isEmpty && initialCharacter != nil {
-            // Character picked -> go to dance selection
             step = .dance
             ensureDefaultDance()
         }
@@ -888,14 +1008,18 @@ struct DanceStudioView: View {
     private func ensureDefaultDance() {
         guard dance.isEmpty else { return }
         // Prefer the bundled dance: it plays with no network at all.
-        dance = remoteAssets.dances.first { $0.id == BuiltInAssets.danceId }?.id
-            ?? remoteAssets.dances.first?.id ?? ""
+        dance = contentAccess.freeDanceIDs.first
+            ?? remoteAssets.dances.first { !pro.danceLocked($0.id, in: contentAccess) }?.id ?? ""
     }
 
     private func next() {
         HapticManager.medium()
         switch step {
         case .character:
+            if pro.characterLocked(character, in: contentAccess) {
+                requestPro(.character(character), kind: "character", id: character)
+                return
+            }
             // If the user entered the studio by picking a specific dance, skip the dance selection step
             if !dance.isEmpty && initialDance != nil {
                 step = .music
@@ -903,14 +1027,19 @@ struct DanceStudioView: View {
                 step = .dance
                 ensureDefaultDance()
             }
-        case .dance:     step = .music
+        case .dance:
+            if pro.danceLocked(dance, in: contentAccess) {
+                requestPro(.dance(dance), kind: "dance", id: dance)
+                return
+            }
+            step = .music
         case .music:     startPerform()
         case .perform:   break
         }
     }
 
     private func startPerform() {
-        guard !loading else { return }
+        guard !loading, requireCurrentAccess(for: .perform) else { return }
         loading = true
         performStartedAt = CFAbsoluteTimeGetCurrent()
         let ch = character, dc = dance
@@ -918,7 +1047,9 @@ struct DanceStudioView: View {
             guard await stage.load(character: ch, dance: dc) else { loading = false; return }
             // Before .perform, so the scene is built once in the stage the user last chose rather
             // than built as the daylight one and then rebuilt.
-            stage.controller.stage = await StageLibrary.shared.spec(for: effectiveStageID)
+            let specification = await StageLibrary.shared.spec(for: effectiveStageID)
+            guard requireCurrentAccess(for: .perform) else { loading = false; return }
+            stage.controller.stage = pro.isPro ? specification : CharacterSceneController.Stage.plaza
             if let m = selectedMusic { music.play(m) } else { music.stop() }
             Track.log(.performanceStarted, ["character": ch, "dance": dc,
                                             "music": selectedMusic?.name ?? "none",

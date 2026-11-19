@@ -31,6 +31,7 @@ struct StagePickerView: View {
     @State private var importing = false
     @State private var importError: String?
     @State private var showPaywall = false
+    @State private var pendingStageID: String?
     @State private var renaming: UserStage?
     @State private var draftName = ""
 
@@ -46,6 +47,7 @@ struct StagePickerView: View {
     private func choose(_ id: String) {
         if isLocked(id) {
             Track.log(.lockedItemTapped, ["kind": "stage", "id": id])
+            pendingStageID = id
             showPaywall = true
         } else {
             onPick(id)
@@ -134,7 +136,11 @@ struct StagePickerView: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $showPaywall) {
+        .fullScreenCover(isPresented: $showPaywall, onDismiss: {
+            guard let id = pendingStageID else { return }
+            pendingStageID = nil
+            if !isLocked(id) { onPick(id) }
+        }) {
             PaywallView(onClose: { showPaywall = false }, source: "stage")
         }
         .alert("Rename", isPresented: Binding(get: { renaming != nil },
