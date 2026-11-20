@@ -68,7 +68,7 @@ final class VRMAnimationPlayer {
     private let clip: VRMAnimationClip
     private let bindings: [Binding]
     private var link: CADisplayLink?
-    private var startTime: CFTimeInterval = 0
+    private var playbackClock = AnimationPlaybackClock()
 
     // MARK: Foot planting
     //
@@ -270,7 +270,6 @@ final class VRMAnimationPlayer {
 
     func start() {
         stop()
-        startTime = 0
         plantOffsetY = 0
         isPaused = false
         let link = DisplayLinkProxy.create(target: self) { [weak self] l in
@@ -289,6 +288,7 @@ final class VRMAnimationPlayer {
     func pause() {
         guard !isPaused else { return }
         isPaused = true
+        playbackClock.suspend()
         link?.isPaused = true
     }
 
@@ -296,6 +296,7 @@ final class VRMAnimationPlayer {
     func resume() {
         guard isPaused else { return }
         isPaused = false
+        playbackClock.suspend()
         link?.isPaused = false
     }
 
@@ -304,53 +305,64 @@ final class VRMAnimationPlayer {
     func stop() {
         link?.invalidate()
         link = nil
+        playbackClock.reset()
         isPaused = false
     }
 
     @objc private func tick(_ link: CADisplayLink) {
-        if startTime == 0 { startTime = link.timestamp }
+        guard self.link === link, !isPaused else { return }
 
-        // 核心优化：引入优雅减速因子 (0.88x)
-        // 1.0x 原生速度在小屏幕橱窗里往往显得过于锐利急促，0.88x 能增加动作的重量感与优雅感。
-        let speedFactor: Float = 0.88
-        let elapsed = Float(link.timestamp - startTime) * speedFactor
-
-        // 停顿按实际秒数设置，再转换到已缩放的动画时间轴，避免被慢速播放拉长。
-        let loopPauseSeconds: Float = 0.25
-        let restDuration = loopPauseSeconds * speedFactor
-        let totalCycle = clip.duration + restDuration
-
-        if clip.duration > 0 {
-            let currentTimeInCycle = elapsed.truncatingRemainder(dividingBy: totalCycle)
-
-            if currentTimeInCycle <= clip.duration {
-                // 1. 正常舞蹈时间轴
-                apply(at: currentTimeInCycle)
-            } else {
-                // 2. 呼吸休息时间轴：保持在最后一帧，给予用户视觉喘息
-                apply(at: clip.duration)
-            }
-        } else {
-            apply(at: 0)
-        }
-
+        applyLoop(at: playbackClock.advance(to: link.timestamp))
         onFrame?(link.timestamp)
     }
 
-    /// Pose the model for `time` seconds into the take.
+    /// Pose an active playback time, including the short bridge back to the opening pose.
+    func applyLoop(at elapsedSeconds: TimeInterval) {
+        guard clip.duration > 0 else {
+            apply(at: 0)
+            return
+        }
+        let speedFactor: Float = 0.88
+        let loopGapSeconds: Float = 0.25
+        let transitionSeconds: Float = 0.2
+        let elapsed = Float(max(0, elapsedSeconds)) * speedFactor
+        let gapDuration = loopGapSeconds * speedFactor
+        let transitionDuration = transitionSeconds * speedFactor
+        let cycleTime = elapsed.truncatingRemainder(dividingBy: clip.duration + gapDuration)
+
+        if cycleTime <= clip.duration {
+            apply(at: cycleTime)
+            return
+        }
+        // The existing 0.25-second gap contains a 0.05-second hold and a 0.2-second transition.
+        let transitionStart = clip.duration + gapDuration - transitionDuration
+        let progress = min(1, max(0, (cycleTime - transitionStart) / transitionDuration))
+        let easedProgress = progress * progress * (3 - 2 * progress)
+        applyPose(at: clip.duration, startBlend: easedProgress)
+    }
+
+    /// Pose the model for an exact sample, without loop blending (also used by thumbnail/camera scouts).
     func apply(at time: Float) {
-        // Writing a node transform inside an open transaction would interpolate it over the
-        // transaction's duration, which is a second pass of smoothing over already smooth keys.
+        applyPose(at: time, startBlend: 0)
+    }
+
+    private func applyPose(at time: Float, startBlend: Float) {
+        // No implicit SceneKit interpolation on top of the sampled pose or explicit loop blend.
         SCNTransaction.begin()
         SCNTransaction.animationDuration = 0
         for binding in bindings {
-            binding.node.simdOrientation = binding.rotation(at: time)
+            let rotation = binding.rotation(at: time)
+            binding.node.simdOrientation = startBlend > 0
+                ? simd_slerp(rotation, binding.rotation(at: 0), startBlend)
+                : rotation
             if let hips = binding.translation {
-                binding.node.simdPosition = hips.position(at: time)
+                let position = hips.position(at: time)
+                binding.node.simdPosition = startBlend > 0
+                    ? simd_mix(position, hips.position(at: 0), simd_float3(repeating: startBlend))
+                    : position
             }
         }
-        // Carried into the hips before the soles are measured, not written onto the node after:
-        // the next frame re-sets the hips from the take, which would throw a correction away.
+        // Keep the foot-planting correction across the bridge, in the placed character's space.
         if plantOffsetY != 0, let hips = hipsNode { hips.simdWorldPosition.y -= plantOffsetY }
         plantFeet()
         SCNTransaction.commit()
