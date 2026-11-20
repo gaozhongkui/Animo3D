@@ -9,16 +9,10 @@ import Foundation
 import MediaPipeTasksVision
 import CoreVideo
 import UIKit
+import simd
 
-/// Detection result for one frame: use normalized (0-1) to draw points on screen, and world (meters) for 3D motion.
-struct PoseFrameResult {
-    /// Normalized 2D coordinates (relative to the image), used for the overlay drawing. Each element = one person's 33 points.
-    let normalized: [[NormalizedLandmark]]
-    /// 3D world coordinates (in meters, with the hip center as the origin), used to drive the 3D model.
-    let world: [[Landmark]]
-}
-
-final class PoseLandmarkerService {
+// VideoPoseViewModel waits for initialization and permits only one inference at a time.
+nonisolated final class PoseLandmarkerService: @unchecked Sendable {
 
     private let landmarker: PoseLandmarker
 
@@ -51,6 +45,19 @@ final class PoseLandmarkerService {
                                                    timestampInMilliseconds: timestampMs) else {
             return nil
         }
-        return PoseFrameResult(normalized: result.landmarks, world: result.worldLandmarks)
+        return PoseFrameResult(
+            normalized: result.landmarks.map { person in
+                person.map {
+                    NormalizedLandmarkLite(
+                        x: CGFloat($0.x),
+                        y: CGFloat($0.y),
+                        visibility: $0.visibility?.floatValue ?? 1
+                    )
+                }
+            },
+            world: result.worldLandmarks.map { person in
+                person.map { simd_float3(Float($0.x), Float($0.y), Float($0.z)) }
+            }
+        )
     }
 }

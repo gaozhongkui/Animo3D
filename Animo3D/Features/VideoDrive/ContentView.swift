@@ -15,6 +15,8 @@ import simd
 
 struct VideoDriveView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isVisible = false
     @ObservedObject private var remoteAssets = RemoteAssets.shared
     @ObservedObject private var pro = ProStore.shared
     @State private var showPaywall = false
@@ -35,9 +37,10 @@ struct VideoDriveView: View {
 
     // Step 1 - source clip
     @State private var pickerItem: PhotosPickerItem?
-    @State private var videoURL: URL?
+    @StateObject private var source = VideoImportStore()
+    private var videoURL: URL? { source.videoURL }
     @State private var previewPlayer: AVPlayer?
-    @State private var isImporting = false
+    @State private var previewSession = UUID()
     @State private var loopObserver: NSObjectProtocol?
     @State private var previewRect: CGRect = .zero
 
@@ -109,7 +112,7 @@ struct VideoDriveView: View {
                     vm.stop()
                     stage.pause()
                 }
-            } else if step == .perform, let videoURL {
+            } else if isVisible, scenePhase == .active, step == .perform, let videoURL {
                 stage.resume()
                 vm.load(url: videoURL)
             }
@@ -120,9 +123,32 @@ struct VideoDriveView: View {
         }
         .onChange(of: pickerItem) { item in
             guard let item else { return }
-            Task { await loadPicked(item) }
+            pickerItem = nil
+            loadPicked(item)
+        }
+        .onChange(of: source.videoURL) { url in
+            if let url, isVisible, scenePhase == .active, step == .video { setupPreview(url) }
+        }
+        .videoImportFeedback(source: source)
+        .onAppear {
+            isVisible = true
+            resumePlayback()
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                resumePlayback()
+            } else {
+                if recorder.isRecording { stopRecording() }
+                if loadingStage { cancelPreparation() }
+                if phase == .background { source.cancelImport() }
+                pausePreview()
+                vm.stop()
+                stage.pause()
+            }
         }
         .onDisappear {
+            isVisible = false
+            source.cancelImport()
             if recorder.isRecording { stopRecording() }
             preparationTask?.cancel()
             preparationTask = nil
@@ -130,12 +156,9 @@ struct VideoDriveView: View {
                 loadingStage = false
                 stage.unload()
             }
-            // The loop observer and the preview player both used to outlive this screen, so the
-            // preview kept playing (and holding the file) after leaving.
-            if let obs = loopObserver { NotificationCenter.default.removeObserver(obs) }
-            loopObserver = nil
-            previewPlayer?.pause()
+            pausePreview()
             vm.stop()
+            stage.pause()
         }
     }
 
@@ -193,7 +216,11 @@ struct VideoDriveView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                if isImporting { ProgressView() }
+                if source.isImporting {
+                    ProgressView("Importing video…")
+                        .padding(16)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                }
             }
             .frame(maxHeight: .infinity)
             .padding(.horizontal, 16)
@@ -205,11 +232,17 @@ struct VideoDriveView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 24)
 
-            PhotosPicker(selection: $pickerItem, matching: .videos, photoLibrary: .shared()) {
-                Label(videoURL == nil ? "Select Video" : "Reselect", systemImage: "photo.on.rectangle")
-                    .font(.subheadline.weight(.medium))
+            HStack(spacing: 16) {
+                PhotosPicker(selection: $pickerItem, matching: .videos, photoLibrary: .shared()) {
+                    Label(videoURL == nil ? "Select Video" : "Reselect", systemImage: "photo.on.rectangle")
+                        .font(.subheadline.weight(.medium))
+                }
+                .buttonStyle(.bordered)
+                if source.isImporting {
+                    Button("Cancel") { source.cancelImport() }
+                        .font(.subheadline)
+                }
             }
-            .buttonStyle(.bordered)
             .padding(.bottom, 4)
         }
     }
@@ -455,6 +488,7 @@ struct VideoDriveView: View {
     }
 
     private var canAdvance: Bool {
+        guard !source.isImporting, !loadingStage else { return false }
         switch step {
         case .video:     return videoURL != nil
         case .character: return !character.isEmpty
@@ -468,7 +502,7 @@ struct VideoDriveView: View {
         HapticManager.medium()
         switch step {
         case .video:
-            previewPlayer?.pause()
+            pausePreview()
             if character.isEmpty {
                 character = remoteAssets.characters.first {
                     !pro.characterLocked($0.id, in: contentAccess)
@@ -487,7 +521,7 @@ struct VideoDriveView: View {
         case .video:     dismiss()
         case .character:
             step = .video
-            previewPlayer?.play()
+            if let videoURL { setupPreview(videoURL) }
         case .perform:
             // Back from the result page leaves the studio outright, the same as the dance stage:
             // returning to the picker with a live detector running just burns the CPU.
@@ -518,27 +552,52 @@ struct VideoDriveView: View {
         stage.unload()
     }
 
-    private func loadPicked(_ item: PhotosPickerItem) async {
-        isImporting = true
-        defer { isImporting = false }
-        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
-        // Each pick used to leave its copy behind in tmp for the rest of the install.
-        if let old = videoURL { try? FileManager.default.removeItem(at: old) }
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("src_\(UUID().uuidString).mov")
-        try? data.write(to: tmp)
-        videoURL = tmp
-        setupPreview(tmp)
+    private func loadPicked(_ item: PhotosPickerItem) {
+        source.importVideo {
+            try await item.loadTransferable(type: ImportedVideoFile.self)
+        }
     }
 
     private func setupPreview(_ url: URL) {
+        pausePreview()
         let player = AVPlayer(url: url)
-        if let obs = loopObserver { NotificationCenter.default.removeObserver(obs) }
+        let session = previewSession
+        let item = player.currentItem
         loopObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main
-        ) { _ in player.seek(to: .zero); player.play() }
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak player] _ in
+            Task { @MainActor in
+                guard let player, isVisible, scenePhase == .active, step == .video,
+                      session == previewSession, previewPlayer === player else { return }
+                let finished = await player.seek(to: .zero)
+                guard finished, isVisible, scenePhase == .active, step == .video,
+                      session == previewSession, previewPlayer === player else { return }
+                player.play()
+            }
+        }
         previewPlayer = player
         player.play()
+    }
+
+    private func pausePreview() {
+        previewSession = UUID()
+        if let loopObserver { NotificationCenter.default.removeObserver(loopObserver) }
+        loopObserver = nil
+        previewPlayer?.pause()
+        previewPlayer?.currentItem?.cancelPendingSeeks()
+    }
+
+    private func resumePlayback() {
+        guard isVisible, scenePhase == .active else { return }
+        if step == .video, let videoURL {
+            setupPreview(videoURL)
+        } else if step == .perform, let videoURL,
+                  !pro.characterLocked(character, in: contentAccess) {
+            stage.resume()
+            vm.load(url: videoURL)
+        }
     }
 }
 

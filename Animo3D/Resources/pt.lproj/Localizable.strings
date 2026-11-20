@@ -262,3 +262,10 @@
 /* Purchased plan status */
 "Current Plan" = "Plano atual";
 "Purchased" = "Comprado";
+
+/* Video import recovery */
+"Could not import video" = "Não foi possível importar o vídeo";
+"Importing video\u2026" = "Importando vídeo…";
+"The video couldn't be imported. Please try again." = "Não foi possível importar o vídeo. Tente novamente.";
+"This file doesn't contain a playable video. Choose another video." = "Este arquivo não contém um vídeo reproduzível. Escolha outro vídeo.";
+"There is not enough free space to import this video. Free up storage and try again." = "Não há espaço suficiente para importar este vídeo. Libere espaço e tente novamente.";

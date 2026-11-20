@@ -510,3 +510,14 @@ python3 tools/make_sky.py data/source/sky_sunset.jpg -o Animo3D/Res/sky_dome_sun
 | `tools/storekit/Animo3D.storekit` | 本地月付与永久版购买配置 |
 
 业务文件名和 Swift 类型名保留，资源仍位于 `Animo3D/Res`、`Animo3D/Resources` 和 `Animo3D/Assets.xcassets`。测试脚本中的源文件路径已同步到新目录。
+
+## 视频导入与会话回归
+
+```bash
+ANIMO_TEST_ARTIFACTS=/private/tmp/Animo3D-video-drive-artifacts \
+  bash tools/run_video_drive_tests.sh SIMULATOR_UDID
+```
+
+测试直接编译视频文件所有权、导入存储、错误提示和播放分析视图模型，使用实际 AVFoundation 视频文件、播放器、视频输出和 DisplayLink；识别服务由可暂停的测试替身代替，以稳定复现旧推理延迟返回的情况。
+
+覆盖 512 MB 文件复制、失败替换与重试、取消及过期导入清理、视频可播放性验证、元数据准备期间退出、切换视频、过期推理丢弃、识别串行执行、循环播放时间戳、资源释放和英德文错误提示。该脚本不替代真机上的 iCloud 视频下载和识别效果检查。

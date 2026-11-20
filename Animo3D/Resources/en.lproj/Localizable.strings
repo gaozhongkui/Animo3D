@@ -270,3 +270,10 @@
 /* Purchased plan status */
 "Current Plan" = "Current Plan";
 "Purchased" = "Purchased";
+
+/* Video import recovery */
+"Could not import video" = "Could not import video";
+"Importing video\u2026" = "Importing video…";
+"The video couldn't be imported. Please try again." = "The video couldn't be imported. Please try again.";
+"This file doesn't contain a playable video. Choose another video." = "This file doesn't contain a playable video. Choose another video.";
+"There is not enough free space to import this video. Free up storage and try again." = "There is not enough free space to import this video. Free up storage and try again.";
