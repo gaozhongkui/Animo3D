@@ -315,9 +315,9 @@ final class VRMAnimationPlayer {
         let speedFactor: Float = 0.88
         let elapsed = Float(link.timestamp - startTime) * speedFactor
 
-        // 优化方案：引入循环呼吸停顿机制
-        // 每一个循环周期 = 舞蹈时长 + 1.2秒的静止休息时长
-        let restDuration: Float = 1.2
+        // 停顿按实际秒数设置，再转换到已缩放的动画时间轴，避免被慢速播放拉长。
+        let loopPauseSeconds: Float = 0.25
+        let restDuration = loopPauseSeconds * speedFactor
         let totalCycle = clip.duration + restDuration
 
         if clip.duration > 0 {
