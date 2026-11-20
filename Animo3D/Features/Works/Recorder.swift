@@ -102,19 +102,15 @@ final class WorksStore: ObservableObject {
         }
     }
 
-    func delete(_ url: URL) {
-        try? FileManager.default.removeItem(at: url)
+    func delete(_ url: URL) throws {
+        do {
+            try fileManager.removeItem(at: url)
+        } catch let error as CocoaError where error.code == .fileNoSuchFile {
+            // Already removed is a successful deletion from the user's library.
+        }
         reload()
     }
 
-    func thumbnail(for url: URL) -> UIImage? {
-        let asset = AVURLAsset(url: url)
-        let gen = AVAssetImageGenerator(asset: asset)
-        gen.appliesPreferredTrackTransform = true
-        let t = CMTime(seconds: 0.5, preferredTimescale: 600)
-        guard let cg = try? gen.copyCGImage(at: t, actualTime: nil) else { return nil }
-        return UIImage(cgImage: cg)
-    }
 }
 
 /// System share sheet.

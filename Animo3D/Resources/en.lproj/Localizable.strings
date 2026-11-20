@@ -277,3 +277,13 @@
 "The video couldn't be imported. Please try again." = "The video couldn't be imported. Please try again.";
 "This file doesn't contain a playable video. Choose another video." = "This file doesn't contain a playable video. Choose another video.";
 "There is not enough free space to import this video. Free up storage and try again." = "There is not enough free space to import this video. Free up storage and try again.";
+
+/* Creation actions and recovery */
+"Could not delete video" = "Could not delete video";
+"Could not create GIF" = "Could not create GIF";
+"The video couldn't be deleted. It is still in My Creations. Please try again." = "The video couldn't be deleted. It is still in My Creations. Please try again.";
+"There is not enough free space to create the GIF. Free up storage and try again." = "There is not enough free space to create the GIF. Free up storage and try again.";
+"This video couldn't be opened. Try again or choose another creation." = "This video couldn't be opened. Try again or choose another creation.";
+"The GIF couldn't be saved. Check available storage and try again. Your video is unchanged." = "The GIF couldn't be saved. Check available storage and try again. Your video is unchanged.";
+"The GIF couldn't be created. Your video is unchanged. Please try again." = "The GIF couldn't be created. Your video is unchanged. Please try again.";
+"Cancel GIF export" = "Cancel GIF export";

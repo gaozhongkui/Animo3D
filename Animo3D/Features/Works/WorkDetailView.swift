@@ -1,82 +1,49 @@
-//
-//  WorkDetailView.swift
-//  Animo3D
-//
-//  Creation detail page: plays the recorded video full screen, with share and delete.
-//
-//  Also serves as the "finished" screen straight after a recording. Stopping the recorder used to
-//  throw up the raw share sheet with no confirmation, so it was never clear the clip had been kept -
-//  arriving here plays it back and says where it went.
-//
-
 import SwiftUI
 import AVKit
 
 struct WorkDetailView: View {
     let url: URL
-    /// Set when opened right after recording, to confirm the clip was kept.
     var justSaved = false
     var onClose: () -> Void
 
-    @State private var player = AVPlayer()
-    @State private var showShare = false
-    /// The item to share, built off the main thread. Nil while it is being built, which is what the
-    /// spinner on the Share button is reporting.
-    @State private var shareItem: VideoShareItem?
-    @State private var preparingShare = false
+    @StateObject private var model: WorkDetailModel
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isVisible = false
     @State private var showDeleteConfirm = false
     @State private var showSavedBanner = false
 
-    @State private var gifURL: URL?
-    @State private var preparingGIF = false
-    @State private var gifProgress: Float = 0.0
-    @State private var showGIFShare = false
+    init(url: URL, justSaved: Bool = false, onClose: @escaping () -> Void) {
+        self.url = url
+        self.justSaved = justSaved
+        self.onClose = onClose
+        _model = StateObject(wrappedValue: WorkDetailModel(url: url))
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
+            VideoPlayer(player: model.player).ignoresSafeArea()
 
-            VideoPlayer(player: player)
-                .ignoresSafeArea()
-                .onAppear {
-                    player.replaceCurrentItem(with: AVPlayerItem(url: url))
-                    player.play()
-                    // Loop playback
-                    NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime,
-                                                           object: player.currentItem, queue: .main) { _ in
-                        player.seek(to: .zero); player.play()
-                    }
-                }
-                .onDisappear { player.pause() }
-                .task {
-                    guard justSaved else { return }
-                    withAnimation(.spring(response: 0.4)) { showSavedBanner = true }
-
-                    try? await Task.sleep(nanoseconds: 3_500_000_000)
-                    withAnimation(.easeOut(duration: 0.25)) { showSavedBanner = false }
-                }
-
-            // Top: close
             HStack {
-                CircleButton(system: "xmark") { player.pause(); onClose() }
+                CircleButton(system: "xmark") {
+                    model.deactivate()
+                    onClose()
+                }
                 Spacer()
             }
-            .padding(.horizontal, 16).padding(.top, 8)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
 
             if showSavedBanner {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
-                    Text("Saved to My Creations")
-                }
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 18).padding(.vertical, 12)
-                .background(.ultraThinMaterial, in: Capsule())
-                .padding(.top, 72)
-                .transition(.move(edge: .top).combined(with: .opacity))
+                Label("Saved to My Creations", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.top, 72)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
 
-            // Bottom: share / gif / delete
             VStack {
                 Spacer()
                 HStack(spacing: UIDevice.current.userInterfaceIdiom == .pad ? 60 : 30) {
@@ -88,116 +55,81 @@ struct WorkDetailView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .sheet(isPresented: $showShare) {
-            // The prepared item when it is ready, the bare URL if the thumbnail could not be made -
-            // a missing preview is not a reason to refuse to share.
-            ShareSheet(items: [shareItem ?? url])
+        .onAppear {
+            isVisible = true
+            if scenePhase == .active { model.activate() }
         }
-        .sheet(isPresented: $showGIFShare) {
-            if let gif = gifURL {
-                ShareSheet(items: [gif])
-            }
+        .onDisappear {
+            isVisible = false
+            model.deactivate()
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active, isVisible { model.activate() }
+            else { model.deactivate() }
+        }
+        .onChange(of: model.deleted) { if $0 { onClose() } }
+        .task {
+            guard justSaved else { return }
+            withAnimation(.spring(response: 0.4)) { showSavedBanner = true }
+            do { try await Task.sleep(nanoseconds: 3_500_000_000) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { showSavedBanner = false }
+        }
+        .sheet(item: $model.share, onDismiss: model.shareDismissed) { request in
+            ShareSheet(items: [request.item])
         }
         .confirmationDialog("Delete this creation?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                player.pause()
-                Track.log(.workDeleted)
-                WorksStore.shared.delete(url)
-                onClose()
-            }
+            Button("Delete", role: .destructive) { model.delete() }
             Button("Cancel", role: .cancel) {}
         }
+        .workDetailFeedback(model: model)
     }
 
-    /// Share, with the wait made visible and made shorter.
-    ///
-    /// Two separate delays were stacked here. The share sheet decodes a frame out of the movie to
-    /// build its header preview, and it does that on the main thread after the tap - so the button
-    /// sat there looking broken for a beat. `VideoShareItem` removes that by handing the sheet a
-    /// thumbnail; generating *that* thumbnail is itself an `AVAssetImageGenerator` decode, so it
-    /// happens off the main thread here, with the button showing a spinner while it runs.
     private var shareButton: some View {
-        Button {
-            guard !preparingShare else { return }
+        actionButton("square.and.arrow.up", "Share", busy: model.preparingShare) {
             HapticManager.light()
             Track.log(.workShared)
-            if shareItem != nil { showShare = true; return }   // already prepared
-            preparingShare = true
-            Task.detached(priority: .userInitiated) {
-                let thumb = WorksStore.shared.thumbnail(for: url)
-                let item = VideoShareItem(url: url, title: L("My Creation"), thumbnail: thumb)
-                await MainActor.run {
-                    shareItem = item
-                    preparingShare = false
-                    showShare = true
-                }
-            }
-        } label: {
-            VStack(spacing: 6) {
-                ZStack {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.title2)
-                        .opacity(preparingShare ? 0 : 1)
-                    if preparingShare { ProgressView().tint(.white) }
-                }
-                .frame(height: 26)
-                Text("Share").font(.caption)
-            }
-            .foregroundStyle(.white)
-            .frame(width: 64, height: 60)
-            .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
+            model.prepareShare()
         }
-        .disabled(preparingShare)
+        .disabled(model.preparingShare || model.preparingGIF)
     }
 
     private var gifButton: some View {
         Button {
-            guard !preparingGIF else { return }
             HapticManager.light()
-            if gifURL != nil {
-                showGIFShare = true
-                return
-            }
-            preparingGIF = true
-            gifProgress = 0.0
-            Task {
-                let generatedGIF = await GIFExporter.convertToGIF(videoURL: url) { p in
-                    Task { @MainActor in gifProgress = p }
-                }
-                await MainActor.run {
-                    preparingGIF = false
-                    if let generatedGIF {
-                        gifURL = generatedGIF
-                        showGIFShare = true
-                        HapticManager.success()
-                    }
-                }
-            }
+            if model.preparingGIF { model.cancelGIF() }
+            else { model.prepareGIF() }
         } label: {
             VStack(spacing: 6) {
-                ZStack {
-                    Image(systemName: "photo.stack")
-                        .font(.title2)
-                        .opacity(preparingGIF ? 0 : 1)
-                    if preparingGIF {
-                        ProgressView().tint(.white)
-                    }
-                }
-                .frame(height: 26)
-                Text(preparingGIF ? "\(Int(gifProgress * 100))%" : "GIF")
+                Image(systemName: model.preparingGIF ? "xmark.circle" : "photo.stack")
+                    .font(.title2)
+                    .frame(height: 26)
+                Text(model.preparingGIF ? "\(Int(model.gifProgress * 100))%" : "GIF")
                     .font(.caption)
             }
             .foregroundStyle(.white)
             .frame(width: 64, height: 60)
             .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
         }
-        .disabled(preparingGIF)
+        .disabled(model.preparingShare)
+        .accessibilityLabel(model.preparingGIF ? Text("Cancel GIF export") : Text(verbatim: "GIF"))
     }
 
-    private func actionButton(_ icon: String, _ title: LocalizedStringKey, tint: Color = .white, action: @escaping () -> Void) -> some View {
+    private func actionButton(
+        _ icon: String,
+        _ title: LocalizedStringKey,
+        tint: Color = .white,
+        busy: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             VStack(spacing: 6) {
-                Image(systemName: icon).font(.title2)
+                ZStack {
+                    Image(systemName: icon).font(.title2).opacity(busy ? 0 : 1)
+                    if busy { ProgressView().tint(.white) }
+                }
+                .frame(height: 26)
                 Text(title).font(.caption)
             }
             .foregroundStyle(tint)

@@ -269,3 +269,13 @@
 "The video couldn't be imported. Please try again." = "Impossible d’importer la vidéo. Réessayez.";
 "This file doesn't contain a playable video. Choose another video." = "Ce fichier ne contient aucune vidéo lisible. Choisissez une autre vidéo.";
 "There is not enough free space to import this video. Free up storage and try again." = "L’espace disponible est insuffisant pour importer cette vidéo. Libérez de l’espace et réessayez.";
+
+/* Creation actions and recovery */
+"Could not delete video" = "Impossible de supprimer la vidéo";
+"Could not create GIF" = "Impossible de créer le GIF";
+"The video couldn't be deleted. It is still in My Creations. Please try again." = "La vidéo n’a pas pu être supprimée. Elle est toujours dans Mes créations. Réessayez.";
+"There is not enough free space to create the GIF. Free up storage and try again." = "L’espace disponible est insuffisant pour créer le GIF. Libérez de l’espace et réessayez.";
+"This video couldn't be opened. Try again or choose another creation." = "Impossible d’ouvrir cette vidéo. Réessayez ou choisissez une autre création.";
+"The GIF couldn't be saved. Check available storage and try again. Your video is unchanged." = "Le GIF n’a pas pu être enregistré. Vérifiez l’espace disponible et réessayez. Votre vidéo reste intacte.";
+"The GIF couldn't be created. Your video is unchanged. Please try again." = "Le GIF n’a pas pu être créé. Votre vidéo reste intacte. Réessayez.";
+"Cancel GIF export" = "Annuler l’exportation du GIF";

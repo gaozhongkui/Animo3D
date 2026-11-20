@@ -43,7 +43,10 @@ final class RecordingOutput: ObservableObject {
 
     init(
         save: @escaping @MainActor (URL) throws -> URL = { try WorksStore.shared.add(from: $0) },
-        removeOriginal: @escaping @MainActor (URL) -> Void = { WorksStore.shared.delete($0) },
+        removeOriginal: @escaping @MainActor (URL) -> Void = {
+            do { try WorksStore.shared.delete($0) }
+            catch { NSLog("[Recording] original cleanup failed: %@", error.localizedDescription) }
+        },
         exportAudio: @escaping AudioExporter = { video, audio, progress in
             try await VideoAudioMixer.export(video: video, audio: audio, onProgress: progress)
         }

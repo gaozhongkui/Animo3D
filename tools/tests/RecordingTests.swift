@@ -83,7 +83,7 @@ final class RecordingTests: XCTestCase {
         var attempts = 0
         let output = RecordingOutput(
             save: { try store.add(from: $0) },
-            removeOriginal: { store.delete($0) },
+            removeOriginal: { _ = try? store.delete($0) },
             exportAudio: { _, _, _ in
                 attempts += 1
                 if attempts == 1 { throw CocoaError(.fileReadCorruptFile) }
@@ -113,7 +113,7 @@ final class RecordingTests: XCTestCase {
                 if saves == 2 { throw CocoaError(.fileWriteOutOfSpace) }
                 return try store.add(from: $0)
             },
-            removeOriginal: { store.delete($0) },
+            removeOriginal: { _ = try? store.delete($0) },
             exportAudio: { _, _, _ in
                 exports += 1
                 return mixed

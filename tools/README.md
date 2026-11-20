@@ -521,3 +521,12 @@ ANIMO_TEST_ARTIFACTS=/private/tmp/Animo3D-video-drive-artifacts \
 测试直接编译视频文件所有权、导入存储、错误提示和播放分析视图模型，使用实际 AVFoundation 视频文件、播放器、视频输出和 DisplayLink；识别服务由可暂停的测试替身代替，以稳定复现旧推理延迟返回的情况。
 
 覆盖 512 MB 文件复制、失败替换与重试、取消及过期导入清理、视频可播放性验证、元数据准备期间退出、切换视频、过期推理丢弃、识别串行执行、循环播放时间戳、资源释放和英德文错误提示。该脚本不替代真机上的 iCloud 视频下载和识别效果检查。
+
+## 作品预览与失败恢复回归
+
+```bash
+ANIMO_TEST_ARTIFACTS=/private/tmp/Animo3D-works-artifacts \
+  bash tools/run_works_recovery_tests.sh SIMULATOR_UDID
+```
+
+测试使用实际 AVFoundation 视频、ImageIO GIF 编码和播放器，覆盖缩略图缓存与并发限制、文件覆盖后的缓存更新、列表单元格复用、退出页面和取消操作后的过期回调、删除失败重试、GIF 导出失败与临时文件清理，以及分享期间的文件保留。失败和延迟通过可控测试替身注入，错误提示另有英文、德文截图。
